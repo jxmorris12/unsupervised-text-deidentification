@@ -3,13 +3,13 @@ from typing import Optional
 import torch
 
 from pytorch_lightning import LightningModule
+from transformers import AdamW, AutoConfig, AutoModel
 
 
 class DocumentProfileMatchingTransformer(LightningModule):
     def __init__(
         self,
         model_name_or_path: str,
-        task_name: str,
         learning_rate: float = 2e-5,
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
@@ -20,12 +20,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
         **kwargs,
     ):
         super().__init__()
-
         self.save_hyperparameters()
 
-        self.config = AutoConfig.from_pretrained(model_name_or_path, num_labels=num_labels)
         # TODO(jxm): use AutoModel here just to get vectors..?
-        self.model = AutoModel.from_pretrained(model_name_or_path, config=self.config)
+        self.model = AutoModel.from_pretrained(model_name_or_path)
         # self.metric = datasets.load_metric(
         #     "glue", self.hparams.task_name, experiment_id=datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         # )
@@ -43,22 +41,35 @@ class DocumentProfileMatchingTransformer(LightningModule):
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
         document_to_profile_sim = torch.nn.functional.softmax(
-            torch.matmul(document_embeddings, profile_embeddings.T)
+            torch.matmul(document_embeddings, profile_embeddings.T), dim=-1
         )
-        # TODO(jxm): implement loss here
+        diagonal_matrix = torch.eye(batch_size, dtype=torch.float32).to(profile_embeddings.device)
         return torch.nn.functional.binary_cross_entropy(
-            document_to_profile_sim, torch.eye(batch_size, dtype=torch.float32)
+            document_to_profile_sim, diagonal_matrix
         )
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         # TODO(jxm): should we use two different models for these encodings?
-        profile_embeddings = self(batch['profile'])
-        document_embeddings = self(batch['document'])
+        profile_embeddings = self.model(batch['text1_input_ids'])
+        profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
+        # Just take last hidden state at index 0 which should be CLS. TODO(jxm): is this right?
+
+        document_embeddings = self.model(batch['text2_input_ids'])
+        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
+
+        # profile_embeddings = self({ 
+        #     'input_ids':        batch['text1_input_ids'],
+        #     'attention_mask':   batch['text1_attention_mask']
+        # })
+        # document_embeddings = self({ 
+        #     'input_ids':        batch['text2_input_ids'],
+        #     'attention_mask':   batch['text2_attention_mask']
+        # })
         return self._compute_loss(profile_embeddings, document_embeddings)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        profile_embeddings = self(batch['profile'])
-        document_embeddings = self(batch['document'])
+        profile_embeddings = self.model(batch['text1_input_ids'])
+        document_embeddings = self.model(batch['text2_input_ids'])
         # TODO(jxm): return predictions or labels?
         return {
             "loss": self._compute_loss(profile_embeddings, document_embeddings)
@@ -78,7 +89,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         if stage != "fit":
             return
         # Get dataloader by calling it - train_dataloader() is called after setup() by default
-        train_loader = self.train_dataloader()
+        train_loader = self.trainer.datamodule.train_dataloader()
 
         # Calculate total steps
         tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
