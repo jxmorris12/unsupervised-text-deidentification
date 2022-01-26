@@ -25,7 +25,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # TODO(jxm): use AutoModel here just to get vectors..?
         self.model = AutoModel.from_pretrained(model_name_or_path)
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(2.0, dtype=torch.float32), requires_grad=True)
+            torch.tensor(5.0, dtype=torch.float32), requires_grad=True)
         # self.metric = datasets.load_metric(
         #     "glue", self.hparams.task_name, experiment_id=datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         # )
@@ -53,11 +53,17 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         # TODO(jxm): should we use two different models for these encodings?
-        profile_embeddings = self.model(batch['text1_input_ids'])
+        profile_embeddings = self.model(
+            input_ids=batch['text1_input_ids'],
+            attention_mask=batch['text1_attention_mask']
+        )
         profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
         # Just take last hidden state at index 0 which should be CLS. TODO(jxm): is this right?
 
-        document_embeddings = self.model(batch['text2_input_ids'])
+        document_embeddings = self.model(
+            input_ids=batch['text2_input_ids'],
+            attention_mask=batch['text2_attention_mask']
+        )
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
 
         # profile_embeddings = self({ 
