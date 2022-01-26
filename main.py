@@ -34,6 +34,9 @@ def main():
         model_name_or_path=model_name,
         eval_splits=dm.eval_splits,
         num_workers=num_cpus,
+        learning_rate=1e-3,
+        train_batch_size=128,
+        eval_batch_size=128,
     )
 
     trainer = Trainer(max_epochs=1, gpus=torch.cuda.device_count())

@@ -24,9 +24,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
         # TODO(jxm): use AutoModel here just to get vectors..?
         self.model = AutoModel.from_pretrained(model_name_or_path)
+        self.temperature = torch.nn.parameter.Parameter(
+            torch.tensor(2.0, dtype=torch.float32), requires_grad=True)
         # self.metric = datasets.load_metric(
         #     "glue", self.hparams.task_name, experiment_id=datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         # )
+        print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -41,11 +44,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
         document_to_profile_sim = torch.nn.functional.softmax(
-            torch.matmul(document_embeddings, profile_embeddings.T), dim=-1
+            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp()), dim=-1
         )
-        diagonal_matrix = torch.eye(batch_size, dtype=torch.float32).to(profile_embeddings.device)
-        return torch.nn.functional.binary_cross_entropy(
-            document_to_profile_sim, diagonal_matrix
+        diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
+        return torch.nn.functional.cross_entropy(
+            document_to_profile_sim, diagonal_idxs
         )
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:

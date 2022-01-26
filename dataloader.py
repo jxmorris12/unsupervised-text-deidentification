@@ -98,7 +98,7 @@ class WikipediaDataModule(LightningDataModule):
         )
         text1_features = { f'text1_{k}': v for k,v in text1_features.items() }
         text2_features = self.tokenizer.batch_encode_plus(
-            example_batch["text1"],
+            example_batch["text2"],
             max_length=self.max_seq_length,
             padding=True,
             truncation=True
