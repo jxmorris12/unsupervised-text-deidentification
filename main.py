@@ -21,6 +21,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 num_cpus = min(os.cpu_count(), 8)
 
+batch_size = 128
+learning_rate = 1e-4
 def main():
     seed_everything(42)
 
@@ -28,15 +30,15 @@ def main():
         model_name_or_path=model_name,
         dataset_name=dataset_name,
         num_workers=num_cpus,
+        train_batch_size=batch_size,
+        eval_batch_size=batch_size,
     )
     dm.setup("fit")
     model = DocumentProfileMatchingTransformer(
         model_name_or_path=model_name,
         eval_splits=dm.eval_splits,
         num_workers=num_cpus,
-        learning_rate=1e-3,
-        train_batch_size=128,
-        eval_batch_size=128,
+        learning_rate=learning_rate,
     )
 
     trainer = Trainer(max_epochs=1, gpus=torch.cuda.device_count())

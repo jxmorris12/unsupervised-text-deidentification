@@ -43,13 +43,17 @@ class DocumentProfileMatchingTransformer(LightningModule):
         profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
-        document_to_profile_sim = torch.nn.functional.softmax(
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp()), dim=-1
+        document_to_profile_sim = (
+            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
         )
         diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
-        return torch.nn.functional.cross_entropy(
+        loss_d2p = torch.nn.functional.cross_entropy(
             document_to_profile_sim, diagonal_idxs
         )
+        loss_p2d = torch.nn.functional.cross_entropy(
+            document_to_profile_sim.T, diagonal_idxs
+        )
+        return loss_d2p + loss_p2d
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         # TODO(jxm): should we use two different models for these encodings?
@@ -58,6 +62,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             attention_mask=batch['text1_attention_mask']
         )
         profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
+        # profile_embeddings = profile_embeddings['last_hidden_state'].mean(dim=1)
         # Just take last hidden state at index 0 which should be CLS. TODO(jxm): is this right?
 
         document_embeddings = self.model(
@@ -65,20 +70,20 @@ class DocumentProfileMatchingTransformer(LightningModule):
             attention_mask=batch['text2_attention_mask']
         )
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
+        # document_embeddings = document_embeddings['last_hidden_state'].mean(dim=1)
 
-        # profile_embeddings = self({ 
-        #     'input_ids':        batch['text1_input_ids'],
-        #     'attention_mask':   batch['text1_attention_mask']
-        # })
-        # document_embeddings = self({ 
-        #     'input_ids':        batch['text2_input_ids'],
-        #     'attention_mask':   batch['text2_attention_mask']
-        # })
+        # document_embeddings = profile_embeddings # TMP
         return self._compute_loss(profile_embeddings, document_embeddings)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        profile_embeddings = self.model(batch['text1_input_ids'])
-        document_embeddings = self.model(batch['text2_input_ids'])
+        profile_embeddings = self.model(
+            input_ids=batch['text1_input_ids'],
+            attention_mask=batch['text1_attention_mask']
+        )
+        document_embeddings = self.model(
+            input_ids=batch['text2_input_ids'],
+            attention_mask=batch['text2_attention_mask']
+        )
         # TODO(jxm): return predictions or labels?
         return {
             "loss": self._compute_loss(profile_embeddings, document_embeddings)
