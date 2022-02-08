@@ -15,7 +15,10 @@ from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
 
 model_name = "distilbert-base-uncased"
-dataset_name = "yelp_polarity"
+dataset_name = "wiki_bio"
+redaction_strategy = "spacy_ner"
+
+USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -32,6 +35,7 @@ def main():
         num_workers=num_cpus,
         train_batch_size=batch_size,
         eval_batch_size=batch_size,
+        redaction_strategy=redaction_strategy,
     )
     dm.setup("fit")
     model = DocumentProfileMatchingTransformer(
@@ -41,7 +45,31 @@ def main():
         learning_rate=learning_rate,
     )
 
-    trainer = Trainer(max_epochs=1, gpus=torch.cuda.device_count())
+    loggers = []
+
+    if USE_WANDB:
+        import wandb
+        from pytorch_lightning.loggers import WandbLogger
+        loggers.append(
+            WandbLogger(
+                project='deid-wikibio', 
+                config={
+                    'model_name': model_name,
+                    'dataset_name': dataset_name,
+                    'batch_size': batch_size,
+                    'learning_rate': learning_rate,
+                },
+                job_type='train',
+                entity='jack-morris',
+            )
+        )
+
+    trainer = Trainer(
+        max_epochs=3,
+        limit_train_batches=0.1,
+        gpus=torch.cuda.device_count(),
+        logger=loggers
+    )
     trainer.fit(model, dm)
 
 if __name__ == '__main__': main()

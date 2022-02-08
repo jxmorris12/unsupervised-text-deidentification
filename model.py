@@ -34,8 +34,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def forward(self, **inputs):
         return self.model(**inputs)
 
-    def _compute_loss(self, profile_embeddings: torch.Tensor, document_embeddings: torch.Tensor) -> torch.Tensor:
-        """ TODO(jxm): document/explain """
+    def _compute_loss(self, profile_embeddings: torch.Tensor, document_embeddings: torch.Tensor,
+        metrics_key: str) -> torch.Tensor:
+        """InfoNCE matching loss between `profile_embeddings` and `document_embeddings`. Computes
+        metrics and prints, prefixing with `metrics_key`.
+         """
         assert profile_embeddings.shape == document_embeddings.shape
         assert len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         batch_size = len(profile_embeddings)
@@ -53,6 +56,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
         loss_p2d = torch.nn.functional.cross_entropy(
             document_to_profile_sim.T, diagonal_idxs
         )
+        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=-1)).mean()
+        self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
+        self.log(f"{metrics_key}/loss_d2p", loss_d2p)
+        self.log(f"{metrics_key}/loss_p2d", loss_p2d)
+        self.log(f"{metrics_key}/loss", loss_d2p + loss_p2d)
         return loss_d2p + loss_p2d
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
@@ -73,7 +81,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # document_embeddings = document_embeddings['last_hidden_state'].mean(dim=1)
 
         # document_embeddings = profile_embeddings # TMP
-        return self._compute_loss(profile_embeddings, document_embeddings)
+        loss = self._compute_loss(profile_embeddings, document_embeddings, 'train')
+        return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         profile_embeddings = self.model(
@@ -86,7 +95,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         )
         # TODO(jxm): return predictions or labels?
         return {
-            "loss": self._compute_loss(profile_embeddings, document_embeddings)
+            "loss": self._compute_loss(profile_embeddings, document_embeddings, 'val')
         }
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
@@ -95,7 +104,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # labels = torch.cat([x["labels"] for x in outputs]).detach().cpu().numpy()
         # self.log_dict(self.metric.compute(predictions=preds, references=labels), prog_bar=True)
         loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.log("val_loss", loss, prog_bar=True)
         return loss
 
     def setup(self, stage=None) -> None:
