@@ -1,4 +1,6 @@
 __pycache__/
 
+checkpoints/
+deid-wikibio/
 lightning_logs/
 wandb/

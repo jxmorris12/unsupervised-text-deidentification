@@ -1,8 +1,12 @@
 """ adapted from "Finetune Transformers Models with PyTorch Lightning"
 https://pytorch-lightning.readthedocs.io/en/stable/notebooks/lightning_examples/text-transformers.html
 """
+
+import faulthandler; faulthandler.enable()
+
 from typing import List, Tuple, Union
 
+import argparse
 import os
 
 import numpy as np
@@ -14,35 +18,44 @@ from pytorch_lightning import Trainer, seed_everything
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
 
-model_name = "distilbert-base-uncased"
-dataset_name = "wiki_bio"
-redaction_strategy = "spacy_ner"
+
+args_dict = {
+    'model_name': 'distilbert-base-uncased',
+    'dataset_name': 'wiki_bio',
+    'batch_size': 256,
+    'max_seq_length': 64,
+    'learning_rate': 1e-4,
+    'redaction_strategy': 'spacy_ner' # ['spacy_ner', 'word_overlap']
+}
 
 USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = min(os.cpu_count(), 8)
+num_cpus = min(os.cpu_count(), 12)
 
-batch_size = 128
-learning_rate = 1e-4
-def main():
+batch_size = 256
+max_seq_length = 64
+
+def main(args: argparse.Namespace):
     seed_everything(42)
 
+    print("creating data module")
     dm = WikipediaDataModule(
-        model_name_or_path=model_name,
-        dataset_name=dataset_name,
+        model_name_or_path=args.model_name,
+        dataset_name=args.dataset_name,
         num_workers=num_cpus,
-        train_batch_size=batch_size,
-        eval_batch_size=batch_size,
-        redaction_strategy=redaction_strategy,
+        train_batch_size=args.batch_size,
+        eval_batch_size=args.batch_size,
+        max_seq_length=args.max_seq_length,
+        redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
     model = DocumentProfileMatchingTransformer(
-        model_name_or_path=model_name,
+        model_name_or_path=args.model_name,
         eval_splits=dm.eval_splits,
         num_workers=num_cpus,
-        learning_rate=learning_rate,
+        learning_rate=args.learning_rate,
     )
 
     loggers = []
@@ -53,23 +66,21 @@ def main():
         loggers.append(
             WandbLogger(
                 project='deid-wikibio', 
-                config={
-                    'model_name': model_name,
-                    'dataset_name': dataset_name,
-                    'batch_size': batch_size,
-                    'learning_rate': learning_rate,
-                },
+                config=args_dict,
                 job_type='train',
                 entity='jack-morris',
             )
         )
 
+    print("creating Trainer")
     trainer = Trainer(
-        max_epochs=3,
+        max_epochs=10,
         limit_train_batches=0.1,
         gpus=torch.cuda.device_count(),
         logger=loggers
     )
     trainer.fit(model, dm)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    args = argparse.Namespace(**args_dict)
+    main(args)

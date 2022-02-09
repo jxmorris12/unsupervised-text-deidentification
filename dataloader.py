@@ -6,7 +6,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-from redact import remove_named_entities_spacy
+from redact import remove_named_entities_spacy, remove_overlapping_words
 
 class WikipediaDataModule(LightningDataModule):
 
@@ -30,12 +30,13 @@ class WikipediaDataModule(LightningDataModule):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
-        assert redaction_strategy in ["", "spacy_ner"]
+        assert redaction_strategy in ["", "spacy_ner", "word_overlap"]
         self.redaction_strategy = redaction_strategy
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers}')
 
     def setup(self, stage: str) -> None:
-        self.dataset = datasets.load_dataset(self.dataset_name)
+        # TODO: change split here
+        self.dataset = datasets.load_dataset(self.dataset_name, split='train[:20%]')
 
         # split dataset 'text' in half: ['text1', 'text2']
         # TODO: sentence-tokenize and take second half?
@@ -60,22 +61,24 @@ class WikipediaDataModule(LightningDataModule):
                 'text1': ex['target_text'],     # First paragraph of biography
                 'text2': table_text,            # Table re-printed as a string
             }
+
         self.dataset = self.dataset.map(map_ex)
 
         # Redact text, if specified
         if self.redaction_strategy:
             if self.redaction_strategy == "spacy_ner":
-                redact_func = remove_named_entities_spacy
+                redact_func = lambda t1, t2: remove_named_entities_spacy(t1)
+            elif self.redaction_strategy == "word_overlap":
+                redact_func = remove_overlapping_words
             else:
                 raise ValueError(f'unknown redaction strategy {self.redaction_strategy}')
             
             def redact_dataset(ex):
                 # redact 'text1' field
-                ex['text1'] = redact_func(ex['text1'])
+                ex['text1'] = redact_func(ex['text1'], ex['text2'])
                 return ex
 
             self.dataset = self.dataset.map(redact_dataset)
-            breakpoint()
 
         # tokenize dataset
         self.dataset = self.dataset.map(
@@ -86,10 +89,10 @@ class WikipediaDataModule(LightningDataModule):
             "text1_attention_mask", "text1_input_ids",
             "text2_attention_mask", "text2_input_ids"
         ]
-        for split in self.dataset.keys():
-            self.dataset[split].set_format(type="torch", columns=self.columns)
+        self.dataset.set_format(type="torch", columns=self.columns)
 
-        self.eval_splits = [x for x in self.dataset.keys() if "validation" in x]
+        # self.eval_splits = [x for x in self.dataset.keys() if "val" in x]
+        self.eval_splits = []
 
     def prepare_data(self) -> None:
         # automatically download dataset & tokenizer
@@ -97,8 +100,9 @@ class WikipediaDataModule(LightningDataModule):
         AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
 
     def train_dataloader(self) -> DataLoader:
+        # TODO: temporary use "train:2%" data split
         return DataLoader(
-            self.dataset["train"],
+            self.dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers
         )
@@ -106,7 +110,7 @@ class WikipediaDataModule(LightningDataModule):
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         if len(self.eval_splits) == 1:
             return DataLoader(
-                self.dataset["validation"],
+                self.dataset["val"],
                 batch_size=self.eval_batch_size,
                 num_workers=self.num_workers
             )
