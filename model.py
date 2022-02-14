@@ -21,6 +21,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+        # TODO(jxm): use two different models to embed documents and profiles...?
         # TODO(jxm): use AutoModel here just to get vectors..?
         self.model = AutoModel.from_pretrained(model_name_or_path)
         self.temperature = torch.nn.parameter.Parameter(
@@ -49,13 +50,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
             (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
         )
         diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
+        # TODO: do we want loss in one direction or both...?
         loss_d2p = torch.nn.functional.cross_entropy(
             document_to_profile_sim, diagonal_idxs
         )
         loss_p2d = torch.nn.functional.cross_entropy(
             document_to_profile_sim.T, diagonal_idxs
         )
-        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=-1)).mean()
+        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=1)).mean()
         self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
         self.log(f"{metrics_key}/loss_d2p", loss_d2p)
         self.log(f"{metrics_key}/loss_p2d", loss_p2d)
@@ -77,9 +79,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             attention_mask=batch['text2_attention_mask']
         )
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
-        # document_embeddings = document_embeddings['last_hidden_state'].mean(dim=1)
-
-        # document_embeddings = profile_embeddings # TMP
         loss = self._compute_loss(profile_embeddings, document_embeddings, 'train')
         return loss
 
@@ -90,21 +89,46 @@ class DocumentProfileMatchingTransformer(LightningModule):
             profile_embeddings = self.model(
                 input_ids=batch['text1_input_ids'],
                 attention_mask=batch['text1_attention_mask']
-            )['last_hidden_state'][:, 0, :]
+            )['last_hidden_state']
+            profile_embeddings = profile_embeddings[:, 0, :]
             document_embeddings = self.model(
                 input_ids=batch['text2_input_ids'],
                 attention_mask=batch['text2_attention_mask']
-            )['last_hidden_state'][:, 0, :]
-        # TODO(jxm): return predictions or labels?
+            )['last_hidden_state']
+            document_embeddings = document_embeddings[:, 0, :]
         return {
-            "loss": self._compute_loss(profile_embeddings, document_embeddings, 'val')
+            "profile_embeddings": profile_embeddings,
+            "document_embeddings": document_embeddings,
+            "loss": self._compute_loss(profile_embeddings, document_embeddings, 'val_approx')
         }
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
-        # TODO(jxm): compute metrics properly
-        # preds = torch.cat([x["preds"] for x in outputs]).detach().cpu().numpy()
-        # labels = torch.cat([x["labels"] for x in outputs]).detach().cpu().numpy()
-        # self.log_dict(self.metric.compute(predictions=preds, references=labels), prog_bar=True)
+        profile_embeddings = torch.cat([o['profile_embeddings'] for o in outputs], axis=0)
+        document_embeddings = torch.cat([o['document_embeddings'] for o in outputs], axis=0)
+        assert profile_embeddings.shape == document_embeddings.shape
+        # Normalize embeddings before computing similarity
+        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
+        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        # TODO: is there a natural way to scale temperature here?
+        document_to_profile_sim = (
+            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
+        )
+        batch_size = len(profile_embeddings)
+        diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
+        loss_d2p = torch.nn.functional.cross_entropy(
+            document_to_profile_sim, diagonal_idxs
+        )
+        loss_p2d = torch.nn.functional.cross_entropy(
+            document_to_profile_sim.T, diagonal_idxs
+        )
+        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=1)).mean()
+        # TODO: support batching here if val data is too big?
+        # TODO: plot some interesting mispredictions
+        # TODO: downscale losses
+        self.log("val_exact/diagonal_avg_prob", diagonal_avg_prob)
+        self.log("val_exact/loss_d2p", loss_d2p)
+        self.log("val_exact/loss_p2d", loss_p2d)
+        self.log("val_exact/loss", loss_d2p + loss_p2d)
         loss = torch.stack([x["loss"] for x in outputs]).mean()
         return loss
 

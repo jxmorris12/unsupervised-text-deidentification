@@ -74,8 +74,8 @@ def main(args: argparse.Namespace):
     print("creating Trainer")
     trainer = Trainer(
         max_epochs=10,
-        log_every_n_steps=min(len(dm.train_dataloader), 50),
-        limit_train_batches=1,
+        log_every_n_steps=min(len(dm.train_dataloader()), 50),
+        limit_train_batches=.1, # change this to make training faster (1.0 = full train set)
         gpus=torch.cuda.device_count(),
         logger=loggers
     )
