@@ -36,8 +36,9 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: change split here
-        self.train_dataset = datasets.load_dataset(self.dataset_name, split='train[:20%]')
-        self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:20%]')
+        self.train_dataset = datasets.load_dataset(self.dataset_name, split='train[:10%]') # wiki_bio train size: 582,659
+        self.val_dataset = datasets.load_dataset(self.dataset_name, split='val[:10%]') # wiki_bio val size: 72,831
+        self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:10%]') # wiki_bio test size: 72,831
 
         # split dataset 'text' in half: ['text1', 'text2']
         # TODO: sentence-tokenize and take second half?
@@ -64,6 +65,7 @@ class WikipediaDataModule(LightningDataModule):
             }
 
         self.train_dataset = self.train_dataset.map(map_ex)
+        self.val_dataset = self.val_dataset.map(map_ex)
         self.test_dataset = self.test_dataset.map(map_ex)
 
         # Redact text, if specified
@@ -81,11 +83,15 @@ class WikipediaDataModule(LightningDataModule):
                 return ex
 
             self.train_dataset = self.train_dataset.map(redact_dataset)
-            self.test_dataset = self.test_dataset.map(map_ex)
-
+            self.val_dataset = self.val_dataset.map(redact_dataset)
+            self.test_dataset = self.test_dataset.map(redact_dataset)
 
         # tokenize dataset
         self.train_dataset = self.train_dataset.map(
+            self.convert_to_features,
+            batched=True,
+        )
+        self.val_dataset = self.val_dataset.map(
             self.convert_to_features,
             batched=True,
         )
@@ -98,6 +104,7 @@ class WikipediaDataModule(LightningDataModule):
             "text2_attention_mask", "text2_input_ids"
         ]
         self.train_dataset.set_format(type="torch", columns=self.columns)
+        self.val_dataset.set_format(type="torch", columns=self.columns)
         self.test_dataset.set_format(type="torch", columns=self.columns)
 
     def prepare_data(self) -> None:
@@ -106,7 +113,6 @@ class WikipediaDataModule(LightningDataModule):
         AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
 
     def train_dataloader(self) -> DataLoader:
-        # TODO: temporary use "train:2%" data split
         return DataLoader(
             self.train_dataset,
             batch_size=self.train_batch_size,
@@ -114,7 +120,11 @@ class WikipediaDataModule(LightningDataModule):
         )
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        return None
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.train_batch_size,
+            num_workers=self.num_workers
+        )
 
     def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         return DataLoader(

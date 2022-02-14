@@ -16,7 +16,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         weight_decay: float = 0.0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
-        eval_splits: Optional[list] = None,
         **kwargs,
     ):
         super().__init__()
@@ -85,14 +84,17 @@ class DocumentProfileMatchingTransformer(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        profile_embeddings = self.model(
-            input_ids=batch['text1_input_ids'],
-            attention_mask=batch['text1_attention_mask']
-        )
-        document_embeddings = self.model(
-            input_ids=batch['text2_input_ids'],
-            attention_mask=batch['text2_attention_mask']
-        )
+        with torch.no_grad():
+            # Getting output['last_hidden_state'][:, 0, :] is
+            # getting the CLS token from BERT
+            profile_embeddings = self.model(
+                input_ids=batch['text1_input_ids'],
+                attention_mask=batch['text1_attention_mask']
+            )['last_hidden_state'][:, 0, :]
+            document_embeddings = self.model(
+                input_ids=batch['text2_input_ids'],
+                attention_mask=batch['text2_attention_mask']
+            )['last_hidden_state'][:, 0, :]
         # TODO(jxm): return predictions or labels?
         return {
             "loss": self._compute_loss(profile_embeddings, document_embeddings, 'val')

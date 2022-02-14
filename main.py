@@ -53,7 +53,6 @@ def main(args: argparse.Namespace):
     dm.setup("fit")
     model = DocumentProfileMatchingTransformer(
         model_name_or_path=args.model_name,
-        eval_splits=dm.eval_splits,
         num_workers=num_cpus,
         learning_rate=args.learning_rate,
     )
@@ -75,7 +74,8 @@ def main(args: argparse.Namespace):
     print("creating Trainer")
     trainer = Trainer(
         max_epochs=10,
-        limit_train_batches=0.1,
+        log_every_n_steps=min(len(dm.train_dataloader), 50),
+        limit_train_batches=1,
         gpus=torch.cuda.device_count(),
         logger=loggers
     )
