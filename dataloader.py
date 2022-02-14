@@ -36,7 +36,8 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: change split here
-        self.dataset = datasets.load_dataset(self.dataset_name, split='train[:20%]')
+        self.train_dataset = datasets.load_dataset(self.dataset_name, split='train[:20%]')
+        self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:20%]')
 
         # split dataset 'text' in half: ['text1', 'text2']
         # TODO: sentence-tokenize and take second half?
@@ -62,7 +63,8 @@ class WikipediaDataModule(LightningDataModule):
                 'text2': table_text,            # Table re-printed as a string
             }
 
-        self.dataset = self.dataset.map(map_ex)
+        self.train_dataset = self.train_dataset.map(map_ex)
+        self.test_dataset = self.test_dataset.map(map_ex)
 
         # Redact text, if specified
         if self.redaction_strategy:
@@ -78,10 +80,16 @@ class WikipediaDataModule(LightningDataModule):
                 ex['text1'] = redact_func(ex['text1'], ex['text2'])
                 return ex
 
-            self.dataset = self.dataset.map(redact_dataset)
+            self.train_dataset = self.train_dataset.map(redact_dataset)
+            self.test_dataset = self.test_dataset.map(map_ex)
+
 
         # tokenize dataset
-        self.dataset = self.dataset.map(
+        self.train_dataset = self.train_dataset.map(
+            self.convert_to_features,
+            batched=True,
+        )
+        self.test_dataset = self.test_dataset.map(
             self.convert_to_features,
             batched=True,
         )
@@ -89,10 +97,8 @@ class WikipediaDataModule(LightningDataModule):
             "text1_attention_mask", "text1_input_ids",
             "text2_attention_mask", "text2_input_ids"
         ]
-        self.dataset.set_format(type="torch", columns=self.columns)
-
-        # self.eval_splits = [x for x in self.dataset.keys() if "val" in x]
-        self.eval_splits = []
+        self.train_dataset.set_format(type="torch", columns=self.columns)
+        self.test_dataset.set_format(type="torch", columns=self.columns)
 
     def prepare_data(self) -> None:
         # automatically download dataset & tokenizer
@@ -102,29 +108,20 @@ class WikipediaDataModule(LightningDataModule):
     def train_dataloader(self) -> DataLoader:
         # TODO: temporary use "train:2%" data split
         return DataLoader(
-            self.dataset,
+            self.train_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers
         )
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        if len(self.eval_splits) == 1:
-            return DataLoader(
-                self.dataset["val"],
-                batch_size=self.eval_batch_size,
-                num_workers=self.num_workers
-            )
-        elif len(self.eval_splits) > 1:
-            return [
-                DataLoader(self.dataset[x], batch_size=self.eval_batch_size, num_workers=self.num_workers)
-                for x in self.eval_splits
-            ]
+        return None
 
     def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        if len(self.eval_splits) == 1:
-            return DataLoader(self.dataset["test"], batch_size=self.eval_batch_size)
-        elif len(self.eval_splits) > 1:
-            return [DataLoader(self.dataset[x], batch_size=self.eval_batch_size) for x in self.eval_splits]
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.eval_batch_size,
+            num_workers=self.num_workers
+        )
 
     def convert_to_features(self, example_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Tokenizes `example_batch`, which includes 'text1' and 'text2' as keys."""
