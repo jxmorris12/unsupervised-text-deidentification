@@ -3,4 +3,5 @@ __pycache__/
 checkpoints/
 deid-wikibio/
 lightning_logs/
+precomputed_similarities/
 wandb/
