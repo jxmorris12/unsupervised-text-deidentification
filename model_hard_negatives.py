@@ -80,6 +80,7 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
         Returns:
             loss (scalar float torch.Tensor)
          """
+        # print('loss shapes:', document_embeddings.shape, '//', document_embeddings.shape)
         assert (document_embeddings.shape[0], self.num_neighbors, document_embeddings.shape[1]) == profile_embeddings.shape
         assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         batch_size = len(document_embeddings)
@@ -90,37 +91,7 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
         document_to_profile_sim = (
             (torch.einsum('be,bke->bk', document_embeddings, profile_embeddings) * self.temperature.exp())
         )
-        diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
-        # TODO: do we want loss in one direction or both...?
-        loss_d2p = torch.nn.functional.cross_entropy(
-            document_to_profile_sim, diagonal_idxs
-        )
-        loss_p2d = torch.nn.functional.cross_entropy(
-            document_to_profile_sim.T, diagonal_idxs
-        )
-        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=1)).mean()
-        self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
-        self.log(f"{metrics_key}/loss_d2p", loss_d2p)
-        self.log(f"{metrics_key}/loss_p2d", loss_p2d)
-        self.log(f"{metrics_key}/loss", loss_d2p + loss_p2d)
-        return loss_d2p + loss_p2d
-
-
-    def _compute_loss(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
-        metrics_key: str) -> torch.Tensor:
-        """InfoNCE matching loss between `document_embeddings` and `profile_embeddings`. Computes
-        metrics and prints, prefixing with `metrics_key`.
-         """
-        assert document_embeddings.shape == profile_embeddings.shape
-        assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
-        batch_size = len(document_embeddings)
-        # Normalize embeddings before computing similarity
-        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
-        # Match documents to profiles
-        document_to_profile_sim = (
-            (torch.matmul(profile_embeddings, document_embeddings.T) * self.temperature.exp())
-        )
+        assert document_to_profile_sim.shape == (batch_size, self.num_neighbors)
         # We want each document to match to itself and no other
         true_idxs = torch.zeros_like(document_to_profile_sim).to(document_embeddings.device)
         true_idxs[:, 0] = 1 
@@ -145,8 +116,11 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
         Returns:
             profile_embeddings (float torch.Tensor) embeddings of shape (batch, self.num_neighbors, prof_emb_dim)
         """
-        neighbor_idxs = self.neighbors[profile_idxs][:, self.num_neighbors] # (batch, self.num_neighbors)
-        return torch.tensor(self.embeddings[neighbor_idxs]).to(self.device) # (batch, self.num_neighbors, prof_emb_dim)
+        assert len(profile_idxs.shape) == 1
+        neighbor_idxs = self.neighbors[profile_idxs][:, :self.num_neighbors] # (batch, self.num_neighbors)
+        profile_embeddings = torch.tensor(self.embeddings[neighbor_idxs]).to(self.device) # (batch, self.num_neighbors, prof_emb_dim)
+        assert len(profile_embeddings.shape) == 3
+        return profile_embeddings
 
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):

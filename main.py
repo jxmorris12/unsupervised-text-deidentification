@@ -42,7 +42,7 @@ max_seq_length = 64
 def main(args: argparse.Namespace):
     seed_everything(42)
 
-    print("creating data module")
+    print(f"creating data module with redaction strategy '{args.redaction_strategy}'")
     dm = WikipediaDataModule(
         model_name_or_path=args.model_name,
         dataset_name=args.dataset_name,
