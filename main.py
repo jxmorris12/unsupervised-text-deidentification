@@ -16,7 +16,8 @@ from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 
 from dataloader import WikipediaDataModule
-from model import DocumentProfileMatchingTransformer, DocumentProfileMatchingTransformerWithHardNegatives
+from model import DocumentProfileMatchingTransformer
+from model_hard_negatives import DocumentProfileMatchingTransformerWithHardNegatives
 
 
 args_dict = {
@@ -45,7 +46,7 @@ def main(args: argparse.Namespace):
     dm = WikipediaDataModule(
         model_name_or_path=args.model_name,
         dataset_name=args.dataset_name,
-        num_workers=num_cpus,
+        num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
         max_seq_length=args.max_seq_length,
@@ -61,7 +62,7 @@ def main(args: argparse.Namespace):
     model = model_cls(
         dataset_name=args.dataset_name,
         model_name_or_path=args.model_name,
-        num_workers=num_cpus,
+        num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
     )
 

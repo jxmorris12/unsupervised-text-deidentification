@@ -1,6 +1,11 @@
 from typing import Any, Dict, List, Union
 
+import functools
+import os
+import pickle
+
 import datasets
+import numpy as np
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
@@ -9,6 +14,7 @@ from transformers import AutoTokenizer
 from redact import remove_named_entities_spacy, remove_overlapping_words
 
 class WikipediaDataModule(LightningDataModule):
+    str_to_idx: Dict[str, int]  # maps un-redacted profile text (string) to index in training set
 
     def __init__(
         self,
@@ -36,9 +42,20 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: change split here
-        self.train_dataset = datasets.load_dataset(self.dataset_name, split='train[:10%]') # wiki_bio train size: 582,659
+        split = 'train[:10%]'
+        self.train_dataset = datasets.load_dataset(self.dataset_name, split=split) # wiki_bio train size: 582,659
         self.val_dataset = datasets.load_dataset(self.dataset_name, split='val[:10%]') # wiki_bio val size: 72,831
         self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:10%]') # wiki_bio test size: 72,831
+
+
+        # TODO: create a utility for loading this stuff
+        # TODO: don't load similarities unless we're training with hard negatives
+        # TODO: better nomenclature than 'hard negative'?
+        k = 128
+        save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{split}__{k}')
+        assert os.path.exists(save_folder), f'no precomputed similarities at folder {save_folder}'
+        str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
+        self.str_to_idx = pickle.load(open(str_to_idx_path, 'rb'))
 
         # split dataset 'text' in half: ['text1', 'text2']
         # TODO: sentence-tokenize and take second half?
@@ -60,8 +77,9 @@ class WikipediaDataModule(LightningDataModule):
             table_text = '\n'.join([' | '.join(row) for row in table_rows])
             # return example: transformed table + first paragraph
             return {
-                'text1': ex['target_text'],     # First paragraph of biography
-                'text2': table_text,            # Table re-printed as a string
+                'text1': ex['target_text'],          # First paragraph of biography
+                'text2': table_text,                 # Table re-printed as a string
+                'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
             }
 
         self.train_dataset = self.train_dataset.map(map_ex)
@@ -88,7 +106,7 @@ class WikipediaDataModule(LightningDataModule):
 
         # tokenize dataset
         self.train_dataset = self.train_dataset.map(
-            self.convert_to_features,
+            functools.partial(self.convert_to_features, include_ids=True),
             batched=True,
         )
         self.val_dataset = self.val_dataset.map(
@@ -101,9 +119,9 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.columns = [
             "text1_attention_mask", "text1_input_ids",
-            "text2_attention_mask", "text2_input_ids"
+            "text2_attention_mask", "text2_input_ids",
         ]
-        self.train_dataset.set_format(type="torch", columns=self.columns)
+        self.train_dataset.set_format(type="torch", columns=["text_key_id"] + self.columns)
         self.val_dataset.set_format(type="torch", columns=self.columns)
         self.test_dataset.set_format(type="torch", columns=self.columns)
 
@@ -116,7 +134,8 @@ class WikipediaDataModule(LightningDataModule):
         return DataLoader(
             self.train_dataset,
             batch_size=self.train_batch_size,
-            num_workers=self.num_workers
+            num_workers=self.num_workers,
+            shuffle=True # Only shuffle for train
         )
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
@@ -133,8 +152,13 @@ class WikipediaDataModule(LightningDataModule):
             num_workers=self.num_workers
         )
 
-    def convert_to_features(self, example_batch: Dict[str, Any]) -> Dict[str, Any]:
-        """Tokenizes `example_batch`, which includes 'text1' and 'text2' as keys."""
+    def convert_to_features(self, example_batch: Dict[str, Any], include_ids=False) -> Dict[str, Any]:
+        """Tokenizes `example_batch`, which includes 'text1' and 'text2' as keys.
+        
+        If `include_ids` is True, includes `text2_ids` column, which includes the IDs (indices) of each
+            str text2 in the original training set. Used for matching to precomputed nearest neighbors.
+
+        """
         # Tokenize the text/text pairs
         text1_features = self.tokenizer.batch_encode_plus(
             example_batch["text1"],
@@ -150,5 +174,8 @@ class WikipediaDataModule(LightningDataModule):
             truncation=True
         )
         text2_features = { f'text2_{k}': v for k,v in text2_features.items() }
+        ids_dict = {}
 
-        return (text1_features | text2_features)
+        if include_ids:
+            ids_dict["text_key_id"] = np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
+        return (text1_features | text2_features | ids_dict)

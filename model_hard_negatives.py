@@ -1,8 +1,9 @@
-from typing import Optional
+from typing import Dict, Optional
 
 import os
 import pickle
 
+import numpy as np
 import torch
 
 from pytorch_lightning import LightningModule
@@ -14,17 +15,27 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
     """Encodes profiles using pre-computed encodings. Uses nearest-neighbors
     to create 'hard negatives' to get similarity.
     """
+    embeddings: np.ndarray      # float ndarray, shape (train_set_len, prof_emb_dim) 
+                                # example: (58266, 384)
+                                # -- for wiki_bio['train:10%'] and sentence-transformers/paraphrase-MiniLM-L6-v2 encoding,
+
+    neighbors: np.ndarray       # int ndarray, shape (train_set_len, num_nearest_neighbors)
+                                # example: (58266, 128) 
+
     def __init__(
         self,
         model_name_or_path: str,
         dataset_name: str,
+        learning_rate: float = 2e-5,
+        adam_epsilon: float = 1e-8,
+        warmup_steps: int = 0,
+        weight_decay: float = 0.0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         **kwargs,
     ):
         super().__init__()
         self.save_hyperparameters()
-
         self.dataset_name = dataset_name
         self.model = AutoModel.from_pretrained(model_name_or_path)
         self.temperature = torch.nn.parameter.Parameter(
@@ -34,13 +45,11 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
         split = 'train[:10%]' # TODO: argparse for split
         k = 128 # TODO: argparse for k (num nearest neighbors?)
         save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{split}__{k}')
-        str_to_idx_path = os.path.join(model_folder, 'str_to_idx.p') 
-        self.str_to_idx = pickle.load(open(str_to_idx_path, 'rb'))
-        neighbors_path = os.path.join(model_folder, 'neighbors.p')
-        self.neighbors = pickle.load(open(neighbors_path, 'rb'))
-        embeddings_path = os.path.join(model_folder, 'embeddings.p')
-        self.embeddings = pickle.load(embeddings, open(embeddings_path, 'rb'))
-        breakpoint()
+        assert os.path.exists(save_folder), f'no precomputed similarities at folder {save_folder}'
+        neighbors_path = os.path.join(save_folder, 'neighbors.p')
+        self.neighbors = np.array(pickle.load(open(neighbors_path, 'rb')))
+        embeddings_path = os.path.join(save_folder, 'embeddings.p')
+        self.embeddings = pickle.load(open(embeddings_path, 'rb'))
 
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
 
@@ -86,11 +95,9 @@ class DocumentProfileMatchingTransformerWithHardNegatives(LightningModule):
         profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
         # profile_embeddings = profile_embeddings['last_hidden_state'].mean(dim=1)
         # Just take last hidden state at index 0 which should be CLS. TODO(jxm): is this right?
-
-        document_embeddings = self.model(
-            input_ids=batch['text2_input_ids'],
-            attention_mask=batch['text2_attention_mask']
-        )
+        breakpoint()
+        # self.embeddings[batch['text_key_id'].cpu()].shape -> (batch_size, prof_emb_dim)
+        # self.neighbors[batch['text_key_id'].cpu()].shape -> (batch_size, k)
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
         loss = self._compute_loss(profile_embeddings, document_embeddings, 'train')
         return loss

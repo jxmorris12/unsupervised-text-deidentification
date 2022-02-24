@@ -40,15 +40,15 @@ def parse_args() -> argparse.Namespace():
     )
     parser.add_argument('--k', type=int, default=128, help='number of nearest-neighbors to use')
     parser.add_argument('--dataset_name', '--dataset', type=str, default='wiki_bio', help='dataset to use')
-    parser.add_argument('--split', type=str, default='test[:1%]', help='split to use, from dataset')
+    parser.add_argument('--split', type=str, default='train[:10%]', help='split to use, from dataset')
     return parser.parse_args()
 
 def main(args: argparse.Namespace):
     dataset_name = args.dataset_name
     split = args.split
     k = args.k
-    model_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{split}__{k}')
-    pathlib.Path(model_folder).mkdir(exist_ok=True, parents=True)
+    save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{split}__{k}')
+    pathlib.Path(save_folder).mkdir(exist_ok=True, parents=True)
     # get data
     data = datasets.load_dataset(dataset_name, split=split)
     sentences = data.map(map_ex)['text']
@@ -71,16 +71,16 @@ def main(args: argparse.Namespace):
     for idx in tqdm.trange(len(embeddings), desc='Getting nearest neighbors'):
         # example result of query(embeddings[0], k=3): 
         #       (array([0.        , 3.30052274, 3.31010842]), array([  0, 655, 617]))
-        dists, neighbor_idxs = tree.query(embeddings[0], k=k)
+        dists, neighbor_idxs = tree.query(embeddings[idx], k=k)
         neighbors.append(neighbor_idxs)
         str_to_idx[sentences[idx]] = idx
 
     # store hashed example indices + nearest neighbor matrix
-    str_to_idx_path = os.path.join(model_folder, 'str_to_idx.p') 
+    str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
     pickle.dump(str_to_idx, open(str_to_idx_path, 'wb'))
-    neighbors_path = os.path.join(model_folder, 'neighbors.p')
+    neighbors_path = os.path.join(save_folder, 'neighbors.p')
     pickle.dump(neighbors, open(neighbors_path, 'wb'))
-    embeddings_path = os.path.join(model_folder, 'embeddings.p')
+    embeddings_path = os.path.join(save_folder, 'embeddings.p')
     pickle.dump(embeddings, open(embeddings_path, 'wb'))
 
 if __name__ == '__main__': 
