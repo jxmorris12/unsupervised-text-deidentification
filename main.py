@@ -16,7 +16,7 @@ from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 
 from dataloader import WikipediaDataModule
-from model import DocumentProfileMatchingTransformer
+from model import DocumentProfileMatchingTransformer, DocumentProfileMatchingTransformerWithHardNegatives
 
 
 args_dict = {
@@ -25,7 +25,8 @@ args_dict = {
     'batch_size': 256,
     'max_seq_length': 64,
     'learning_rate': 1e-4,
-    'redaction_strategy': 'spacy_ner' # ['spacy_ner', 'word_overlap', '']
+    'redaction_strategy': 'spacy_ner', # ['spacy_ner', 'word_overlap', '']
+    'use_hard_negatives': True
 }
 
 USE_WANDB = True
@@ -51,7 +52,14 @@ def main(args: argparse.Namespace):
         redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
-    model = DocumentProfileMatchingTransformer(
+
+    model_cls = (
+        DocumentProfileMatchingTransformerWithHardNegatives 
+        if args.use_hard_negatives
+        else DocumentProfileMatchingTransformer
+    )
+    model = model_cls(
+        dataset_name=args.dataset_name,
         model_name_or_path=args.model_name,
         num_workers=num_cpus,
         learning_rate=args.learning_rate,
