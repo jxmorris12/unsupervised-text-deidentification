@@ -26,7 +26,7 @@ args_dict = {
     'batch_size': 256,
     'max_seq_length': 64,
     'learning_rate': 1e-4,
-    'redaction_strategy': 'spacy_ner', # ['spacy_ner', 'word_overlap', '']
+    'redaction_strategy': '', # ['spacy_ner', 'word_overlap', '']
     'use_hard_negatives': True
 }
 

@@ -34,22 +34,22 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def forward(self, **inputs):
         return self.model(**inputs)
 
-    def _compute_loss(self, profile_embeddings: torch.Tensor, document_embeddings: torch.Tensor,
+    def _compute_loss(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
         metrics_key: str) -> torch.Tensor:
-        """InfoNCE matching loss between `profile_embeddings` and `document_embeddings`. Computes
+        """InfoNCE matching loss between `document_embeddings` and `profile_embeddings`. Computes
         metrics and prints, prefixing with `metrics_key`.
          """
-        assert profile_embeddings.shape == document_embeddings.shape
-        assert len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
-        batch_size = len(profile_embeddings)
+        assert document_embeddings.shape == profile_embeddings.shape
+        assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
+        batch_size = len(document_embeddings)
         # Normalize embeddings before computing similarity
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
         document_to_profile_sim = (
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
+            (torch.matmul(profile_embeddings, document_embeddings.T) * self.temperature.exp())
         )
-        diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
+        diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
         # TODO: do we want loss in one direction or both...?
         loss_d2p = torch.nn.functional.cross_entropy(
             document_to_profile_sim, diagonal_idxs
@@ -66,55 +66,55 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         # TODO(jxm): should we use two different models for these encodings?
-        profile_embeddings = self.model(
+        document_embeddings = self.model(
             input_ids=batch['text1_input_ids'],
             attention_mask=batch['text1_attention_mask']
         )
-        profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
-        # profile_embeddings = profile_embeddings['last_hidden_state'].mean(dim=1)
+        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
+        # document_embeddings = document_embeddings['last_hidden_state'].mean(dim=1)
         # Just take last hidden state at index 0 which should be CLS. TODO(jxm): is this right?
 
-        document_embeddings = self.model(
+        profile_embeddings = self.model(
             input_ids=batch['text2_input_ids'],
             attention_mask=batch['text2_attention_mask']
         )
-        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :]
-        loss = self._compute_loss(profile_embeddings, document_embeddings, 'train')
+        profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
+        loss = self._compute_loss(document_embeddings, profile_embeddings, 'train')
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         with torch.no_grad():
             # Getting output['last_hidden_state'][:, 0, :] is
             # getting the CLS token from BERT
-            profile_embeddings = self.model(
+            document_embeddings = self.model(
                 input_ids=batch['text1_input_ids'],
                 attention_mask=batch['text1_attention_mask']
             )['last_hidden_state']
-            profile_embeddings = profile_embeddings[:, 0, :]
-            document_embeddings = self.model(
+            document_embeddings = document_embeddings[:, 0, :]
+            profile_embeddings = self.model(
                 input_ids=batch['text2_input_ids'],
                 attention_mask=batch['text2_attention_mask']
             )['last_hidden_state']
-            document_embeddings = document_embeddings[:, 0, :]
+            profile_embeddings = profile_embeddings[:, 0, :]
         return {
-            "profile_embeddings": profile_embeddings,
             "document_embeddings": document_embeddings,
-            "loss": self._compute_loss(profile_embeddings, document_embeddings, 'val_approx')
+            "profile_embeddings": profile_embeddings,
+            "loss": self._compute_loss(document_embeddings, profile_embeddings, 'val_approx')
         }
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
-        profile_embeddings = torch.cat([o['profile_embeddings'] for o in outputs], axis=0)
         document_embeddings = torch.cat([o['document_embeddings'] for o in outputs], axis=0)
-        assert profile_embeddings.shape == document_embeddings.shape
+        profile_embeddings = torch.cat([o['profile_embeddings'] for o in outputs], axis=0)
+        assert document_embeddings.shape == profile_embeddings.shape
         # Normalize embeddings before computing similarity
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         # TODO: is there a natural way to scale temperature here?
         document_to_profile_sim = (
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
+            (torch.matmul(profile_embeddings, document_embeddings.T) * self.temperature.exp())
         )
-        batch_size = len(profile_embeddings)
-        diagonal_idxs = torch.arange(batch_size).to(profile_embeddings.device)
+        batch_size = len(document_embeddings)
+        diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
         loss_d2p = torch.nn.functional.cross_entropy(
             document_to_profile_sim, diagonal_idxs
         )
