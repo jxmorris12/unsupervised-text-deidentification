@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace():
     )
     parser.add_argument('--k', type=int, default=128, help='number of nearest-neighbors to use')
     parser.add_argument('--dataset_name', '--dataset', type=str, default='wiki_bio', help='dataset to use')
-    parser.add_argument('--split', type=str, default='train', help='split to use, from dataset')
+    parser.add_argument('--split', type=str, default='test[:1%]', help='split to use, from dataset')
     return parser.parse_args()
 
 def main(args: argparse.Namespace):
@@ -54,6 +54,7 @@ def main(args: argparse.Namespace):
     sentences = data.map(map_ex)['text']
 
     # embed data
+    print(f'Getting embeddings for {len(sentences)} sentences...')
     model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
     embeddings = model.encode(sentences)
 
@@ -79,6 +80,8 @@ def main(args: argparse.Namespace):
     pickle.dump(str_to_idx, open(str_to_idx_path, 'wb'))
     neighbors_path = os.path.join(model_folder, 'neighbors.p')
     pickle.dump(neighbors, open(neighbors_path, 'wb'))
+    embeddings_path = os.path.join(model_folder, 'embeddings.p')
+    pickle.dump(embeddings, open(embeddings_path, 'wb'))
 
 if __name__ == '__main__': 
     args = parse_args()
