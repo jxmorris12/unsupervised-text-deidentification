@@ -2,7 +2,12 @@
 https://pytorch-lightning.readthedocs.io/en/stable/notebooks/lightning_examples/text-transformers.html
 """
 
-import faulthandler; faulthandler.enable()
+# 
+#   Produce tracebacks for SIGSEGV, SIGFPE, SIGABRT, SIGBUS and SIGILL signals
+#           see docs.python.org/3/library/faulthandler.html
+# 
+# import faulthandler; faulthandler.enable()
+# 
 
 from typing import List, Tuple, Union
 
@@ -21,12 +26,13 @@ from model_hard_negatives import DocumentProfileMatchingTransformerWithHardNegat
 
 
 args_dict = {
+    'epochs': 5,
     'model_name': 'distilbert-base-uncased',
     'dataset_name': 'wiki_bio',
     'batch_size': 256,
     'max_seq_length': 64,
     'learning_rate': 1e-4,
-    'redaction_strategy': '', # ['spacy_ner', 'word_overlap', '']
+    'redaction_strategy': 'word_overlap', # ['spacy_ner', 'word_overlap', '']
     'use_hard_negatives': True
 }
 
@@ -79,12 +85,17 @@ def main(args: argparse.Namespace):
                 entity='jack-morris',
             )
         )
+    
+    from pytorch_lightning.loggers import CSVLogger
+    # TODO set experiment name?
+    loggers.append(CSVLogger("logs", name="deid_exp"))
 
     print("creating Trainer")
     trainer = Trainer(
-        max_epochs=10,
+        max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
+        limit_val_batches=1.0,
         gpus=torch.cuda.device_count(),
         logger=loggers
     )

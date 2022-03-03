@@ -42,20 +42,26 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: change split here
-        split = 'train[:10%]'
-        self.train_dataset = datasets.load_dataset(self.dataset_name, split=split) # wiki_bio train size: 582,659
-        self.val_dataset = datasets.load_dataset(self.dataset_name, split='val[:10%]') # wiki_bio val size: 72,831
-        self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:10%]') # wiki_bio test size: 72,831
-
+        train_split = 'train[:10%]'
+        val_split = 'val[:20%]'
+        self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
+        self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
+        # self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:10%]') # wiki_bio test size: 72,831
 
         # TODO: create a utility for loading this stuff
         # TODO: don't load similarities unless we're training with hard negatives
         # TODO: better nomenclature than 'hard negative'?
         k = 128
-        save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{split}__{k}')
-        assert os.path.exists(save_folder), f'no precomputed similarities at folder {save_folder}'
-        str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
-        self.str_to_idx = pickle.load(open(str_to_idx_path, 'rb'))
+        train_save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{train_split}__{k}')
+        assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
+        val_save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{val_split}__{k}')
+        assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
+        train_str_to_idx_path = os.path.join(train_save_folder, 'str_to_idx.p') 
+        val_str_to_idx_path = os.path.join(val_save_folder, 'str_to_idx.p') 
+        self.str_to_idx = (
+            pickle.load(open(train_str_to_idx_path, 'rb')) |
+            pickle.load(open(val_str_to_idx_path, 'rb'))
+        )
 
         # split dataset 'text' in half: ['text1', 'text2']
         # TODO: sentence-tokenize and take second half?
@@ -84,7 +90,7 @@ class WikipediaDataModule(LightningDataModule):
 
         self.train_dataset = self.train_dataset.map(map_ex)
         self.val_dataset = self.val_dataset.map(map_ex)
-        self.test_dataset = self.test_dataset.map(map_ex)
+        # self.test_dataset = self.test_dataset.map(map_ex)
 
         # Redact text, if specified
         if self.redaction_strategy:
@@ -102,7 +108,7 @@ class WikipediaDataModule(LightningDataModule):
 
             self.train_dataset = self.train_dataset.map(redact_dataset)
             self.val_dataset = self.val_dataset.map(redact_dataset)
-            self.test_dataset = self.test_dataset.map(redact_dataset)
+            # self.test_dataset = self.test_dataset.map(redact_dataset)
 
         # tokenize dataset
         self.train_dataset = self.train_dataset.map(
@@ -110,20 +116,20 @@ class WikipediaDataModule(LightningDataModule):
             batched=True,
         )
         self.val_dataset = self.val_dataset.map(
-            self.convert_to_features,
+            functools.partial(self.convert_to_features, include_ids=True),
             batched=True,
         )
-        self.test_dataset = self.test_dataset.map(
-            self.convert_to_features,
-            batched=True,
-        )
+        # self.test_dataset = self.test_dataset.map(
+        #     self.convert_to_features,
+        #     batched=True,
+        # )
         self.columns = [
             "text1_attention_mask", "text1_input_ids",
             "text2_attention_mask", "text2_input_ids",
         ]
         self.train_dataset.set_format(type="torch", columns=["text_key_id"] + self.columns)
-        self.val_dataset.set_format(type="torch", columns=self.columns)
-        self.test_dataset.set_format(type="torch", columns=self.columns)
+        self.val_dataset.set_format(type="torch", columns=["text_key_id"] + self.columns)
+        # self.test_dataset.set_format(type="torch", columns=self.columns)
 
     def prepare_data(self) -> None:
         # automatically download dataset & tokenizer
@@ -145,12 +151,12 @@ class WikipediaDataModule(LightningDataModule):
             num_workers=self.num_workers
         )
 
-    def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.eval_batch_size,
-            num_workers=self.num_workers
-        )
+    # def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+    #     return DataLoader(
+    #         self.test_dataset,
+    #         batch_size=self.eval_batch_size,
+    #         num_workers=self.num_workers
+    #     )
 
     def convert_to_features(self, example_batch: Dict[str, Any], include_ids=False) -> Dict[str, Any]:
         """Tokenizes `example_batch`, which includes 'text1' and 'text2' as keys.
