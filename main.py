@@ -22,18 +22,18 @@ from pytorch_lightning import Trainer, seed_everything
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
-from model_hard_negatives import DocumentProfileMatchingTransformerWithHardNegatives
 
 
 args_dict = {
-    'epochs': 5,
+    'epochs': 8,
     'model_name': 'distilbert-base-uncased',
     'dataset_name': 'wiki_bio',
     'batch_size': 256,
     'max_seq_length': 64,
-    'learning_rate': 1e-4,
-    'redaction_strategy': 'word_overlap', # ['spacy_ner', 'word_overlap', '']
-    'use_hard_negatives': True
+    'learning_rate': 2e-4,
+    'redaction_strategy': '', # ['spacy_ner', 'word_overlap', '']
+    'use_hard_negatives': True,
+    'loss_fn': '', # ['infonce', 'hard_negatives', 'exact']
 }
 
 USE_WANDB = True
@@ -59,17 +59,13 @@ def main(args: argparse.Namespace):
         redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
-
-    model_cls = (
-        DocumentProfileMatchingTransformerWithHardNegatives 
-        if args.use_hard_negatives
-        else DocumentProfileMatchingTransformer
-    )
-    model = model_cls(
+    
+    model = DocumentProfileMatchingTransformer(
         dataset_name=args.dataset_name,
         model_name_or_path=args.model_name,
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
+        loss_fn=args.loss_fn,
     )
 
     loggers = []
