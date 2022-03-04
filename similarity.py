@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace():
         description='precompute similarity matrix.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument('--k', type=int, default=128, help='number of nearest-neighbors to use')
+    parser.add_argument('--k', type=int, default=2048, help='number of nearest-neighbors to use')
     parser.add_argument('--dataset_name', '--dataset', type=str, default='wiki_bio', help='dataset to use')
     parser.add_argument('--split', type=str, default='train[:10%]', help='split to use, from dataset')
     return parser.parse_args()

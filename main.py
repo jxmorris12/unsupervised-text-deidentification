@@ -33,7 +33,7 @@ args_dict = {
     'learning_rate': 2e-4,
     'redaction_strategy': '', # ['spacy_ner', 'word_overlap', '']
     'use_hard_negatives': True,
-    'loss_fn': '', # ['infonce', 'hard_negatives', 'exact']
+    'loss_fn': 'exact', # ['infonce', 'hard_negatives', 'exact']
 }
 
 USE_WANDB = True
@@ -83,7 +83,8 @@ def main(args: argparse.Namespace):
         )
     
     from pytorch_lightning.loggers import CSVLogger
-    # TODO set experiment name?
+    # TODO set experiment name
+    # TODO make this show up, I don't think it does (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs", name="deid_exp"))
 
     print("creating Trainer")
