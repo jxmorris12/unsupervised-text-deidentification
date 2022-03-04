@@ -31,9 +31,9 @@ args_dict = {
     'batch_size': 256,
     'max_seq_length': 64,
     'learning_rate': 2e-4,
-    'redaction_strategy': '', # ['spacy_ner', 'word_overlap', '']
-    'use_hard_negatives': True,
-    'loss_fn': 'exact', # ['infonce', 'hard_negatives', 'exact']
+    'redaction_strategy': 'word_overlap', # ['spacy_ner', 'word_overlap', '']
+    'loss_fn': 'hard_negatives', # ['infonce', 'hard_negatives', 'exact']
+    'num_neighbors': 1024,
 }
 
 USE_WANDB = True
@@ -41,9 +41,6 @@ USE_WANDB = True
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 num_cpus = min(os.cpu_count(), 12)
-
-batch_size = 256
-max_seq_length = 64
 
 def main(args: argparse.Namespace):
     seed_everything(42)

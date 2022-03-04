@@ -23,7 +23,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
                                 # example: (58266, 128) 
 
-    num_neighbors: int          # number of neighbors to use per datapoint
+    num_neighbors: int          # number of neighbors to use per datapoint (only for 'hard_negatives' loss)
 
     loss_fn: str                # one of ['hard_negatives', 'infonce', 'exact']
 
@@ -38,6 +38,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         weight_decay: float = 0.0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
+        num_neighbors: int = 128,
         **kwargs,
     ):
         super().__init__()
@@ -59,23 +60,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
         # Load precomputed stuff from disk
         train_split = 'train[:10%]' # TODO: argparse for split/dataset?
-        k = 128 # TODO: argparse for k (num nearest neighbors?)
-        train_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{train_split}__{k}')
+        self.num_neighbors = num_neighbors
+        train_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{train_split}__{self.num_neighbors}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
         train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
         self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
         train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
-        self.num_neighbors = 128
 
         val_split = 'val[:20%]'
-        val_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
+        val_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{val_split}__{self.num_neighbors}')
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
         self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))
-
-        # self.profile_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
-
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
         
         # TODO make these things show up in W&B.
@@ -116,9 +113,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # We want each document to match to itself and no other
         true_idxs = torch.zeros_like(document_to_profile_sim).to(document_embeddings.device)
         true_idxs[:, 0] = 1 
-        loss = torch.nn.functional.cross_entropy(
-            document_to_profile_sim, true_idxs
-        )
+        loss = torch.nn.functional.cross_entropy(document_to_profile_sim, true_idxs)
         true_avg_prob = torch.nn.functional.softmax(document_to_profile_sim, dim=1)[:, 0].mean()
         self.log(f"{metrics_key}/true_avg_prob", true_avg_prob)
         pct_correct = (document_to_profile_sim.argmax(1) == 0).to(float).mean()
