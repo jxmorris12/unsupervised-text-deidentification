@@ -23,24 +23,36 @@ from pytorch_lightning import Trainer, seed_everything
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
 
-
-args_dict = {
-    'epochs': 8,
-    'model_name': 'distilbert-base-uncased',
-    'dataset_name': 'wiki_bio',
-    'batch_size': 256,
-    'max_seq_length': 64,
-    'learning_rate': 2e-4,
-    'redaction_strategy': 'word_overlap', # ['spacy_ner', 'word_overlap', '']
-    'loss_fn': 'hard_negatives', # ['infonce', 'hard_negatives', 'exact']
-    'num_neighbors': 1024,
-}
-
 USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 num_cpus = min(os.cpu_count(), 12)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description='Train a model.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('--random_seed', type=int, default=42)
+    parser.add_argument('--epochs', type=int, default=8)
+    parser.add_argument('--model_name', type=str, default='distilbert-base-uncased')
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--max_seq_length', type=int, default=64)
+    parser.add_argument('--learning_rate', type=float, default=2e-4)
+    parser.add_argument('--redaction_strategy', type=str, default='',
+        choices=('spacy_ner', 'lexical', '')
+    )
+    parser.add_argument('--loss_fn', type=str, default='exact',
+        choices=('exact', 'nearest_neighbors', 'num_neighbors')
+    )
+    parser.add_argument('--num_neighbors', type=int, default=512)\
+
+    args = parser.parse_args()
+    args.dataset_name = 'wiki_bio'
+    return args
+
 
 def main(args: argparse.Namespace):
     seed_everything(42)
@@ -63,6 +75,7 @@ def main(args: argparse.Namespace):
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
         loss_fn=args.loss_fn,
+        num_neighbors=args.num_neighbors,
     )
 
     loggers = []
@@ -73,7 +86,7 @@ def main(args: argparse.Namespace):
         loggers.append(
             WandbLogger(
                 project='deid-wikibio', 
-                config=args_dict,
+                config=vars(args),
                 job_type='train',
                 entity='jack-morris',
             )
@@ -96,5 +109,4 @@ def main(args: argparse.Namespace):
     trainer.fit(model, dm)
 
 if __name__ == '__main__':
-    args = argparse.Namespace(**args_dict)
-    main(args)
+    main(get_args())

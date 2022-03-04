@@ -36,7 +36,7 @@ class WikipediaDataModule(LightningDataModule):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
-        assert redaction_strategy in ["", "spacy_ner", "word_overlap"]
+        assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers}')
 
@@ -96,7 +96,7 @@ class WikipediaDataModule(LightningDataModule):
         if self.redaction_strategy:
             if self.redaction_strategy == "spacy_ner":
                 redact_func = lambda t1, t2: remove_named_entities_spacy(t1)
-            elif self.redaction_strategy == "word_overlap":
+            elif self.redaction_strategy == "lexical":
                 redact_func = remove_overlapping_words
             else:
                 raise ValueError(f'unknown redaction strategy {self.redaction_strategy}')

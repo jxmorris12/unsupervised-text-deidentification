@@ -23,9 +23,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
     train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
                                 # example: (58266, 128) 
 
-    num_neighbors: int          # number of neighbors to use per datapoint (only for 'hard_negatives' loss)
+    num_neighbors: int          # number of neighbors to use per datapoint (only for 'nearest_neighbors' loss)
 
-    loss_fn: str                # one of ['hard_negatives', 'infonce', 'exact']
+    loss_fn: str                # one of ['nearest_neighbors', 'infonce', 'exact']
 
     def __init__(
         self,
@@ -55,13 +55,16 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.temperature = torch.nn.parameter.Parameter(
             torch.tensor(5.0, dtype=torch.float32), requires_grad=True)
         
-        assert loss_fn in ['hard_negatives', 'infonce', 'exact'], f'invalid loss function {loss_fn}'
+        assert loss_fn in ['nearest_neighbors', 'infonce', 'exact'], f'invalid loss function {loss_fn}'
         self.loss_fn = loss_fn
 
         # Load precomputed stuff from disk
-        train_split = 'train[:10%]' # TODO: argparse for split/dataset?
         self.num_neighbors = num_neighbors
-        train_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{train_split}__{self.num_neighbors}')
+        k = 2048
+        assert k >= self.num_neighbors # must have precomputed at least num_neighbors things
+
+        train_split = 'train[:10%]' # TODO: argparse for split/dataset?
+        train_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
         train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
         self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
@@ -69,7 +72,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
 
         val_split = 'val[:20%]'
-        val_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{val_split}__{self.num_neighbors}')
+        val_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
         self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))
@@ -209,7 +212,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
         document_embeddings = self.lower_dim_embed(document_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
 
-        if self.loss_fn == 'hard_negatives':
+        if self.loss_fn == 'nearest_neighbors':
             profile_embeddings = self._get_nn_profile_embeddings(batch['text_key_id'].cpu())
             loss = self._compute_loss_nn(document_embeddings, profile_embeddings, 'train')
         elif self.loss_fn == 'infonce':
