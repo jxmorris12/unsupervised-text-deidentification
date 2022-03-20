@@ -27,7 +27,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = min(os.cpu_count(), 12)
+num_cpus = os.cpu_count()
 
 
 def get_args() -> argparse.Namespace:

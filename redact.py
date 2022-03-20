@@ -1,3 +1,6 @@
+from typing import List
+
+import os
 import re
 import spacy
 
@@ -7,6 +10,8 @@ from nltk.corpus import stopwords
 nlp = spacy.load("en_core_web_sm")
 
 eng_stopwords = stopwords.words('english')
+
+num_cpus = os.cpu_count()
 
 def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
     """
@@ -23,6 +28,25 @@ def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
     doc = nlp(x)
     new_tokens = [t.text_with_ws if not t.ent_type_ else ("[MASK]" + t.whitespace_) for t in doc]
     return "".join(new_tokens)
+
+def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> str:
+    """
+    Replaces named entities in `x` with `mask_token`.
+    
+    From spacy.io/usage/rule-based-matching/#regex-text:
+        nsubj: Nominal subject.
+        prep: Preposition.
+        pobj: Object of preposition.
+        NNP: Proper noun, singular.
+        VBD: Verb, past tense.
+        IN: Conjunction, subordinating or preposition.
+    """
+    docs = nlp.pipe(x_list, n_process=num_cpus)
+    new_tokens_list = [
+        [t.text_with_ws if not t.ent_type_ else ("[MASK]" + t.whitespace_) for t in doc]
+        for doc in docs
+    ]
+    return ["".join(new_tokens) for new_tokens in new_tokens_list]
 
 def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", case_sensitive=False) -> str:
     """Replaces words in `t1` that occur in `t2` with `mask_token`.
