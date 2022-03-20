@@ -206,8 +206,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         document_embeddings = self.document_model(
-            input_ids=batch['text1_input_ids'],
-            attention_mask=batch['text1_attention_mask']
+            input_ids=batch['document_input_ids'],
+            attention_mask=batch['document_attention_mask']
         )
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
         document_embeddings = self.lower_dim_embed(document_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
@@ -229,23 +229,47 @@ class DocumentProfileMatchingTransformer(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        # Document embeddings (original document)
         document_embeddings = self.document_model(
-            input_ids=batch['text1_input_ids'],
-            attention_mask=batch['text1_attention_mask']
+            input_ids=batch['document_input_ids'],
+            attention_mask=batch['document_attention_mask']
         )
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
         document_embeddings = self.lower_dim_embed(document_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+
+        # Document embeddings (original document)
+        document_redact_ner_embeddings = self.document_model(
+            input_ids=batch['document_redact_ner_input_ids'],
+            attention_mask=batch['document_redact_ner_attention_mask']
+        )
+        document_redact_ner_embeddings = document_redact_ner_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
+        document_redact_ner_embeddings = self.lower_dim_embed(document_redact_ner_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+
+        # Document embeddings (original document)
+        document_redact_lexical_embeddings = self.document_model(
+            input_ids=batch['document_input_ids'],
+            attention_mask=batch['document_attention_mask']
+        )
+        document_redact_lexical_embeddings = document_redact_lexical_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
+        document_redact_lexical_embeddings = self.lower_dim_embed(document_redact_lexical_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+
         return {
             "document_embeddings": document_embeddings,
+            "document_redact_ner_embeddings": document_redact_ner_embeddings,
+            "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
             "text_key_id": batch['text_key_id']
         }
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
         document_embeddings = torch.cat([o['document_embeddings'] for o in outputs], axis=0)
+        document_embeddings = torch.cat([o['document_redact_ner_embeddings'] for o in outputs], axis=0)
+        document_embeddings = torch.cat([o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
         text_key_id = torch.cat([o['text_key_id'] for o in outputs], axis=0)
         profile_embeddings = torch.tensor(self.val_embeddings).to(self.device)
-        loss = self._compute_loss_exact(document_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact')
-        return loss
+        doc_loss = self._compute_loss_exact(document_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document')
+        doc_redact_ner_loss = self._compute_loss_exact(document_redact_ner_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document_redact_ner')
+        doc_redact_lexical_loss = self._compute_loss_exact(document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document_redact_lexical')
+        return doc_loss
 
     def setup(self, stage=None) -> None:
         """Sets stuff up. Called once before training."""

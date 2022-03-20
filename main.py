@@ -94,13 +94,14 @@ def main(args: argparse.Namespace):
     
     from pytorch_lightning.loggers import CSVLogger
     # TODO set experiment name
-    # TODO make this show up, I don't think it does (maybe because I usually kill runs before they finish?).
+    # TODO make this show up, I don't think it does 
+    # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs", name="deid_exp"))
 
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir="saves",
-        callbacks=[ModelCheckpoint(monitor="val_exact/loss")]
+        callbacks=[ModelCheckpoint(monitor="val_exact/loss")],
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)

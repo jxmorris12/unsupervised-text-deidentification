@@ -46,7 +46,6 @@ class WikipediaDataModule(LightningDataModule):
         val_split = 'val[:20%]'
         self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
         self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
-        # self.test_dataset = datasets.load_dataset(self.dataset_name, split='test[:10%]') # wiki_bio test size: 72,831
 
         # TODO: create a utility for loading this stuff
         # TODO: don't load similarities unless we're training with hard negatives
@@ -63,11 +62,9 @@ class WikipediaDataModule(LightningDataModule):
             pickle.load(open(val_str_to_idx_path, 'rb'))
         )
 
-        # split dataset 'text' in half: ['text1', 'text2']
-        # TODO: sentence-tokenize and take second half?
-        def map_ex(ex):
+        def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
             """
-            transforms wiki_bio example into (text1, text2) pair
+            transforms wiki_bio example into (document, profile) pair
 
             >>> ex['target_text']
             'walter extra is a german award-winning aerobatic pilot , chief aircraft designer and founder of extra....
@@ -83,53 +80,55 @@ class WikipediaDataModule(LightningDataModule):
             table_text = '\n'.join([' | '.join(row) for row in table_rows])
             # return example: transformed table + first paragraph
             return {
-                'text1': ex['target_text'],          # First paragraph of biography
-                'text2': table_text,                 # Table re-printed as a string
+                'document': ex['target_text'],          # First paragraph of biography
+                'profile': table_text,                  # Table re-printed as a string
                 'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
             }
 
-        self.train_dataset = self.train_dataset.map(map_ex)
-        self.val_dataset = self.val_dataset.map(map_ex)
-        # self.test_dataset = self.test_dataset.map(map_ex)
+        self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio_instance)
+        self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio_instance)
+        
+        def redact_example(redact_func: Callable, example: Dict, suffix: str):
+            # redact 'text1' field
+            ex[f'document_{suffix}'] = redact_func(ex['document'], ex['profile'])
+            return ex
 
-        # Redact text, if specified
-        if self.redaction_strategy:
-            if self.redaction_strategy == "spacy_ner":
-                redact_func = lambda t1, t2: remove_named_entities_spacy(t1)
-            elif self.redaction_strategy == "lexical":
-                redact_func = remove_overlapping_words
-            else:
-                raise ValueError(f'unknown redaction strategy {self.redaction_strategy}')
-            
-            def redact_dataset(ex):
-                # redact 'text1' field
-                ex['text1'] = redact_func(ex['text1'], ex['text2'])
-                return ex
+        ner_redact_func = lambda t1, t2: remove_named_entities_spacy(t1)
+        self.train_dataset = self.train_dataset.map(
+            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'))
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'))
 
-            self.train_dataset = self.train_dataset.map(redact_dataset)
-            self.val_dataset = self.val_dataset.map(redact_dataset)
-            # self.test_dataset = self.test_dataset.map(redact_dataset)
+        lexical_redact_func = remove_overlapping_words
+        self.train_dataset = self.train_dataset.map(
+            lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
 
         # tokenize dataset
         self.train_dataset = self.train_dataset.map(
-            functools.partial(self.convert_to_features, include_ids=True),
+            functools.partial(self.convert_to_features),
             batched=True,
         )
         self.val_dataset = self.val_dataset.map(
-            functools.partial(self.convert_to_features, include_ids=True),
+            functools.partial(self.convert_to_features),
             batched=True,
         )
-        # self.test_dataset = self.test_dataset.map(
-        #     self.convert_to_features,
-        #     batched=True,
-        # )
         self.columns = [
-            "text1_attention_mask", "text1_input_ids",
-            "text2_attention_mask", "text2_input_ids",
+            "text_key_id", # Indices of item in original dataset 
+                           # (used for getting precomputed nearest-neighbors)
+
+            "document_attention_mask", "document_input_ids", 
+                    # [original] First paragraph of wikipedia page
+            "document_redact_ner_attention_mask", "document_redact_ner_input_ids", 
+                    # [redacted_ner] First paragraph of wikipedia page
+            "document_redact_lexical_attention_mask", "document_redact_lexical_input_ids", 
+                    # [redacted_lexical] First paragraph of wikipedia page
+
+            "profile_attention_mask", "profile_input_ids",   # Table from wikipedia infobox
         ]
-        self.train_dataset.set_format(type="torch", columns=["text_key_id"] + self.columns)
-        self.val_dataset.set_format(type="torch", columns=["text_key_id"] + self.columns)
-        # self.test_dataset.set_format(type="torch", columns=self.columns)
+        self.train_dataset.set_format(type="torch", columns=self.columns)
+        self.val_dataset.set_format(type="torch", columns=self.columns)
 
     def prepare_data(self) -> None:
         # automatically download dataset & tokenizer
@@ -151,37 +150,29 @@ class WikipediaDataModule(LightningDataModule):
             num_workers=self.num_workers
         )
 
-    # def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-    #     return DataLoader(
-    #         self.test_dataset,
-    #         batch_size=self.eval_batch_size,
-    #         num_workers=self.num_workers
-    #     )
-
-    def convert_to_features(self, example_batch: Dict[str, Any], include_ids=False) -> Dict[str, Any]:
-        """Tokenizes `example_batch`, which includes 'text1' and 'text2' as keys.
+    def convert_to_features(self, example_batch: Dict[str, Any]) -> Dict[str, Any]:
+        """Tokenizes `example_batch`, which includes 'document' and 'profile' as keys.
         
-        If `include_ids` is True, includes `text2_ids` column, which includes the IDs (indices) of each
+        includes `profile_ids` column, which includes the IDs (indices) of each
             str text2 in the original training set. Used for matching to precomputed nearest neighbors.
 
         """
         # Tokenize the text/text pairs
-        text1_features = self.tokenizer.batch_encode_plus(
-            example_batch["text1"],
+        document_features = self.tokenizer.batch_encode_plus(
+            example_batch["document"],
             max_length=self.max_seq_length,
             padding=True,
             truncation=True
         )
-        text1_features = { f'text1_{k}': v for k,v in text1_features.items() }
-        text2_features = self.tokenizer.batch_encode_plus(
-            example_batch["text2"],
+        document_features = { f'document_{k}': v for k,v in document_features.items() }
+        profile_features = self.tokenizer.batch_encode_plus(
+            example_batch["profile"],
             max_length=self.max_seq_length,
             padding=True,
             truncation=True
         )
-        text2_features = { f'text2_{k}': v for k,v in text2_features.items() }
-        ids_dict = {}
-
-        if include_ids:
-            ids_dict["text_key_id"] = np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
-        return (text1_features | text2_features | ids_dict)
+        profile_features = { f'profile_{k}': v for k,v in profile_features.items() }
+        ids_dict = {
+            "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]]
+        }
+        return (document_features | profile_features | ids_dict)
