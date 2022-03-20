@@ -247,8 +247,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
         # Document embeddings (original document)
         document_redact_lexical_embeddings = self.document_model(
-            input_ids=batch['document_input_ids'],
-            attention_mask=batch['document_attention_mask']
+            input_ids=batch['document_redact_lexical_input_ids'],
+            attention_mask=batch['document_redact_lexical_attention_mask']
         )
         document_redact_lexical_embeddings = document_redact_lexical_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
         document_redact_lexical_embeddings = self.lower_dim_embed(document_redact_lexical_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
@@ -261,10 +261,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
         }
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
-        document_embeddings = torch.cat([o['document_embeddings'] for o in outputs], axis=0)
-        document_redact_ner_embeddings = torch.cat([o['document_redact_ner_embeddings'] for o in outputs], axis=0)
-        document_redact_lexical_embeddings = torch.cat([o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
-        text_key_id = torch.cat([o['text_key_id'] for o in outputs], axis=0)
+        document_embeddings = torch.cat(
+            [o['document_embeddings'] for o in outputs], axis=0)
+        document_redact_ner_embeddings = torch.cat(
+            [o['document_redact_ner_embeddings'] for o in outputs], axis=0)
+        document_redact_lexical_embeddings = torch.cat(
+            [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
+        text_key_id = torch.cat(
+            [o['text_key_id'] for o in outputs], axis=0)
         profile_embeddings = torch.tensor(self.val_embeddings).to(self.device)
         doc_loss = self._compute_loss_exact(
             document_embeddings, profile_embeddings, text_key_id.to(self.device),
