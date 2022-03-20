@@ -31,7 +31,8 @@ def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
 
 def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> str:
     """
-    Replaces named entities in `x` with `mask_token`.
+    Replaces named entities in each `x` from `x_list` with `mask_token`.
+        Utilizes batching from spacy library via `nlp.pipe()`.
     
     From spacy.io/usage/rule-based-matching/#regex-text:
         nsubj: Nominal subject.
