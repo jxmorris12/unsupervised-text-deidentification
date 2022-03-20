@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Callable, Dict, List, Union
 
 import functools
 import os
@@ -11,7 +11,8 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-from redact import remove_named_entities_spacy, remove_overlapping_words
+from redact import remove_named_entities_spacy_batch, remove_overlapping_words
+from utils import name_from_table_rows
 
 class WikipediaDataModule(LightningDataModule):
     str_to_idx: Dict[str, int]  # maps un-redacted profile text (string) to index in training set
@@ -80,6 +81,7 @@ class WikipediaDataModule(LightningDataModule):
             table_text = '\n'.join([' | '.join(row) for row in table_rows])
             # return example: transformed table + first paragraph
             return {
+                'name': name_from_table_rows(table_rows),
                 'document': ex['target_text'],          # First paragraph of biography
                 'profile': table_text,                  # Table re-printed as a string
                 'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
@@ -90,20 +92,22 @@ class WikipediaDataModule(LightningDataModule):
         
         def redact_example(redact_func: Callable, example: Dict, suffix: str):
             # redact 'text1' field
-            ex[f'document_{suffix}'] = redact_func(ex['document'], ex['profile'])
-            return ex
-
-        ner_redact_func = lambda t1, t2: remove_named_entities_spacy(t1)
-        self.train_dataset = self.train_dataset.map(
-            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'))
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'))
+            example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
+            return example
 
         lexical_redact_func = remove_overlapping_words
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
+
+        ner_redact_func = lambda t1, t2: remove_named_entities_spacy_batch(t1)
+        self.train_dataset = self.train_dataset.map(
+            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
+            batched=True)
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
+            batched=True)
 
         # tokenize dataset
         self.train_dataset = self.train_dataset.map(
@@ -172,7 +176,10 @@ class WikipediaDataModule(LightningDataModule):
             truncation=True
         )
         profile_features = { f'profile_{k}': v for k,v in profile_features.items() }
-        ids_dict = {
-            "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]]
-        }
+        try:
+            ids_dict = {
+                "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
+            }
+        except KeyError:
+            breakpoint()
         return (document_features | profile_features | ids_dict)

@@ -68,7 +68,7 @@ def main(args: argparse.Namespace):
     neighbors = []
     print('Getting nearest neighbors...')
     # process k neighbors for each thing
-    for idx in tqdm.trange(len(embeddings), desc='Getting nearest neighbors'):
+    for idx in tqdm.trange(len(embeddings), desc='Getting nearest neighbors', colour='teal'):
         # example result of query(embeddings[0], k=3): 
         #       (array([0.        , 3.30052274, 3.31010842]), array([  0, 655, 617]))
         dists, neighbor_idxs = tree.query(embeddings[idx], k=k)
