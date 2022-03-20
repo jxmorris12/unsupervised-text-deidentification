@@ -262,13 +262,22 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def validation_epoch_end(self, outputs) -> torch.Tensor:
         document_embeddings = torch.cat([o['document_embeddings'] for o in outputs], axis=0)
-        document_embeddings = torch.cat([o['document_redact_ner_embeddings'] for o in outputs], axis=0)
-        document_embeddings = torch.cat([o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
+        document_redact_ner_embeddings = torch.cat([o['document_redact_ner_embeddings'] for o in outputs], axis=0)
+        document_redact_lexical_embeddings = torch.cat([o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
         text_key_id = torch.cat([o['text_key_id'] for o in outputs], axis=0)
         profile_embeddings = torch.tensor(self.val_embeddings).to(self.device)
-        doc_loss = self._compute_loss_exact(document_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document')
-        doc_redact_ner_loss = self._compute_loss_exact(document_redact_ner_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document_redact_ner')
-        doc_redact_lexical_loss = self._compute_loss_exact(document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device), metrics_key='val_exact/document_redact_lexical')
+        doc_loss = self._compute_loss_exact(
+            document_embeddings, profile_embeddings, text_key_id.to(self.device),
+            metrics_key='val_exact/document'
+        )
+        doc_redact_ner_loss = self._compute_loss_exact(
+            document_redact_ner_embeddings, profile_embeddings, text_key_id.to(self.device),
+            metrics_key='val_exact/document_redact_ner'
+        )
+        doc_redact_lexical_loss = self._compute_loss_exact(
+            document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device),
+            metrics_key='val_exact/document_redact_lexical'
+        )
         return doc_loss
 
     def setup(self, stage=None) -> None:
@@ -277,7 +286,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             return
         # Get dataloader by calling it - train_dataloader() is called after setup() by default
         train_loader = self.trainer.datamodule.train_dataloader()
-
         # Calculate total steps
         tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
         ab_size = self.trainer.accumulate_grad_batches * float(self.trainer.max_epochs)

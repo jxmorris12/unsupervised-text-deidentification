@@ -19,6 +19,7 @@ import torch
 
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
@@ -47,7 +48,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--loss_fn', type=str, default='exact',
         choices=('exact', 'nearest_neighbors', 'num_neighbors')
     )
-    parser.add_argument('--num_neighbors', type=int, default=512)\
+    parser.add_argument('--num_neighbors', type=int, default=512)
 
     args = parser.parse_args()
     args.dataset_name = 'wiki_bio'
@@ -93,7 +94,7 @@ def main(args: argparse.Namespace):
         )
     
     from pytorch_lightning.loggers import CSVLogger
-    # TODO set experiment name
+    # TODO set experiment name same as W&B run name?
     # TODO make this show up, I don't think it does 
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs", name="deid_exp"))

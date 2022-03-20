@@ -51,7 +51,7 @@ class WikipediaDataModule(LightningDataModule):
         # TODO: create a utility for loading this stuff
         # TODO: don't load similarities unless we're training with hard negatives
         # TODO: better nomenclature than 'hard negative'?
-        k = 128
+        k = 2048
         train_save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
         val_save_folder = os.path.join('precomputed_similarities', f'{self.dataset_name}__{val_split}__{k}')
@@ -161,7 +161,6 @@ class WikipediaDataModule(LightningDataModule):
             str text2 in the original training set. Used for matching to precomputed nearest neighbors.
 
         """
-        # Tokenize the text/text pairs
         document_features = self.tokenizer.batch_encode_plus(
             example_batch["document"],
             max_length=self.max_seq_length,
@@ -169,6 +168,23 @@ class WikipediaDataModule(LightningDataModule):
             truncation=True
         )
         document_features = { f'document_{k}': v for k,v in document_features.items() }
+
+        document_redact_ner_features = self.tokenizer.batch_encode_plus(
+            example_batch["document_redact_ner"],
+            max_length=self.max_seq_length,
+            padding=True,
+            truncation=True
+        )
+        document_redact_ner_features = { f'document_redact_ner_{k}': v for k,v in document_redact_ner_features.items() }
+
+        document_redact_lexical_features = self.tokenizer.batch_encode_plus(
+            example_batch["document_redact_lexical"],
+            max_length=self.max_seq_length,
+            padding=True,
+            truncation=True
+        )
+        document_redact_lexical_features = { f'document_redact_lexical_{k}': v for k,v in document_redact_lexical_features.items() }
+
         profile_features = self.tokenizer.batch_encode_plus(
             example_batch["profile"],
             max_length=self.max_seq_length,
@@ -176,10 +192,11 @@ class WikipediaDataModule(LightningDataModule):
             truncation=True
         )
         profile_features = { f'profile_{k}': v for k,v in profile_features.items() }
-        try:
-            ids_dict = {
-                "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
-            }
-        except KeyError:
-            breakpoint()
-        return (document_features | profile_features | ids_dict)
+        ids_dict = {
+            "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
+        }
+        # If the preceding line produces a KeyError, stored data in str_to_idx doesn't match the data
+        # that was just loaded from the dataset. Either str_to_idx refers to a different split or dataset,
+        # or it actually refers to a different version (i.e. it was precomputed with an older version of
+        # wiki_bio data).
+        return (document_features | document_redact_ner_features | document_redact_lexical_features | profile_features | ids_dict)
