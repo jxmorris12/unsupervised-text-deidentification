@@ -102,7 +102,7 @@ def main(args: argparse.Namespace):
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir="saves",
-        callbacks=[ModelCheckpoint(monitor="val_exact/loss")],
+        callbacks=[ModelCheckpoint(monitor="val_exact/document/loss")],
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
