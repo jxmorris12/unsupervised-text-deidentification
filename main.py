@@ -98,8 +98,9 @@ def main(args: argparse.Namespace):
     # TODO set experiment name same as W&B run name?
     # TODO make this show up, I don't think it does 
     # (maybe because I usually kill runs before they finish?).
-    loggers.append(CSVLogger("logs", name="deid_exp"))
+    loggers.append(CSVLogger("logs"))
 
+    # TODO: properly early stop with val metric that corresponds to args.redaction_strategy
     val_metric = "val_exact/document/loss"
     callbacks = [
         ModelCheckpoint(monitor=val_metric),

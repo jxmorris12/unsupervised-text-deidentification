@@ -29,6 +29,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
 
+    base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
+
     def __init__(
         self,
         model_name_or_path: str,
@@ -42,6 +44,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         eval_batch_size: int = 32,
         num_neighbors: int = 128,
         redaction_strategy = "",
+        base_folder = "",
         **kwargs,
     ):
         super().__init__()
@@ -68,17 +71,20 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.num_neighbors = num_neighbors
         k = 2048
         assert k >= self.num_neighbors # must have precomputed at least num_neighbors things
+        
+        self.base_folder = base_folder
 
         train_split = 'train[:10%]' # TODO: argparse for split/dataset?
-        train_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{train_split}__{k}')
+        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
         train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
         self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
         train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
 
+
         val_split = 'val[:20%]'
-        val_save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
+        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
         self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))
@@ -92,6 +98,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.hparams["num_neighbors"] = self.num_neighbors
 
     def forward(self, **inputs):
+        # TODO: refactor to do the 'last_hidden_state' and 
+        # apply self.lower_dim_embed here and here only.
         return self.document_model(**inputs)
 
     def _compute_loss_nn(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
