@@ -16,6 +16,13 @@ from utils import name_from_table_rows
 
 class WikipediaDataModule(LightningDataModule):
     str_to_idx: Dict[str, int]  # maps un-redacted profile text (string) to index in training set
+    dataset_name: str
+    max_seq_length: int
+    train_batch_size: int
+    eval_batch_size: int
+    num_workers: int
+    tokenizer: AutoTokenizer
+    redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
 
     def __init__(
         self,

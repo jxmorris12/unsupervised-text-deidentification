@@ -19,7 +19,7 @@ import torch
 
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
@@ -77,6 +77,7 @@ def main(args: argparse.Namespace):
         learning_rate=args.learning_rate,
         loss_fn=args.loss_fn,
         num_neighbors=args.num_neighbors,
+        redaction_strategy=args.redaction_strategy,
     )
 
     loggers = []
@@ -99,10 +100,16 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs", name="deid_exp"))
 
+    val_metric = "val_exact/document/loss"
+    callbacks = [
+        ModelCheckpoint(monitor=val_metric),
+        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=3, verbose=False, mode="min")
+    ]
+
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir="saves",
-        callbacks=[ModelCheckpoint(monitor="val_exact/document/loss")],
+        callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
