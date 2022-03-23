@@ -21,7 +21,7 @@ from model import DocumentProfileMatchingTransformer
 
 checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/deid-wikibio_deid_exp/okpvvffw_46/checkpoints/epoch=7-step=1823.ckpt"
 model = DocumentProfileMatchingTransformer.load_from_checkpoint(
-    checkpoint_path
+    checkpoint_path,
     dataset_name='wiki_bio',
     model_name_or_path='distilbert-base-uncased',
     num_workers=1,
@@ -173,6 +173,7 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
         self.model = model
         self.tokenizer = tokenizer
         self.profile_embeddings = torch.tensor(model.val_embeddings)
+        breakpoint()
         self.max_seq_length = max_seq_length
                  
     def to(self, device):
@@ -285,35 +286,9 @@ from textattack.constraints.pre_transformation import RepeatModification
 model_wrapper = MyModelWrapper(model, dm.tokenizer)
 model_wrapper.to('cuda')
 
-goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=10)
 constraints = [RepeatModification()]
 transformation = WordSwapSingleWord(single_word='[MASK]')
 search_method = textattack.search_methods.GreedyWordSwapWIR()
-
-attack = Attack(
-    goal_function, constraints, transformation, search_method
-)
-
-
-# In[108]:
-
-
-# 
-#  Initialize attack
-# 
-from tqdm import tqdm # tqdm provides us a nice progress bar.
-from textattack.attack_results import SuccessfulAttackResult
-from textattack import Attacker
-from textattack import AttackArgs
-
-attack_args = AttackArgs(num_examples=25, disable_stdout=True)
-dataset = WikiDataset(dm)
-
-attacker = Attacker(attack, dataset, attack_args)
-
-results_iterable = attacker.attack_dataset()
-
-logger = CustomCSVLogger(color_method='html')
 
 
 # ## 4. Run attack in loop and make plot for multiple values of $\epsilon$
@@ -331,9 +306,9 @@ from textattack import AttackArgs
 dataset = WikiDataset(dm)
 
 meta_results = []
-max_k = 5
-total_num_examples = 10
-for k in range(0, max_k):
+max_k = 50
+total_num_examples = 1000
+for k in range(1, max_k):
     print(f'***Attacking with k={k}***')
     dataset = WikiDataset(dm)
     goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k)
@@ -353,7 +328,7 @@ for k in range(0, max_k):
     meta_results.append( (k,  logger.df['result_type'].value_counts().get('Successful', 0),  logger.df['result_type'].value_counts().get('Failed', 0) ) )
 
 import pandas as pd
-meta_df = pd.DataFrame(meta_results, columns=['k', 'Successes', 'Failures']).head()
+meta_df = pd.DataFrame(meta_results, columns=['k', 'Successes', 'Failures'])
 meta_df.to_csv(f'meta_df_{max_k}_{total_num_examples}.csv')
 
 
