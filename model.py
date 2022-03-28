@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import os
 import pickle
@@ -8,7 +8,7 @@ import torch
 
 from pytorch_lightning import LightningModule
 from sentence_transformers import SentenceTransformer
-from transformers import AdamW, AutoConfig, AutoModel
+from transformers import AdamW, AutoConfig, AutoModel, AutoTokenizer
 
 
 # TODO: make a better name for this class...
@@ -24,6 +24,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
                                 # example: (58266, 128) 
 
     num_neighbors: int          # number of neighbors to use per datapoint (only for 'nearest_neighbors' loss)
+
+    max_seq_length: int
 
     loss_fn: str                # one of ['nearest_neighbors', 'infonce', 'exact']
 
@@ -43,6 +45,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_neighbors: int = 128,
+        max_seq_length: int = 128,
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
@@ -51,6 +54,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.save_hyperparameters()
         self.dataset_name = dataset_name
         self.document_model = AutoModel.from_pretrained(model_name_or_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
         self.lower_dim_embed = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),
             torch.nn.Linear(in_features=768, out_features=384),
@@ -82,6 +86,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
 
+        self.max_seq_length = max_seq_length
 
         val_split = 'val[:20%]'
         val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
@@ -97,10 +102,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.hparams["len_val_embeddings"] = len(self.val_embeddings)
         self.hparams["num_neighbors"] = self.num_neighbors
 
-    def forward(self, **inputs):
-        # TODO: refactor to do the 'last_hidden_state' and 
-        # apply self.lower_dim_embed here and here only.
-        return self.document_model(**inputs)
+    def forward_text(self, text: List[str]):
+        inputs = self.tokenizer.batch_encode_plus(
+            text,
+            max_length=self.max_seq_length,
+            padding=True,
+            truncation=True,
+            return_tensors='pt',
+        )
+        inputs = {k: v.to(self.device) for k,v in inputs.items()}
+        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
+        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
+        document_embeddings = self.lower_dim_embed(document_embeddings)         # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        return document_embeddings
 
     def _compute_loss_nn(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
         metrics_key: str) -> torch.Tensor:
@@ -220,24 +234,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         if self.redaction_strategy == "":
-            document_embeddings = self.document_model(
-                input_ids=batch['document_input_ids'],
-                attention_mask=batch['document_attention_mask']
+            document_embeddings = self.forward_text(
+                text=batch['document'],
             )
         elif self.redaction_strategy == "spacy_ner":
-            document_embeddings = self.document_model(
-                input_ids=batch['document_redact_ner_input_ids'],
-                attention_mask=batch['document_redact_ner_attention_mask']
+            document_embeddings = self.forward_text(
+                text=batch['document_redact_ner'],
             )
         elif self.redaction_strategy == "lexical":
-            document_embeddings = self.document_model(
-                input_ids=batch['document_redact_lexical_input_ids'],
-                attention_mask=batch['document_redact_lexical_attention_mask']
+            document_embeddings = self.forward_text(
+                text=batch['document_redact_lexical'],
             )
         else:
             raise Exception(f"unknown redaction strategy {self.redaction_strategy}")
-        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_embeddings = self.lower_dim_embed(document_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
 
         if self.loss_fn == 'nearest_neighbors':
             profile_embeddings = self._get_nn_profile_embeddings(batch['text_key_id'].cpu())
@@ -257,28 +266,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         # Document embeddings (original document)
-        document_embeddings = self.document_model(
-            input_ids=batch['document_input_ids'],
-            attention_mask=batch['document_attention_mask']
+        document_embeddings = self.forward_text(
+            text=batch['document'],
         )
-        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_embeddings = self.lower_dim_embed(document_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
 
         # Document embeddings (original document)
-        document_redact_ner_embeddings = self.document_model(
-            input_ids=batch['document_redact_ner_input_ids'],
-            attention_mask=batch['document_redact_ner_attention_mask']
+        document_redact_ner_embeddings = self.forward_text(
+            text=batch['document_redact_ner']
         )
-        document_redact_ner_embeddings = document_redact_ner_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_redact_ner_embeddings = self.lower_dim_embed(document_redact_ner_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
 
         # Document embeddings (original document)
-        document_redact_lexical_embeddings = self.document_model(
-            input_ids=batch['document_redact_lexical_input_ids'],
-            attention_mask=batch['document_redact_lexical_attention_mask']
+        document_redact_lexical_embeddings = self.forward_text(
+            text=batch['document_redact_lexical'],
         )
-        document_redact_lexical_embeddings = document_redact_lexical_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_redact_lexical_embeddings = self.lower_dim_embed(document_redact_lexical_embeddings) # (batch, document_emb_dim) -> (batch, prof_emb_dim)
 
         return {
             "document_embeddings": document_embeddings,
