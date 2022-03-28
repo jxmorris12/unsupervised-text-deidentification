@@ -1,5 +1,7 @@
 from typing import List, Tuple
 
+import re
+
 
 def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
     """Finds row in wikipedia infobox by a key
@@ -21,3 +23,7 @@ def name_from_table_rows(table_rows: List[str]) -> str:
     name = row[1]
     # capitalize name and return
     return ' '.join((word.capitalize() for word in name.split()))
+
+words_from_text_re = re.compile(r'\b\w+\b')
+def words_from_text(s: str):
+    return words_from_text_re.findall(s)
