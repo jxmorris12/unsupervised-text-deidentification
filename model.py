@@ -2,6 +2,8 @@ from typing import Dict, List, Optional
 
 import os
 import pickle
+import random
+import re
 
 import numpy as np
 import torch
@@ -10,6 +12,8 @@ from pytorch_lightning import LightningModule
 from sentence_transformers import SentenceTransformer
 from transformers import AdamW, AutoConfig, AutoModel, AutoTokenizer
 
+from utils import words_from_text
+
 
 # TODO: make a better name for this class...
 class DocumentProfileMatchingTransformer(LightningModule):
@@ -17,8 +21,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
     to create 'hard negatives' to get similarity.
     """
     train_embeddings: np.ndarray      # float ndarray, shape (train_set_len, prof_emb_dim) 
-                                # example: (58266, 384)
-                                # -- for wiki_bio['train:10%'] and sentence-transformers/paraphrase-MiniLM-L6-v2 encoding,
+                                        # example: (58266, 384)
+                                        # -- for wiki_bio['train:10%'] and sentence-transformers/paraphrase-MiniLM-L6-v2 encoding,
 
     train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
                                 # example: (58266, 128) 
@@ -26,6 +30,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
     num_neighbors: int          # number of neighbors to use per datapoint (only for 'nearest_neighbors' loss)
 
     max_seq_length: int
+
+    word_dropout_ratio: float    # Percentage of the time to do word dropout
+    word_dropout_perc: float     # Percentage of words to replace with mask token
+    word_dropout_mask_token: str # mask token
 
     loss_fn: str                # one of ['nearest_neighbors', 'infonce', 'exact']
 
@@ -46,6 +54,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
         eval_batch_size: int = 32,
         num_neighbors: int = 128,
         max_seq_length: int = 128,
+        word_dropout_ratio: float = 0.0,
+        word_dropout_perc: float = 0.0,
+        word_dropout_mask_token: str = '[MASK]',
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
@@ -67,7 +78,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         
         assert loss_fn in ['nearest_neighbors', 'infonce', 'exact'], f'invalid loss function {loss_fn}'
         self.loss_fn = loss_fn
-
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
 
@@ -75,7 +85,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.num_neighbors = num_neighbors
         k = 2048
         assert k >= self.num_neighbors # must have precomputed at least num_neighbors things
-        
         self.base_folder = base_folder
 
         train_split = 'train[:10%]' # TODO: argparse for split/dataset?
@@ -85,7 +94,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
         train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
-
         self.max_seq_length = max_seq_length
 
         val_split = 'val[:20%]'
@@ -94,6 +102,17 @@ class DocumentProfileMatchingTransformer(LightningModule):
         val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
         self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
+
+        self.word_dropout_ratio = word_dropout_ratio
+        self.word_dropout_perc = word_dropout_perc
+        self.word_dropout_mask_token = self.tokenizer.mask_token
+
+        if self.word_dropout_ratio:
+            print('[*] Word dropout hyperparameters:', 
+                'ratio:', self.word_dropout_ratio, '/',
+                'percentage:', self.word_dropout_perc, '/',
+                'token:', self.word_dropout_mask_token
+            )
         
         # TODO make these things show up in W&B.
         self.hparams["train_split"] = train_split
@@ -101,8 +120,28 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.hparams["len_train_embeddings"] = len(self.train_embeddings)
         self.hparams["len_val_embeddings"] = len(self.val_embeddings)
         self.hparams["num_neighbors"] = self.num_neighbors
+    
+    def word_dropout_text(self, text: List[str]):
+        """Apply word dropout to text input."""
+        # TODO: implement this in dataloader to take advantage of multiprocessing
+        if random.random() > self.word_dropout_ratio:
+            # Don't do dropout this % of the time
+            return text
+        for i in range(len(text)):
+            for w in words_from_text(text[i]):
+                if random.random() < self.word_dropout_perc:
+                    text[i] = re.sub(
+                        (r'\b{}\b').format(w),
+                        self.word_dropout_mask_token, text[i], 1
+                    )
+        return text
+        
+
 
     def forward_text(self, text: List[str]):
+        if self.training:
+            text = self.word_dropout_text(text)
+
         inputs = self.tokenizer.batch_encode_plus(
             text,
             max_length=self.max_seq_length,

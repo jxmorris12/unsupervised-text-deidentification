@@ -49,6 +49,10 @@ def get_args() -> argparse.Namespace:
         choices=('exact', 'nearest_neighbors', 'num_neighbors')
     )
     parser.add_argument('--num_neighbors', type=int, default=512)
+    parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
+        help='percentage of the time to apply word dropout')
+    parser.add_argument('--word_dropout_perc', type=float, default=0.5,
+        help='when word dropout is applied, percentage of words to apply it to')
 
     args = parser.parse_args()
     args.dataset_name = 'wiki_bio'
@@ -79,6 +83,8 @@ def main(args: argparse.Namespace):
         loss_fn=args.loss_fn,
         num_neighbors=args.num_neighbors,
         redaction_strategy=args.redaction_strategy,
+        word_dropout_ratio=args.word_dropout_ratio,
+        word_dropout_perc=args.word_dropout_perc,
     )
 
     loggers = []
