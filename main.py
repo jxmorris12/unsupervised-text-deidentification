@@ -75,6 +75,7 @@ def main(args: argparse.Namespace):
         model_name_or_path=args.model_name,
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
+        max_seq_length=args.max_seq_length,
         loss_fn=args.loss_fn,
         num_neighbors=args.num_neighbors,
         redaction_strategy=args.redaction_strategy,
