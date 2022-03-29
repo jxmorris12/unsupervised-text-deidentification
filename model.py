@@ -141,7 +141,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def forward_text(self, text: List[str]):
         if self.training:
             text = self.word_dropout_text(text)
-
         inputs = self.tokenizer.batch_encode_plus(
             text,
             max_length=self.max_seq_length,
@@ -286,6 +285,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             )
         else:
             raise Exception(f"unknown redaction strategy {self.redaction_strategy}")
+        self.log("temperature", self.temperature.exp())
 
         if self.loss_fn == 'nearest_neighbors':
             profile_embeddings = self._get_nn_profile_embeddings(batch['text_key_id'].cpu())
@@ -309,12 +309,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             text=batch['document'],
         )
 
-        # Document embeddings (original document)
+        # Document embeddings (redacted document - NER)
         document_redact_ner_embeddings = self.forward_text(
             text=batch['document_redact_ner']
         )
 
-        # Document embeddings (original document)
+        # Document embeddings (redacted document - lexical overlap)
         document_redact_lexical_embeddings = self.forward_text(
             text=batch['document_redact_lexical'],
         )

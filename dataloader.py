@@ -38,14 +38,13 @@ class WikipediaDataModule(LightningDataModule):
         **kwargs,
     ):
         super().__init__()
-        self.model_name_or_path = model_name_or_path
         assert dataset_name == "wiki_bio"
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
         self.dataset_name = dataset_name
         self.max_seq_length = max_seq_length
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers}')
@@ -105,13 +104,13 @@ class WikipediaDataModule(LightningDataModule):
             example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
             return example
 
-        lexical_redact_func = remove_overlapping_words
+        lexical_redact_func = functools.partial(remove_overlapping_words, mask_token=self.tokenizer.mask_token, case_sensitive=False)
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
 
-        ner_redact_func = lambda t1, t2: remove_named_entities_spacy_batch(t1)
+        ner_redact_func = lambda t1, t2: remove_named_entities_spacy_batch(t1, mask_token=self.tokenizer.mask_token)
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True)
@@ -145,9 +144,8 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset.set_format(type=None, columns=self.columns)
 
     def prepare_data(self) -> None:
-        # automatically download dataset & tokenizer
+        # automatically download dataset
         datasets.load_dataset(self.dataset_name)
-        AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -167,7 +165,7 @@ class WikipediaDataModule(LightningDataModule):
     def convert_to_features(self, example_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Tokenizes `example_batch`, which includes 'document' and 'profile' as keys.
         
-        includes `profile_ids` column, which includes the IDs (indices) of each
+        includes `text_key_id` column, which includes the IDs (indices) of each
             str text2 in the original training set. Used for matching to precomputed nearest neighbors.
 
         """

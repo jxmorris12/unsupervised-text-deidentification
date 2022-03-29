@@ -40,8 +40,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--epochs', type=int, default=8)
     parser.add_argument('--model_name', type=str, default='distilbert-base-uncased')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--max_seq_length', type=int, default=64)
-    parser.add_argument('--learning_rate', type=float, default=2e-4)
+    parser.add_argument('--max_seq_length', type=int, default=128)
+    parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--redaction_strategy', type=str, default='',
         choices=('spacy_ner', 'lexical', '')
     )
