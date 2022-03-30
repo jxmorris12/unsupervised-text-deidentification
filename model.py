@@ -357,7 +357,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device),
             metrics_key='val_exact/document_redact_lexical'
         )
-        self.log("learning_rate", )
         return doc_loss
 
     def setup(self, stage=None) -> None:
@@ -381,7 +380,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
             patience=self.lr_scheduler_patience,
             min_lr=1e-8
         )
+        # see source:
+        # pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html?highlight=optimizer_step#optimizer-step
         scheduler = {
-            "scheduler": scheduler), "monitor": "val_exact/document/loss"
+            "scheduler": scheduler,
+            "monitor": "val_exact/document/loss",
+            "name": "learning_rate",
         }
         return [optimizer], [scheduler]

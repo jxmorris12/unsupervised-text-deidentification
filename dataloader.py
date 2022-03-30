@@ -17,7 +17,6 @@ from utils import name_from_table_rows
 class WikipediaDataModule(LightningDataModule):
     str_to_idx: Dict[str, int]  # maps un-redacted profile text (string) to index in training set
     dataset_name: str
-    max_seq_length: int
     train_batch_size: int
     eval_batch_size: int
     num_workers: int
@@ -29,7 +28,6 @@ class WikipediaDataModule(LightningDataModule):
         self,
         model_name_or_path: str,
         dataset_name: str = "wiki_bio",
-        max_seq_length: int = 128,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
@@ -41,7 +39,6 @@ class WikipediaDataModule(LightningDataModule):
         assert dataset_name == "wiki_bio"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
         self.dataset_name = dataset_name
-        self.max_seq_length = max_seq_length
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
