@@ -20,7 +20,7 @@ import torch
 
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
@@ -75,7 +75,6 @@ def main(args: argparse.Namespace):
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        max_seq_length=args.max_seq_length,
         redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
@@ -101,9 +100,9 @@ def main(args: argparse.Namespace):
     # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
     exp_name = f'{args.model_name}_{day}'
     if args.redaction_strategy:
-        exp_name += f'_redact{args.redaction_strategy}
+        exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
-        exp_name += f'_dropout{args.word_dropout_ratio}'
+        exp_name += f'__dropout_{args.word_dropout_ratio}'
 
     if USE_WANDB:
         import wandb
