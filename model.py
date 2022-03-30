@@ -25,7 +25,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
                                         # -- for wiki_bio['train:10%'] and sentence-transformers/paraphrase-MiniLM-L6-v2 encoding,
 
     train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
-                                # example: (58266, 128) 
+                                        # example: (58266, 128) 
 
     num_neighbors: int          # number of neighbors to use per datapoint (only for 'nearest_neighbors' loss)
 
@@ -41,12 +41,18 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
 
+    learning_rate: float
+    lr_scheduler_factor: float
+    lr_scheduler_patience: int
+
     def __init__(
         self,
         model_name_or_path: str,
         dataset_name: str,
         loss_fn: str = 'exact',
         learning_rate: float = 2e-5,
+        lr_scheduler_factor: float = 0.5,
+        lr_scheduler_patience: int = 3,
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
         weight_decay: float = 0.0,
@@ -115,6 +121,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
             )
         
         # TODO make these things show up in W&B.
+        self.learning_rate = learning_rate
+        self.lr_scheduler_factor = lr_scheduler_factor
+        self.lr_scheduler_patience = lr_scheduler_patience
         self.hparams["train_split"] = train_split
         self.hparams["val_split"] = val_split
         self.hparams["len_train_embeddings"] = len(self.train_embeddings)
@@ -348,6 +357,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device),
             metrics_key='val_exact/document_redact_lexical'
         )
+        self.log("learning_rate", )
         return doc_loss
 
     def setup(self, stage=None) -> None:
@@ -363,12 +373,15 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
-        optimizer = AdamW(self.document_model.parameters(), lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
-        return optimizer
-        # scheduler = get_linear_schedule_with_warmup(
-        #     optimizer,
-        #     num_warmup_steps=self.hparams.warmup_steps,
-        #     num_training_steps=self.total_steps,
-        # )
-        # scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        # return [optimizer], [scheduler]
+        optimizer = AdamW(
+            self.document_model.parameters(), lr=self.learning_rate, eps=self.hparams.adam_epsilon)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min',
+            factor=self.lr_scheduler_factor,
+            patience=self.lr_scheduler_patience,
+            min_lr=1e-8
+        )
+        scheduler = {
+            "scheduler": scheduler), "monitor": "val_exact/document/loss"
+        }
+        return [optimizer], [scheduler]

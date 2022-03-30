@@ -81,6 +81,8 @@ class WikipediaDataModule(LightningDataModule):
             >>> ex['input_text']
             {'table': {'column_header': ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 'row_number': [1, 1, 1, 1, 1], 'content': ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']}, 'context': 'walter extra\n'}
             """
+            # replace weird textual artifacts: -lrb- with ( and -rrb- with )
+            fixed_target_text = ex['target_text'].replace('-lrb- ', '(').replace(' -rrb-', ')')
             # transform table to str
             table_info = ex['input_text']['table']
             table_rows = list(zip(
@@ -91,8 +93,8 @@ class WikipediaDataModule(LightningDataModule):
             # return example: transformed table + first paragraph
             return {
                 'name': name_from_table_rows(table_rows),
-                'document': ex['target_text'],          # First paragraph of biography
-                'profile': table_text,                  # Table re-printed as a string
+                'document': fixed_target_text,          # First paragraph of biography
+                'profile': table_text,             # Table re-printed as a string
                 'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
             }
 

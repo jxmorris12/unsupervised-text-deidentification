@@ -13,6 +13,7 @@ from typing import List, Tuple, Union
 
 import argparse
 import os
+import time
 
 import numpy as np
 import torch
@@ -53,6 +54,11 @@ def get_args() -> argparse.Namespace:
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
+    
+    parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
+        help='factor to decrease learning rate by on drop')
+    parser.add_argument('--lr_scheduler_patience', type=int, default=3,
+    help='factor to decrease learning rate by on drop [unit: epochs]')
 
     args = parser.parse_args()
     args.dataset_name = 'wiki_bio'
@@ -85,15 +91,26 @@ def main(args: argparse.Namespace):
         redaction_strategy=args.redaction_strategy,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
+        lr_scheduler_factor=args.lr_scheduler_factor,
+        lr_scheduler_patience=args.lr_scheduler_patience,
     )
 
     loggers = []
+
+    day = time.strftime(f'%Y-%m-%d-%H%M')
+    # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
+    exp_name = f'{args.model_name}_{day}'
+    if args.redaction_strategy:
+        exp_name += f'_redact{args.redaction_strategy}
+    if args.word_dropout_ratio:
+        exp_name += f'_dropout{args.word_dropout_ratio}'
 
     if USE_WANDB:
         import wandb
         from pytorch_lightning.loggers import WandbLogger
         loggers.append(
             WandbLogger(
+                name=exp_name,
                 project='deid-wikibio', 
                 config=vars(args),
                 job_type='train',
@@ -110,13 +127,14 @@ def main(args: argparse.Namespace):
     # TODO: properly early stop with val metric that corresponds to args.redaction_strategy
     val_metric = "val_exact/document/loss"
     callbacks = [
+        LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(monitor=val_metric),
-        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=3, verbose=False, mode="min")
+        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=5, verbose=False, mode="min")
     ]
 
     print("creating Trainer")
     trainer = Trainer(
-        default_root_dir="saves",
+        default_root_dir=f"saves/{exp_name}",
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
