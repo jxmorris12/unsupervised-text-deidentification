@@ -21,6 +21,7 @@ class WikipediaDataModule(LightningDataModule):
     eval_batch_size: int
     num_workers: int
     tokenizer: AutoTokenizer
+    profile_encoder_name: str # like ['tapas', 'st-paraphrase']
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
     base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
 
@@ -31,6 +32,7 @@ class WikipediaDataModule(LightningDataModule):
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
+        profile_encoder_name = "tapas",
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
@@ -43,6 +45,7 @@ class WikipediaDataModule(LightningDataModule):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
+        self.profile_encoder_name = profile_encoder_name
         self.redaction_strategy = redaction_strategy
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers}')
         self.base_folder = base_folder
@@ -58,9 +61,9 @@ class WikipediaDataModule(LightningDataModule):
         # TODO: don't load similarities unless we're training with hard negatives
         # TODO: better nomenclature than 'hard negative'?
         k = 2048
-        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{self.dataset_name}__{train_split}__{k}')
+        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{self.dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
-        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{self.dataset_name}__{val_split}__{k}')
+        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{self.dataset_name}__{val_split}__{k}')
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         train_str_to_idx_path = os.path.join(train_save_folder, 'str_to_idx.p') 
         val_str_to_idx_path = os.path.join(val_save_folder, 'str_to_idx.p') 

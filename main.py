@@ -54,6 +54,10 @@ def get_args() -> argparse.Namespace:
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
+    parser.add_argument('--profile_encoder_name', '--profile_encoder', type=str,
+        default='tapas', choices=('tapas', 'st-paraphrase'),
+        help='profile encoder to use'
+    )
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
@@ -72,6 +76,7 @@ def main(args: argparse.Namespace):
     dm = WikipediaDataModule(
         model_name_or_path=args.model_name,
         dataset_name=args.dataset_name,
+        profile_encoder_name=args.profile_encoder_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -80,8 +85,9 @@ def main(args: argparse.Namespace):
     dm.setup("fit")
     
     model = DocumentProfileMatchingTransformer(
-        dataset_name=args.dataset_name,
         model_name_or_path=args.model_name,
+        dataset_name=args.dataset_name,
+        profile_encoder_name=args.profile_encoder_name,
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
         max_seq_length=args.max_seq_length,
