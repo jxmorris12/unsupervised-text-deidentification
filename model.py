@@ -75,9 +75,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.document_model = AutoModel.from_pretrained(model_name_or_path)
         self.profile_encoder_name = profile_encoder_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+
+        profile_emb_dim = {
+            'tapas': 768,
+            'st-paraphrase': 384,
+        }[profile_encoder_name]
         self.lower_dim_embed = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),
-            torch.nn.Linear(in_features=768, out_features=384),
+            torch.nn.Linear(in_features=768, out_features=profile_emb_dim),
             # (769 + 1) * 384 = 295,680 parameters
             # TODO: different options for this, or less dropout?
             # TODO: make these numbers a feature of model/embedding type
@@ -97,7 +102,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.base_folder = base_folder
 
         train_split = 'train[:10%]' # TODO: argparse for split/dataset?
-        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{dataset_name}__{train_split}__{k}')
+        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
         train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
         self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
@@ -106,7 +111,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.max_seq_length = max_seq_length
 
         val_split = 'val[:20%]'
-        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', f'{dataset_name}__{val_split}__{k}')
+        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{dataset_name}__{val_split}__{k}')
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
         self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))

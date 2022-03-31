@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, List
 
 import os
 import re
@@ -26,10 +26,10 @@ def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
         IN: Conjunction, subordinating or preposition.
     """
     doc = nlp(x)
-    new_tokens = [t.text_with_ws if not t.ent_type_ else ("[MASK]" + t.whitespace_) for t in doc]
+    new_tokens = [t.text_with_ws if not t.ent_type_ else (mask_token + t.whitespace_) for t in doc]
     return "".join(new_tokens)
 
-def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> str:
+def remove_named_entities_spacy_batch(x_list: List[str], _ignore_arg: Any, mask_token: str = "[MASK]") -> str:
     """
     Replaces named entities in each `x` from `x_list` with `mask_token`.
         Utilizes batching from spacy library via `nlp.pipe()`.
@@ -44,7 +44,7 @@ def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MAS
     """
     docs = nlp.pipe(x_list, n_process=num_cpus)
     new_tokens_list = [
-        [t.text_with_ws if not t.ent_type_ else ("[MASK]" + t.whitespace_) for t in doc]
+        [t.text_with_ws if not t.ent_type_ else (mask_token + t.whitespace_) for t in doc]
         for doc in docs
     ]
     return ["".join(new_tokens) for new_tokens in new_tokens_list]
