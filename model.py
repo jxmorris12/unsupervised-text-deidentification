@@ -37,6 +37,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     loss_fn: str                # one of ['nearest_neighbors', 'infonce', 'exact']
 
+    profile_encoder_name: str # like ['tapas', 'st-paraphrase']
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
 
     base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
@@ -63,6 +64,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
         word_dropout_mask_token: str = '[MASK]',
+        profile_encoder_name = "tapas",
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
@@ -71,6 +73,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.save_hyperparameters()
         self.dataset_name = dataset_name
         self.document_model = AutoModel.from_pretrained(model_name_or_path)
+        self.profile_encoder_name = profile_encoder_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
         self.lower_dim_embed = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),

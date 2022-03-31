@@ -1,5 +1,6 @@
-## compute similarity between wiki_bio training examples
-## we will use for a q
+## compute embeddings and similarities between wiki_bio training examples
+
+from typing import Dict, List
 
 import argparse
 import os
@@ -7,11 +8,20 @@ import pathlib
 import pickle
 
 import datasets
+import numpy as np
+import pandas as pd
 import scipy
 import scipy.spatial
 import tqdm
+import torch
+import transformers
 
 from sentence_transformers import SentenceTransformer
+
+# hide warning:
+# TAPAS is a question answering model but you have not passed a query. Please be aware that the model will probably not behave correctly.
+from transformers.utils import logging as transformers_logging
+transformers_logging.set_verbosity_error()
 
 def map_ex(ex):
     """
@@ -33,6 +43,49 @@ def map_ex(ex):
     # <First paragraph of biography> + ' ' + <Table re-printed as a string>
     return { 'text': ex['target_text'] + ' ' + table_text }
 
+def tapas_embeddings_from_dataset(dataset: datasets.Dataset) -> np.ndarray:
+    """
+    ex['input_text']: {
+        'context': 'walter extra\n',
+        'table': {'column_header': ['name',
+                             'nationality',
+                             'birth_date',
+                             'article_title',
+                             'occupation'],
+        'content': ['walter extra',
+                       'german',
+                       '1954',
+                       'walter extra\n',
+                       'aircraft designer and manufacturer'],
+        'row_number': [1, 1, 1, 1, 1]}
+    }
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def map_ex_to_df(ex: Dict) -> pd.DataFrame:
+        table = ex['input_text']['table']
+        return pd.DataFrame(columns=table['column_header'], data=[table['content']])
+    tokenizer = transformers.TapasTokenizer.from_pretrained("google/tapas-base")
+    model = transformers.TapasModel.from_pretrained("google/tapas-base")
+    model.to(device)
+    print('[1/2] generating dataframes')
+    dataframes = [map_ex_to_df(ex) for ex in tqdm.tqdm(dataset, desc='creating dataframes', colour='#32cd32')]
+    encodings = []
+    print('[2/2] embedding dataframes')
+    for df in tqdm.tqdm(dataframes, desc='embedding dataframes with tapas', colour='#ffc0cb'):
+        inputs = tokenizer(
+            table=df,
+            padding="max_length",
+            return_tensors="pt"
+        )
+        inputs = {k: v.to(device) for k,v in inputs.items()}
+        with torch.no_grad():
+            output = model(**inputs)
+        
+        encodings.append(output.pooler_output.squeeze(dim=0).cpu())
+    return torch.stack(encodings, dim=0).numpy()
+
+
+
 def parse_args() -> argparse.Namespace():
     parser = argparse.ArgumentParser(
         description='precompute similarity matrix.',
@@ -40,23 +93,33 @@ def parse_args() -> argparse.Namespace():
     )
     parser.add_argument('--k', type=int, default=2048, help='number of nearest-neighbors to use')
     parser.add_argument('--dataset_name', '--dataset', type=str, default='wiki_bio', help='dataset to use')
+    parser.add_argument('--encoder', '--profile_encoder', type=str, default='tapas', choices=('tapas', 'st-paraphrase'), help='profile encoder to use')
     parser.add_argument('--split', type=str, default='train[:10%]', help='split to use, from dataset')
     return parser.parse_args()
+
 
 def main(args: argparse.Namespace):
     dataset_name = args.dataset_name
     split = args.split
     k = args.k
-    save_folder = os.path.join('precomputed_similarities', f'{dataset_name}__{split}__{k}')
+    save_folder = os.path.join('precomputed_similarities', args.encoder, f'{dataset_name}__{split}__{k}')
     pathlib.Path(save_folder).mkdir(exist_ok=True, parents=True)
     # get data
     data = datasets.load_dataset(dataset_name, split=split)
-    sentences = data.map(map_ex)['text']
+    sentence_keys = data.map(map_ex)['text']
 
     # embed data
-    print(f'Getting embeddings for {len(sentences)} sentences...')
-    model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
-    embeddings = model.encode(sentences)
+    print(f'Getting embeddings for {len(sentence_keys)} wikipedia article infoboxes...')
+
+
+    if args.encoder == 'tapas':
+        embeddings = tapas_embeddings_from_dataset(data)
+    elif args.encoder == 'st-paraphrase':
+        model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+        embeddings = model.encode(sentence_keys)
+        # dimensionality: 768
+    else:
+        raise ValueError(f'unknown encoder: {args.encoder}')
 
     print('embeddings shape:', embeddings.shape)
 
@@ -68,12 +131,12 @@ def main(args: argparse.Namespace):
     neighbors = []
     print('Getting nearest neighbors...')
     # process k neighbors for each thing
-    for idx in tqdm.trange(len(embeddings), desc='Getting nearest neighbors', colour='teal'):
+    for idx in tqdm.trange(len(embeddings), desc='Getting nearest neighbors', colour='#008080'):
         # example result of query(embeddings[0], k=3): 
         #       (array([0.        , 3.30052274, 3.31010842]), array([  0, 655, 617]))
         dists, neighbor_idxs = tree.query(embeddings[idx], k=k)
         neighbors.append(neighbor_idxs)
-        str_to_idx[sentences[idx]] = idx
+        str_to_idx[sentence_keys[idx]] = idx
 
     # store hashed example indices + nearest neighbor matrix
     str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
