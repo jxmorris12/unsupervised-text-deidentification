@@ -106,13 +106,16 @@ class WikipediaDataModule(LightningDataModule):
             example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
             return example
 
-        lexical_redact_func = functools.partial(remove_overlapping_words, mask_token=self.tokenizer.mask_token, case_sensitive=False)
+        lexical_redact_func = functools.partial(
+            remove_overlapping_words, mask_token=self.tokenizer.mask_token, case_sensitive=False)
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
 
-        ner_redact_func = lambda t1, t2: remove_named_entities_spacy_batch(t1, mask_token=self.tokenizer.mask_token)
+        ner_redact_func = functools.partial(
+            remove_named_entities_spacy_batch, mask_token=self.tokenizer.mask_token
+        )
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True)
