@@ -23,6 +23,9 @@ from sentence_transformers import SentenceTransformer
 from transformers.utils import logging as transformers_logging
 transformers_logging.set_verbosity_error()
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def map_ex(ex):
     """
     transforms wiki_bio example into a single str
@@ -70,7 +73,6 @@ def tapas_embeddings_from_dataset(dataset: datasets.Dataset) -> np.ndarray:
         'row_number': [1, 1, 1, 1, 1]}
     }
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     def map_ex_to_df(ex: Dict) -> pd.DataFrame:
         table = ex['input_text']['table']
         return pd.DataFrame(columns=table['column_header'], data=[table['content']])
@@ -105,6 +107,8 @@ def parse_args() -> argparse.Namespace():
     parser.add_argument('--dataset_name', '--dataset', type=str, default='wiki_bio', help='dataset to use')
     parser.add_argument('--encoder', '--profile_encoder', type=str, default='tapas', choices=('tapas', 'st-paraphrase'), help='profile encoder to use')
     parser.add_argument('--split', type=str, default='train[:10%]', help='split to use, from dataset')
+    parser.add_argument('--compute_neighbors', default=False,
+        action='store_true', help='compute nearest-neighbors')
     return parser.parse_args()
 
 
@@ -125,7 +129,7 @@ def main(args: argparse.Namespace):
     if args.encoder == 'tapas':
         embeddings = tapas_embeddings_from_dataset(data)
     elif args.encoder == 'st-paraphrase':
-        model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+        model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2').to(device)
         embeddings = model.encode(sentence_keys)
         # dimensionality: 768
     else:
@@ -136,17 +140,21 @@ def main(args: argparse.Namespace):
     pickle.dump(embeddings, open(embeddings_path, 'wb'))
 
     # process k neighbors for each thing
-    for idx in len(embeddings):
+    print('creating str_to_idx')
+    str_to_idx = {}
+    for idx in range(len(embeddings)):
         str_to_idx[sentence_keys[idx]] = idx
 
     str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
     pickle.dump(str_to_idx, open(str_to_idx_path, 'wb'))
 
+    if not args.compute_neighbors:
+        print('Not computing neighbors, exiting early')
+
     # put data in tree
     print('Building KDTree...')
     tree = scipy.spatial.cKDTree(embeddings)
 
-    str_to_idx = {}
     neighbors = []
     print('Getting nearest neighbors...')
     # process k neighbors for each thing

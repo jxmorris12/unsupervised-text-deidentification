@@ -1,6 +1,8 @@
 __pycache__/
 notebooks/.ipynb_checkpoints/
 
+*.zip
+
 checkpoints/
 deid-wikibio/
 lightning_logs/
