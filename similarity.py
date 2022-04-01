@@ -30,7 +30,17 @@ def map_ex(ex):
     >>> ex['target_text']
     'walter extra is a german award-winning aerobatic pilot , chief aircraft designer and founder of extra....
     >>> ex['input_text']
-    {'table': {'column_header': ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 'row_number': [1, 1, 1, 1, 1], 'content': ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']}, 'context': 'walter extra\n'}
+    {'table': {
+            'column_header': 
+                ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 
+            'row_number':
+                [1, 1, 1, 1, 1], 
+            'content': 
+                ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']
+            }, 
+    'context':
+        'walter extra\n'
+    }
     """
     # transform table to str
     table_info = ex['input_text']['table']
@@ -122,6 +132,15 @@ def main(args: argparse.Namespace):
         raise ValueError(f'unknown encoder: {args.encoder}')
 
     print('embeddings shape:', embeddings.shape)
+    embeddings_path = os.path.join(save_folder, 'embeddings.p')
+    pickle.dump(embeddings, open(embeddings_path, 'wb'))
+
+    # process k neighbors for each thing
+    for idx in len(embeddings):
+        str_to_idx[sentence_keys[idx]] = idx
+
+    str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
+    pickle.dump(str_to_idx, open(str_to_idx_path, 'wb'))
 
     # put data in tree
     print('Building KDTree...')
@@ -136,15 +155,10 @@ def main(args: argparse.Namespace):
         #       (array([0.        , 3.30052274, 3.31010842]), array([  0, 655, 617]))
         dists, neighbor_idxs = tree.query(embeddings[idx], k=k)
         neighbors.append(neighbor_idxs)
-        str_to_idx[sentence_keys[idx]] = idx
 
     # store hashed example indices + nearest neighbor matrix
-    str_to_idx_path = os.path.join(save_folder, 'str_to_idx.p') 
-    pickle.dump(str_to_idx, open(str_to_idx_path, 'wb'))
     neighbors_path = os.path.join(save_folder, 'neighbors.p')
     pickle.dump(neighbors, open(neighbors_path, 'wb'))
-    embeddings_path = os.path.join(save_folder, 'embeddings.p')
-    pickle.dump(embeddings, open(embeddings_path, 'wb'))
 
 if __name__ == '__main__': 
     args = parse_args()
