@@ -1,0 +1,8 @@
+datasets
+nltk
+sentence-transformers
+pytorch-lightning
+spacy
+tokenizer
+tqdm
+transformers
