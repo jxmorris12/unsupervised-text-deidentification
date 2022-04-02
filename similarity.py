@@ -150,6 +150,7 @@ def main(args: argparse.Namespace):
 
     if not args.compute_neighbors:
         print('Not computing neighbors, exiting early')
+        exit()
 
     # put data in tree
     print('Building KDTree...')

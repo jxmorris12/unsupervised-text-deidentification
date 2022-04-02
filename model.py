@@ -27,20 +27,17 @@ class DocumentProfileMatchingTransformer(LightningModule):
     train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
                                         # example: (58266, 128) 
 
-    num_neighbors: int          # number of neighbors to use per datapoint (only for 'nearest_neighbors' loss)
-
     max_seq_length: int
 
     word_dropout_ratio: float    # Percentage of the time to do word dropout
     word_dropout_perc: float     # Percentage of words to replace with mask token
     word_dropout_mask_token: str # mask token
 
-    loss_fn: str                # one of ['nearest_neighbors', 'infonce', 'exact']
+    profile_model_name_or_path: str
+    profile_encoder_name: str    # like ['tapas', 'st-paraphrase']
+    redaction_strategy: str      # one of ['', 'spacy_ner', 'lexical']
 
-    profile_encoder_name: str # like ['tapas', 'st-paraphrase']
-    redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
-
-    base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
+    base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
 
     learning_rate: float
     lr_scheduler_factor: float
@@ -48,9 +45,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def __init__(
         self,
-        model_name_or_path: str,
+        document_model_name_or_path: str,
+        profile_model_name_or_path: str,
         dataset_name: str,
-        loss_fn: str = 'exact',
         learning_rate: float = 2e-5,
         lr_scheduler_factor: float = 0.5,
         lr_scheduler_patience: int = 3,
@@ -59,12 +56,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
         weight_decay: float = 0.0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
-        num_neighbors: int = 128,
         max_seq_length: int = 128,
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
-        word_dropout_mask_token: str = '[MASK]',
-        profile_encoder_name = "tapas",
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
@@ -72,15 +66,13 @@ class DocumentProfileMatchingTransformer(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.dataset_name = dataset_name
-        self.document_model = AutoModel.from_pretrained(model_name_or_path)
-        self.profile_encoder_name = profile_encoder_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+        self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
+        self.document_tokenizer = AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
+        self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
+        self.profile_tokenizer = AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
 
-        profile_emb_dim = {
-            'tapas': 768,
-            'st-paraphrase': 384,
-        }[profile_encoder_name]
-        self.lower_dim_embed = torch.nn.Sequential(
+        profile_emb_dim = 768 # TODO: set dynamically based on model
+        self.document_embed = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),
             torch.nn.Linear(in_features=768, out_features=profile_emb_dim),
             # (769 + 1) * 384 = 295,680 parameters
@@ -88,38 +80,18 @@ class DocumentProfileMatchingTransformer(LightningModule):
             # TODO: make these numbers a feature of model/embedding type
         )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(5.0, dtype=torch.float32), requires_grad=True)
+            torch.tensor(5.0, dtype=torch.float32), requires_grad=True
+        )
         
-        assert loss_fn in ['nearest_neighbors', 'infonce', 'exact'], f'invalid loss function {loss_fn}'
-        self.loss_fn = loss_fn
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
-
-        # Load precomputed stuff from disk
-        self.num_neighbors = num_neighbors
-        k = 2048
-        assert k >= self.num_neighbors # must have precomputed at least num_neighbors things
-        self.base_folder = base_folder
-
-        train_split = 'train[:10%]' # TODO: argparse for split/dataset?
-        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{dataset_name}__{train_split}__{k}')
-        assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
-        train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
-        self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
-        train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
-        self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
         self.max_seq_length = max_seq_length
 
-        val_split = 'val[:20%]'
-        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{dataset_name}__{val_split}__{k}')
-        assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
-        val_embeddings_path = os.path.join(val_save_folder, 'embeddings.p')
-        self.val_embeddings = pickle.load(open(val_embeddings_path, 'rb'))
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
 
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
-        self.word_dropout_mask_token = self.tokenizer.mask_token
+        self.word_dropout_mask_token = self.document_tokenizer.mask_token
 
         if self.word_dropout_ratio:
             print('[*] Word dropout hyperparameters:', 
@@ -127,24 +99,49 @@ class DocumentProfileMatchingTransformer(LightningModule):
                 'percentage:', self.word_dropout_perc, '/',
                 'token:', self.word_dropout_mask_token
             )
+
+        self.train_document_embeddings = None
+        self.train_profile_embeddings = None
+
+        self.val_document_embeddings = None
+        self.val_document_redact_ner_embeddings = None
+        self.val_document_redact_lexical_embeddings = None
+        self.val_profile_embeddings = None
         
-        # TODO make these things show up in W&B.
+        # TODO make these things show up in W&B?
         self.learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
         self.hparams["train_split"] = train_split
         self.hparams["val_split"] = val_split
-        self.hparams["len_train_embeddings"] = len(self.train_embeddings)
-        self.hparams["len_val_embeddings"] = len(self.val_embeddings)
         self.hparams["num_neighbors"] = self.num_neighbors
-    
-    def word_dropout_text(self, text: List[str]):
-        """Apply word dropout to text input."""
+
+    @property
+    def document_encoder_is_training(self) -> bool:
+        """True if we're training the document encoder. If false, we are training the profile encoder.
+        Should alternate during training epochs."""
+        return self.current_epoch % 2 == 0
+
+    def on_train_epoch_start(self):
+        # We only want to keep one model on GPU at a time.
+        if self.document_encoder_is_training:
+            self.document_model.cuda()
+            self.train_profile_embeddings.cuda()
+            self.val_profile_embeddings.cuda()
+            self.profile_model.cpu()
+        else:
+            self.document_model.cpu()
+            self.train_document_embeddings.cuda()
+            self.val_document_embeddings.cuda()
+            self.profile_model.cuda()
+
+    def word_dropout_text(self, text: List[str]) -> List[str]:
+        """Apply word dropout to list of text inputs."""
         # TODO: implement this in dataloader to take advantage of multiprocessing
-        if random.random() > self.word_dropout_ratio:
-            # Don't do dropout this % of the time
-            return text
         for i in range(len(text)):
+            if random.random() > self.word_dropout_ratio:
+                # Don't do dropout this % of the time
+                continue
             for w in words_from_text(text[i]):
                 if random.random() < self.word_dropout_perc:
                     text[i] = re.sub(
@@ -153,12 +150,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
                     )
         return text
         
-
-
-    def forward_text(self, text: List[str]):
+    def forward_document_text(self, text: List[str]) -> torch.Tensor:
+        """Tokenizes text and inputs to document encoder."""
         if self.training:
             text = self.word_dropout_text(text)
-        inputs = self.tokenizer.batch_encode_plus(
+        inputs = self.document_tokenizer.batch_encode_plus(
             text,
             max_length=self.max_seq_length,
             padding=True,
@@ -168,71 +164,24 @@ class DocumentProfileMatchingTransformer(LightningModule):
         inputs = {k: v.to(self.device) for k,v in inputs.items()}
         document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_embeddings = self.lower_dim_embed(document_embeddings)         # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        document_embeddings = self.document_embed(document_embeddings)         # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
-
-    def _compute_loss_nn(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
-        metrics_key: str) -> torch.Tensor:
-        """InfoNCE matching loss between `document_embeddings` and `profile_embeddings`. Computes
-        metrics and prints, prefixing with `metrics_key`.
-
-        Args:
-            document_embeddings (float torch.Tensor): Embeddings for each document in batch, of shape
-                (batch_size, emb_dim)
-            profile_embeddings (float torch.Tensor): Embeddings for each profile in the `self.num_neighbors`
-                nearest-neighbors of an element in the batch, of shape (batch_size, self.num_neighbors, emb_dim)
-
-        Returns:
-            loss (scalar float torch.Tensor)
-         """
-        assert (document_embeddings.shape[0], self.num_neighbors, document_embeddings.shape[1]) == profile_embeddings.shape
-        assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
-        batch_size = len(document_embeddings)
-        # Normalize embeddings before computing similarity
-        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=2, keepdim=True)
-        # Match documents to profiles
-        document_to_profile_sim = (
-            (torch.einsum('be,bke->bk', document_embeddings, profile_embeddings) * self.temperature.exp())
-        )
-        assert document_to_profile_sim.shape == (batch_size, self.num_neighbors)
-        # We want each document to match to itself and no other
-        true_idxs = torch.zeros_like(document_to_profile_sim).to(document_embeddings.device)
-        true_idxs[:, 0] = 1 
-        loss = torch.nn.functional.cross_entropy(document_to_profile_sim, true_idxs)
-        true_avg_prob = torch.nn.functional.softmax(document_to_profile_sim, dim=1)[:, 0].mean()
-        self.log(f"{metrics_key}/true_avg_prob", true_avg_prob)
-        pct_correct = (document_to_profile_sim.argmax(1) == 0).to(float).mean()
-        self.log(f"{metrics_key}/pct_correct", pct_correct)
-        self.log(f"{metrics_key}/loss", loss)
-        return loss
     
-    def _compute_loss_infonce(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
-        metrics_key: str) -> torch.Tensor:
-        """InfoNCE matching loss between `document_embeddings` and `profile_embeddings`. Computes
-        metrics and prints, prefixing with `metrics_key`.
-         """
-        assert document_embeddings.shape == profile_embeddings.shape
-        assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
-        batch_size = len(document_embeddings)
-        # Normalize embeddings before computing similarity
-        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
-        # Match documents to profiles
-        document_to_profile_sim = (
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
+    def forward_profile_text(self, text: List[str]) -> torch.Tensor:
+        """Tokenizes text and inputs to profile encoder."""
+        # if self.training:
+        #     text = self.word_dropout_text(text)
+        inputs = self.profile_tokenizer.batch_encode_plus(
+            text,
+            # TODO: permit a different max seq length for profile?
+            max_length=self.max_seq_length,
+            padding=True,
+            truncation=True,
+            return_tensors='pt',
         )
-        diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
-        loss = torch.nn.functional.cross_entropy(
-            document_to_profile_sim, diagonal_idxs
-        )
-        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=1)).mean()
-        pct_correct = (document_to_profile_sim.argmax(1) == diagonal_idxs).to(float).mean()
-        self.log(f"{metrics_key}/pct_correct", pct_correct)
-        self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
-        self.log(f"{metrics_key}/loss", loss)
-        return loss
-
+        inputs = {k: v.to(self.device) for k,v in inputs.items()}
+        profile_embeddings = self.profile_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
+        return profile_embeddings
     
     def _compute_loss_exact(self,
             document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor, document_idxs: torch.Tensor,
@@ -271,88 +220,131 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
         self.log(f"{metrics_key}/loss", loss)
         return loss
-
-    def _get_nn_profile_embeddings(self, profile_idxs: torch.Tensor) -> torch.Tensor:
-        """Gets profile embeddings from a list of indices.
-
-        Args:
-            profile_idxs (int torch.Tensor): indices of profiles to get embeddings for, of shape (batch)
-
-        Returns:
-            profile_embeddings (float torch.Tensor) embeddings of shape (batch, self.num_neighbors, prof_emb_dim)
-        """
-        assert len(profile_idxs.shape) == 1
-        neighbor_idxs = self.train_neighbors[profile_idxs][:, :self.num_neighbors] # (batch, self.num_neighbors)
-        profile_embeddings = torch.tensor(self.train_embeddings[neighbor_idxs]).to(self.device) # (batch, self.num_neighbors, prof_emb_dim)
-        assert len(profile_embeddings.shape) == 3
-        return profile_embeddings
-
-    def training_step(self, batch, batch_idx) -> torch.Tensor:
+    
+    def _training_step_document(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """One step of training where training is supposed to update  `self.document_model`."""
         if self.redaction_strategy == "":
-            document_embeddings = self.forward_text(
+            document_embeddings = self.forward_document_text(
                 text=batch['document'],
             )
         elif self.redaction_strategy == "spacy_ner":
-            document_embeddings = self.forward_text(
+            document_embeddings = self.forward_document_text(
                 text=batch['document_redact_ner'],
             )
         elif self.redaction_strategy == "lexical":
-            document_embeddings = self.forward_text(
+            document_embeddings = self.forward_document_text(
                 text=batch['document_redact_lexical'],
             )
         else:
             raise Exception(f"unknown redaction strategy {self.redaction_strategy}")
         self.log("temperature", self.temperature.exp())
 
-        if self.loss_fn == 'nearest_neighbors':
-            profile_embeddings = self._get_nn_profile_embeddings(batch['text_key_id'].cpu())
-            loss = self._compute_loss_nn(document_embeddings, profile_embeddings, 'train')
-        elif self.loss_fn == 'infonce':
-            profile_embeddings = torch.tensor(
-                self.train_embeddings[batch['text_key_id'].cpu()]
-            ).to(self.device) # (batch, prof_emb_dim)
-            assert len(profile_embeddings.shape) == 2
-            loss = self._compute_loss_infonce(document_embeddings, profile_embeddings, 'train')
-        elif self.loss_fn == 'exact':
-            profile_embeddings = torch.tensor(self.train_embeddings).to(self.device)
-            loss = self._compute_loss_exact(document_embeddings, profile_embeddings, batch['text_key_id'], metrics_key='train')
-        else:
-            raise ValueError(f'Unsupported loss function {self.loss_fn}')
-        return loss
-
-    def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        # Document embeddings (original document)
-        document_embeddings = self.forward_text(
-            text=batch['document'],
+        return {
+            "loss": self._compute_loss_exact(document_embeddings, self.train_profile_embeddings, batch['text_key_id'], metrics_key='train')
+            "document_embeddings": document_embeddings.detach().cpu(),
+            "text_key_id": batch['text_key_id'].cpu()
+        }
+    
+    def _training_step_profile(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """One step of training where training is supposed to update  `self.profile_model`."""
+        profile_embeddings = self.forward_profile_text(
+            text=batch['profile'],
         )
-
-        # Document embeddings (redacted document - NER)
-        document_redact_ner_embeddings = self.forward_text(
-            text=batch['document_redact_ner']
-        )
-
-        # Document embeddings (redacted document - lexical overlap)
-        document_redact_lexical_embeddings = self.forward_text(
-            text=batch['document_redact_lexical'],
-        )
+        self.log("temperature", self.temperature.exp())
 
         return {
-            "document_embeddings": document_embeddings,
-            "document_redact_ner_embeddings": document_redact_ner_embeddings,
-            "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
-            "text_key_id": batch['text_key_id']
+            "loss": self._compute_loss_exact(self.train_document_embeddings, profile_embeddings, batch['text_key_id'], metrics_key='train'),
+            "profile_embeddings": profile_embeddings.detach().cpu(),
+            "text_key_id": batch['text_key_id'].cpu()
         }
 
-    def validation_epoch_end(self, outputs) -> torch.Tensor:
-        document_embeddings = torch.cat(
-            [o['document_embeddings'] for o in outputs], axis=0)
-        document_redact_ner_embeddings = torch.cat(
-            [o['document_redact_ner_embeddings'] for o in outputs], axis=0)
-        document_redact_lexical_embeddings = torch.cat(
-            [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """
+        dict_keys(['document', 'profile', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
+        """
+        # Alternate between training phases per epoch.
+        if self.document_encoder_is_training:
+            return self._training_step_document(batch, batch_idx)
+        else:
+            return self._training_step_profile(batch, batch_idx)
+        
+    def training_epoch_end(self, training_step_outputs: Dict):
+        if self.document_encoder_is_training:
+            # TODO: fix this as it assumes profile and doc embeddings are the same shape.
+            self.train_document_embeddings = np.zeros_like(train_profile_embeddings)
+            for document_embeddings, text_key_id in zip(training_step_outputs["document_embeddings"], training_step_outputs["text_key_id"]):
+                self.train_document_embeddings[text_key_id] = document_embeddings
+            self.train_document_embeddings = torch.tensor(self.document_profile_embeddings)
+            self.train_profile_embeddings = None
+        else:
+            # TODO: fix this as it assumes profile and doc embeddings are the same shape.
+            self.train_profile_embeddings = np.zeros_like(document_profile_embeddings)
+            for profile_embeddings, text_key_id in zip(training_step_outputs["profile_embeddings"], training_step_outputs["text_key_id"]):
+                self.train_profile_embeddings[text_key_id] = profile_embeddings
+            self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings)
+            self.train_document_embeddings = None
+
+    def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
+        if self.document_encoder_training:
+            # Document embeddings (original document)
+            document_embeddings = self.forward_document_text(
+                text=batch['document'],
+            )
+
+            # Document embeddings (redacted document - NER)
+            document_redact_ner_embeddings = self.forward_document_text(
+                text=batch['document_redact_ner']
+            )
+
+            # Document embeddings (redacted document - lexical overlap)
+            document_redact_lexical_embeddings = self.forward_document_text(
+                text=batch['document_redact_lexical'],
+            )
+            return {
+                "document_embeddings": document_embeddings,
+                "document_redact_ner_embeddings": document_redact_ner_embeddings,
+                "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
+                "text_key_id": batch['text_key_id']
+            }
+        else:
+            # Profile embeddings
+            profile_embeddings = self.forward_profile_text(
+                text=batch['profile']
+            )
+            return {
+                "profile_embeddings": profile_embeddings,
+                "text_key_id": batch['text_key_id']
+            }
+
+    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
         text_key_id = torch.cat(
             [o['text_key_id'] for o in outputs], axis=0)
-        profile_embeddings = torch.tensor(self.val_embeddings).to(self.device)
+        
+        # Get embeddings.
+        if self.document_encoder_training:
+            document_embeddings = torch.cat(
+                [o['document_embeddings'] for o in outputs], axis=0)
+            document_redact_ner_embeddings = torch.cat(
+                [o['document_redact_ner_embeddings'] for o in outputs], axis=0)
+            document_redact_lexical_embeddings = torch.cat(
+                [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
+            profile_embeddings = self.val_profile_embeddings.to(self.device)
+
+            self.val_profile_embeddings = None
+        else:
+            document_embeddings = self.val_document_embeddings.to(device)
+            document_redact_ner_embeddings = self.val_document_redact_ner_embeddings.to(device)
+            document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings.to(device)
+            profile_embeddings = torch.cat(
+                [o['profile_embeddings'] for o in outputs], axis=0)
+            
+            self.val_document_embeddings = None
+            self.val_document_redact_ner_embeddings = None
+            self.val_document_redact_lexical_embeddings = None
+        
+        # Compute losses.
+        # TODO: is `text_key_id` still correct when training profile encoder?
+        #       i.e., will this still work if the validation data is shuffled?
         doc_loss = self._compute_loss_exact(
             document_embeddings, profile_embeddings, text_key_id.to(self.device),
             metrics_key='val_exact/document'
@@ -366,6 +358,23 @@ class DocumentProfileMatchingTransformer(LightningModule):
             metrics_key='val_exact/document_redact_lexical'
         )
         return doc_loss
+    
+    def _precompute_initial_embeddings(self):
+        self.profile_model.cuda()
+        self.train_profile_embeddings = np.zeros(document_profile_embeddings)
+        for train_batch in self.trainer.datamodule.train_dataloader():
+            with torch.no_grad():
+                profile_embeddings = self.forward_profile_text(text=train_batch["profile"])
+            self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings
+        self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings)
+
+        self.val_profile_embeddings = np.zeros(??)
+        for val_batch in self.trainer.datamodule.val_dataloader():
+            with torch.no_grad():
+                profile_embeddings = self.forward_profile_text(text=val_batch["profile"])
+            self.val_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings
+        self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings)
+            
 
     def setup(self, stage=None) -> None:
         """Sets stuff up. Called once before training."""
@@ -377,6 +386,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
         ab_size = self.trainer.accumulate_grad_batches * float(self.trainer.max_epochs)
         self.total_steps = (len(train_loader.dataset) // tb_size) // ab_size
+        # Precompute embeddings
+        self._precompute_initial_embeddings()
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""

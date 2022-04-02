@@ -56,21 +56,7 @@ class WikipediaDataModule(LightningDataModule):
         val_split = 'val[:20%]'
         self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
         self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
-
-        # TODO: create a utility for loading this stuff
-        # TODO: don't load similarities unless we're training with hard negatives
-        # TODO: better nomenclature than 'hard negative'?
-        k = 2048
-        train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{self.dataset_name}__{train_split}__{k}')
-        assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
-        val_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{self.dataset_name}__{val_split}__{k}')
-        assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
-        train_str_to_idx_path = os.path.join(train_save_folder, 'str_to_idx.p') 
-        val_str_to_idx_path = os.path.join(val_save_folder, 'str_to_idx.p') 
-        self.str_to_idx = (
-            pickle.load(open(train_str_to_idx_path, 'rb')) |
-            pickle.load(open(val_str_to_idx_path, 'rb'))
-        )
+        self.str_to_idx = IncrementCounter()
 
         def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
             """
@@ -123,27 +109,36 @@ class WikipediaDataModule(LightningDataModule):
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True)
 
-        # tokenize dataset
-        self.train_dataset = self.train_dataset.map(
-            functools.partial(self.convert_to_features),
-            batched=True,
+        # Add index column to dataset, so that we can track which profiles match to which
+        # documents from precomputed embeddings.
+        self.train_dataset = self.train_dataset.add_column(
+            "text_key_id", 
+            list(   
+                range(
+                    len(self.train_dataset)
+                    )
+            )
         )
-        self.val_dataset = self.val_dataset.map(
-            functools.partial(self.convert_to_features),
-            batched=True,
+        self.val_dataset = self.val_dataset.add_column(
+            "text_key_id", 
+            list(   
+                range(
+                    len(self.val_dataset)
+                    )
+            )
         )
         self.columns = [
-            "text_key_id", # Indices of item in original dataset 
+            "text_key_id", # Indices of item in original dataset  (int)
                            # (used for getting precomputed nearest-neighbors)
 
             "document",
-                    # [original] First paragraph of wikipedia page
+                    # [original] First paragraph of wikipedia page (str)
             "document_redact_ner",
-                    # [redacted_ner] First paragraph of wikipedia page
+                    # [redacted_ner] First paragraph of wikipedia page (str)
             "document_redact_lexical",
-                    # [redacted_lexical] First paragraph of wikipedia page
+                    # [redacted_lexical] First paragraph of wikipedia page (str)
 
-            "profile" # Table from wikipedia infobox
+            "profile" # Table from wikipedia infobox (str)
         ]
         self.train_dataset.set_format(type=None, columns=self.columns)
         self.val_dataset.set_format(type=None, columns=self.columns)
@@ -166,19 +161,3 @@ class WikipediaDataModule(LightningDataModule):
             batch_size=self.train_batch_size,
             num_workers=self.num_workers
         )
-
-    def convert_to_features(self, example_batch: Dict[str, Any]) -> Dict[str, Any]:
-        """Tokenizes `example_batch`, which includes 'document' and 'profile' as keys.
-        
-        includes `text_key_id` column, which includes the IDs (indices) of each
-            str text2 in the original training set. Used for matching to precomputed nearest neighbors.
-
-        """
-        ids_dict = {
-            "text_key_id": np.array([self.str_to_idx[s] for s in example_batch["text_key"]])
-        }
-        # If the preceding line produces a KeyError, stored data in str_to_idx doesn't match the data
-        # that was just loaded from the dataset. Either str_to_idx refers to a different split or dataset,
-        # or it actually refers to a different version (i.e. it was precomputed with an older version of
-        # wiki_bio data).
-        return example_batch | ids_dict

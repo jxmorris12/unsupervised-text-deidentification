@@ -39,25 +39,18 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=8)
-    parser.add_argument('--model_name', type=str, default='distilbert-base-uncased')
+    parser.add_argument('--document_model_name', type=str, default='roberta-base')
+    parser.add_argument('--profile_model_name', type=str, default='roberta-base')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=128)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--redaction_strategy', type=str, default='',
         choices=('spacy_ner', 'lexical', '')
     )
-    parser.add_argument('--loss_fn', type=str, default='exact',
-        choices=('exact', 'nearest_neighbors', 'num_neighbors')
-    )
-    parser.add_argument('--num_neighbors', type=int, default=512)
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
-    parser.add_argument('--profile_encoder_name', '--profile_encoder', type=str,
-        default='tapas', choices=('tapas', 'st-paraphrase'),
-        help='profile encoder to use'
-    )
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
@@ -76,7 +69,6 @@ def main(args: argparse.Namespace):
     dm = WikipediaDataModule(
         model_name_or_path=args.model_name,
         dataset_name=args.dataset_name,
-        profile_encoder_name=args.profile_encoder_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -85,14 +77,12 @@ def main(args: argparse.Namespace):
     dm.setup("fit")
     
     model = DocumentProfileMatchingTransformer(
-        model_name_or_path=args.model_name,
+        document_model_name_or_path=args.model_name,
+        profile_model_name_or_path=args.model_name,
         dataset_name=args.dataset_name,
-        profile_encoder_name=args.profile_encoder_name,
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
         max_seq_length=args.max_seq_length,
-        loss_fn=args.loss_fn,
-        num_neighbors=args.num_neighbors,
         redaction_strategy=args.redaction_strategy,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
@@ -108,7 +98,7 @@ def main(args: argparse.Namespace):
     if args.redaction_strategy:
         exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
-        exp_name += f'__dropout_{args.word_dropout_ratio}'
+        exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
 
     if USE_WANDB:
         import wandb
