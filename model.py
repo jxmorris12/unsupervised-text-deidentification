@@ -7,6 +7,7 @@ import re
 
 import numpy as np
 import torch
+import tqdm
 
 from pytorch_lightning import LightningModule
 from sentence_transformers import SentenceTransformer
@@ -394,14 +395,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.profile_model.cuda()
         print('Precomputing profile embeddings before first epoch...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in self.trainer.datamodule.train_dataloader():
+        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="red", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=train_batch["profile"])
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
         self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
 
         self.val_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
-        for val_batch in self.trainer.datamodule.val_dataloader():
+        for val_batch in tqdm.tqdm(self.trainer.datamodule.val_dataloader(), desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=val_batch["profile"])
             self.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()

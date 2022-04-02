@@ -48,8 +48,8 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: argparse for split 
-        train_split = 'train[:1111]'
-        val_split = 'val[:2%]'
+        train_split = 'train[:10%]'
+        val_split = 'val[:20%]'
         self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
         self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
 
