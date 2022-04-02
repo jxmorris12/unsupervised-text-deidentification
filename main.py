@@ -21,6 +21,7 @@ import torch
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
+from transformers import AutoTokenizer
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
@@ -39,8 +40,8 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=8)
-    parser.add_argument('--document_model_name', type=str, default='roberta-base')
-    parser.add_argument('--profile_model_name', type=str, default='roberta-base')
+    parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
+    parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=128)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
@@ -63,11 +64,12 @@ def get_args() -> argparse.Namespace:
 
 
 def main(args: argparse.Namespace):
+    assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
     print(f"creating data module with redaction strategy '{args.redaction_strategy}'")
     dm = WikipediaDataModule(
-        model_name_or_path=args.model_name,
+        mask_token=AutoTokenizer.from_pretrained(args.document_model_name).mask_token,
         dataset_name=args.dataset_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
@@ -77,8 +79,8 @@ def main(args: argparse.Namespace):
     dm.setup("fit")
     
     model = DocumentProfileMatchingTransformer(
-        document_model_name_or_path=args.model_name,
-        profile_model_name_or_path=args.model_name,
+        document_model_name_or_path=args.document_model_name,
+        profile_model_name_or_path=args.profile_model_name,
         dataset_name=args.dataset_name,
         num_workers=min(8, num_cpus),
         learning_rate=args.learning_rate,
@@ -94,7 +96,7 @@ def main(args: argparse.Namespace):
 
     day = time.strftime(f'%Y-%m-%d-%H%M')
     # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
-    exp_name = f'{args.model_name}_{day}'
+    exp_name = f'{args.document_model_name}_{args.profile_model_name}_{day}'
     if args.redaction_strategy:
         exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:

@@ -9,7 +9,6 @@ import numpy as np
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 from redact import remove_named_entities_spacy_batch, remove_overlapping_words
 from utils import name_from_table_rows
@@ -20,43 +19,39 @@ class WikipediaDataModule(LightningDataModule):
     train_batch_size: int
     eval_batch_size: int
     num_workers: int
-    tokenizer: AutoTokenizer
-    profile_encoder_name: str # like ['tapas', 'st-paraphrase']
+    mask_token: str
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
     base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
 
     def __init__(
         self,
-        model_name_or_path: str,
         dataset_name: str = "wiki_bio",
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
-        profile_encoder_name = "tapas",
+        mask_token: str = "[MASK]",
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
     ):
         super().__init__()
         assert dataset_name == "wiki_bio"
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
         self.dataset_name = dataset_name
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
-        self.profile_encoder_name = profile_encoder_name
         self.redaction_strategy = redaction_strategy
-        print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers}')
+        self.mask_token = mask_token
+        print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = base_folder
 
     def setup(self, stage: str) -> None:
-        # TODO: change split here
-        train_split = 'train[:10%]'
-        val_split = 'val[:20%]'
+        # TODO: argparse for split 
+        train_split = 'train[:1111]'
+        val_split = 'val[:2%]'
         self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
         self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
-        self.str_to_idx = IncrementCounter()
 
         def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
             """
@@ -93,14 +88,14 @@ class WikipediaDataModule(LightningDataModule):
             return example
 
         lexical_redact_func = functools.partial(
-            remove_overlapping_words, mask_token=self.tokenizer.mask_token, case_sensitive=False)
+            remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
 
         ner_redact_func = functools.partial(
-            remove_named_entities_spacy_batch, mask_token=self.tokenizer.mask_token
+            remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),

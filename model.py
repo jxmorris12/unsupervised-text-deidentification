@@ -20,13 +20,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
     """Encodes profiles using pre-computed encodings. Uses nearest-neighbors
     to create 'hard negatives' to get similarity.
     """
-    train_embeddings: np.ndarray      # float ndarray, shape (train_set_len, prof_emb_dim) 
-                                        # example: (58266, 384)
-                                        # -- for wiki_bio['train:10%'] and sentence-transformers/paraphrase-MiniLM-L6-v2 encoding,
+    train_profile_embeddings: torch.Tensor
 
-    train_neighbors: np.ndarray       # int ndarray, shape (train_set_len, total_num_nearest_neighbors)
-                                        # example: (58266, 128) 
-
+    profile_embedding_dim: int
     max_seq_length: int
 
     word_dropout_ratio: float    # Percentage of the time to do word dropout
@@ -71,10 +67,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
         self.profile_tokenizer = AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
 
-        profile_emb_dim = 768 # TODO: set dynamically based on model
+        self.profile_embedding_dim = 768 # TODO: set dynamically based on model
         self.document_embed = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),
-            torch.nn.Linear(in_features=768, out_features=profile_emb_dim),
+            torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim),
             # (769 + 1) * 384 = 295,680 parameters
             # TODO: different options for this, or less dropout?
             # TODO: make these numbers a feature of model/embedding type
@@ -108,13 +104,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.val_document_redact_lexical_embeddings = None
         self.val_profile_embeddings = None
         
-        # TODO make these things show up in W&B?
-        self.learning_rate = learning_rate
+        # TODO: separate argparse for learning rates?
+        self.document_learning_rate = learning_rate
+        self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
-        self.hparams["train_split"] = train_split
-        self.hparams["val_split"] = val_split
-        self.hparams["num_neighbors"] = self.num_neighbors
+
+        # Important: This property activates manual optimization.
+        self.automatic_optimization = False
 
     @property
     def document_encoder_is_training(self) -> bool:
@@ -122,17 +119,31 @@ class DocumentProfileMatchingTransformer(LightningModule):
         Should alternate during training epochs."""
         return self.current_epoch % 2 == 0
 
+    @property
+    def document_model_device(self) -> torch.device:
+        return next(self.document_model.parameters()).device
+
+    @property
+    def profile_model_device(self) -> torch.device:
+        return next(self.profile_model.parameters()).device
+
     def on_train_epoch_start(self):
         # We only want to keep one model on GPU at a time.
         if self.document_encoder_is_training:
+            self.val_document_embeddings = None
+            self.val_document_redact_ner_embeddings = None
+            self.val_document_redact_lexical_embeddings = None
+            # 
+            self.train_profile_embeddings = self.train_profile_embeddings.cuda()
+            self.val_profile_embeddings = self.val_profile_embeddings.cuda()
             self.document_model.cuda()
-            self.train_profile_embeddings.cuda()
-            self.val_profile_embeddings.cuda()
             self.profile_model.cpu()
         else:
+            self.val_profile_embeddings = None
+            # 
+            self.train_document_embeddings = self.train_document_embeddings.cuda()
+            self.val_document_embeddings = self.val_document_embeddings.cuda()
             self.document_model.cpu()
-            self.train_document_embeddings.cuda()
-            self.val_document_embeddings.cuda()
             self.profile_model.cuda()
 
     def word_dropout_text(self, text: List[str]) -> List[str]:
@@ -161,10 +172,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
             truncation=True,
             return_tensors='pt',
         )
-        inputs = {k: v.to(self.device) for k,v in inputs.items()}
+        inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
         document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_embeddings = self.document_embed(document_embeddings)         # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
     
     def forward_profile_text(self, text: List[str]) -> torch.Tensor:
@@ -179,9 +190,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
             truncation=True,
             return_tensors='pt',
         )
-        inputs = {k: v.to(self.device) for k,v in inputs.items()}
+        inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
         profile_embeddings = self.profile_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
-        return profile_embeddings
+        return profile_embeddings['last_hidden_state'][:, 0, :]
     
     def _compute_loss_exact(self,
             document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor, document_idxs: torch.Tensor,
@@ -239,8 +250,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             raise Exception(f"unknown redaction strategy {self.redaction_strategy}")
         self.log("temperature", self.temperature.exp())
 
+        loss = self._compute_loss_exact(
+            document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
+            metrics_key='train'
+        )
         return {
-            "loss": self._compute_loss_exact(document_embeddings, self.train_profile_embeddings, batch['text_key_id'], metrics_key='train')
+            "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
         }
@@ -252,8 +267,13 @@ class DocumentProfileMatchingTransformer(LightningModule):
         )
         self.log("temperature", self.temperature.exp())
 
+        loss = self._compute_loss_exact(
+            profile_embeddings, self.train_document_embeddings, batch['text_key_id'],
+            metrics_key='train'
+        )
+
         return {
-            "loss": self._compute_loss_exact(self.train_document_embeddings, profile_embeddings, batch['text_key_id'], metrics_key='train'),
+            "loss": loss,
             "profile_embeddings": profile_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
         }
@@ -263,29 +283,39 @@ class DocumentProfileMatchingTransformer(LightningModule):
         dict_keys(['document', 'profile', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
         """
         # Alternate between training phases per epoch.
+
+        document_optimizer, profile_optimizer = self.optimizers()
         if self.document_encoder_is_training:
-            return self._training_step_document(batch, batch_idx)
+            optimizer = document_optimizer
+            results = self._training_step_document(batch, batch_idx)
         else:
-            return self._training_step_profile(batch, batch_idx)
+            optimizer = profile_optimizer
+            results = self._training_step_profile(batch, batch_idx)
+
+        optimizer.zero_grad()
+        loss = results["loss"]
+        loss.backward()
+        optimizer.step()
+
+        return results
         
     def training_epoch_end(self, training_step_outputs: Dict):
         if self.document_encoder_is_training:
-            # TODO: fix this as it assumes profile and doc embeddings are the same shape.
-            self.train_document_embeddings = np.zeros_like(train_profile_embeddings)
-            for document_embeddings, text_key_id in zip(training_step_outputs["document_embeddings"], training_step_outputs["text_key_id"]):
-                self.train_document_embeddings[text_key_id] = document_embeddings
-            self.train_document_embeddings = torch.tensor(self.document_profile_embeddings)
+            self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
+            for output in training_step_outputs:
+                self.train_document_embeddings[output["text_key_id"]] = output["document_embeddings"]
+            self.train_document_embeddings = torch.tensor(self.train_document_embeddings, dtype=torch.float32)
             self.train_profile_embeddings = None
         else:
             # TODO: fix this as it assumes profile and doc embeddings are the same shape.
-            self.train_profile_embeddings = np.zeros_like(document_profile_embeddings)
-            for profile_embeddings, text_key_id in zip(training_step_outputs["profile_embeddings"], training_step_outputs["text_key_id"]):
-                self.train_profile_embeddings[text_key_id] = profile_embeddings
-            self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings)
+            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
+            for output in training_step_outputs:
+                self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
+            self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
             self.train_document_embeddings = None
 
     def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
-        if self.document_encoder_training:
+        if self.document_encoder_is_training:
             # Document embeddings (original document)
             document_embeddings = self.forward_document_text(
                 text=batch['document'],
@@ -321,60 +351,61 @@ class DocumentProfileMatchingTransformer(LightningModule):
             [o['text_key_id'] for o in outputs], axis=0)
         
         # Get embeddings.
-        if self.document_encoder_training:
+        if self.document_encoder_is_training:
             document_embeddings = torch.cat(
                 [o['document_embeddings'] for o in outputs], axis=0)
             document_redact_ner_embeddings = torch.cat(
                 [o['document_redact_ner_embeddings'] for o in outputs], axis=0)
             document_redact_lexical_embeddings = torch.cat(
                 [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
-            profile_embeddings = self.val_profile_embeddings.to(self.device)
+            profile_embeddings = self.val_profile_embeddings
 
-            self.val_profile_embeddings = None
+            self.val_document_embeddings = document_embeddings
+            self.val_document_redact_ner_embeddings = document_redact_ner_embeddings
+            self.val_document_redact_lexical_embeddings = document_redact_lexical_embeddings
+
         else:
-            document_embeddings = self.val_document_embeddings.to(device)
-            document_redact_ner_embeddings = self.val_document_redact_ner_embeddings.to(device)
-            document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings.to(device)
+            document_embeddings = self.val_document_embeddings
+            document_redact_ner_embeddings = self.val_document_redact_ner_embeddings
+            document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings
             profile_embeddings = torch.cat(
                 [o['profile_embeddings'] for o in outputs], axis=0)
             
-            self.val_document_embeddings = None
-            self.val_document_redact_ner_embeddings = None
-            self.val_document_redact_lexical_embeddings = None
+            self.val_profile_embeddings = profile_embeddings
         
         # Compute losses.
         # TODO: is `text_key_id` still correct when training profile encoder?
         #       i.e., will this still work if the validation data is shuffled?
         doc_loss = self._compute_loss_exact(
-            document_embeddings, profile_embeddings, text_key_id.to(self.device),
+            document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val_exact/document'
         )
         doc_redact_ner_loss = self._compute_loss_exact(
-            document_redact_ner_embeddings, profile_embeddings, text_key_id.to(self.device),
+            document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val_exact/document_redact_ner'
         )
         doc_redact_lexical_loss = self._compute_loss_exact(
-            document_redact_lexical_embeddings, profile_embeddings, text_key_id.to(self.device),
+            document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val_exact/document_redact_lexical'
         )
         return doc_loss
     
-    def _precompute_initial_embeddings(self):
+    def _precompute_initial_profile_embeddings(self):
         self.profile_model.cuda()
-        self.train_profile_embeddings = np.zeros(document_profile_embeddings)
+        print('Precomputing profile embeddings before first epoch...')
+        self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in self.trainer.datamodule.train_dataloader():
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=train_batch["profile"])
-            self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings
-        self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings)
+            self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
+        self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
 
-        self.val_profile_embeddings = np.zeros(??)
+        self.val_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
         for val_batch in self.trainer.datamodule.val_dataloader():
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=val_batch["profile"])
-            self.val_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings
-        self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings)
-            
+            self.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
+        self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings, dtype=torch.float32)
 
     def setup(self, stage=None) -> None:
         """Sets stuff up. Called once before training."""
@@ -387,23 +418,38 @@ class DocumentProfileMatchingTransformer(LightningModule):
         ab_size = self.trainer.accumulate_grad_batches * float(self.trainer.max_epochs)
         self.total_steps = (len(train_loader.dataset) // tb_size) // ab_size
         # Precompute embeddings
-        self._precompute_initial_embeddings()
+        self._precompute_initial_profile_embeddings()
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
-        optimizer = AdamW(
-            self.document_model.parameters(), lr=self.learning_rate, eps=self.hparams.adam_epsilon)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min',
+        document_optimizer = AdamW(
+            self.document_model.parameters(), lr=self.document_learning_rate, eps=self.hparams.adam_epsilon)
+        document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            document_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
             min_lr=1e-8
         )
         # see source:
         # pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html?highlight=optimizer_step#optimizer-step
-        scheduler = {
-            "scheduler": scheduler,
+        document_scheduler = {
+            "scheduler": document_scheduler,
             "monitor": "val_exact/document/loss",
-            "name": "learning_rate",
+            "name": "document_learning_rate",
         }
-        return [optimizer], [scheduler]
+
+        profile_optimizer = AdamW(
+            self.profile_model.parameters(), lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon)
+        profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            profile_optimizer, mode='min',
+            factor=self.lr_scheduler_factor,
+            patience=self.lr_scheduler_patience,
+            min_lr=1e-8
+        )
+        profile_scheduler = {
+            "scheduler": profile_scheduler,
+            "monitor": "val_exact/document/loss",
+            "name": "profile_learning_rate",
+        }
+
+        return [document_optimizer, profile_optimizer], [document_scheduler, profile_scheduler]
