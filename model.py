@@ -70,6 +70,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
         self.profile_embedding_dim = 768 # TODO: set dynamically based on model
         self.document_embed = torch.nn.Sequential(
+            # TODO: consider a nonlinearity here?
+            # TODO: consider embedding profile into a shared (smaller) space?
             torch.nn.Dropout(p=0.2),
             torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim),
             # (769 + 1) * 384 = 295,680 parameters
@@ -77,7 +79,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             # TODO: make these numbers a feature of model/embedding type
         )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(5.0, dtype=torch.float32), requires_grad=True
+            torch.tensor(1.0, dtype=torch.float32), requires_grad=True
         )
         
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
@@ -138,6 +140,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.train_profile_embeddings = self.train_profile_embeddings.cuda()
             self.val_profile_embeddings = self.val_profile_embeddings.cuda()
             self.document_model.cuda()
+            self.document_embed.cuda()
             self.profile_model.cpu()
         else:
             self.val_profile_embeddings = None
@@ -145,6 +148,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.train_document_embeddings = self.train_document_embeddings.cuda()
             self.val_document_embeddings = self.val_document_embeddings.cuda()
             self.document_model.cpu()
+            self.document_embed.cpu()
             self.profile_model.cuda()
 
     def word_dropout_text(self, text: List[str]) -> List[str]:
@@ -174,7 +178,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             return_tensors='pt',
         )
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
-        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
+        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
         document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
         document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
@@ -192,7 +196,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             return_tensors='pt',
         )
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
-        profile_embeddings = self.profile_model(**inputs)                     # (batch,  sequence_length) -> (batch, document_emb_dim)
+        profile_embeddings = self.profile_model(**inputs)                       # (batch,  sequence_length) -> (batch, prof_emb_dim)
         return profile_embeddings['last_hidden_state'][:, 0, :]
     
     def _compute_loss_exact(self,
@@ -309,7 +313,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.train_profile_embeddings = None
         else:
             # TODO: fix this as it assumes profile and doc embeddings are the same shape.
-            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
+            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
             for output in training_step_outputs:
                 self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
             self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
@@ -395,7 +399,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.profile_model.cuda()
         print('Precomputing profile embeddings before first epoch...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="red", leave=False):
+        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="ffc0cb", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=train_batch["profile"])
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
@@ -424,7 +428,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
         document_optimizer = AdamW(
-            self.document_model.parameters(), lr=self.document_learning_rate, eps=self.hparams.adam_epsilon)
+            list(self.document_model.parameters()) + list(self.document_embed.parameters()), lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
+        )
         document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             document_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
@@ -435,12 +440,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html?highlight=optimizer_step#optimizer-step
         document_scheduler = {
             "scheduler": document_scheduler,
-            "monitor": "val_exact/document/loss",
             "name": "document_learning_rate",
         }
 
         profile_optimizer = AdamW(
-            self.profile_model.parameters(), lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon)
+            self.profile_model.parameters(), lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon
+        )
         profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             profile_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
@@ -449,7 +454,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         )
         profile_scheduler = {
             "scheduler": profile_scheduler,
-            "monitor": "val_exact/document/loss",
             "name": "profile_learning_rate",
         }
 

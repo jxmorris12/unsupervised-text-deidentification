@@ -96,23 +96,29 @@ def main(args: argparse.Namespace):
 
     day = time.strftime(f'%Y-%m-%d-%H%M')
     # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
-    exp_name = f'{args.document_model_name}_{args.profile_model_name}_{day}'
+    exp_name = args.document_model_name
+    if args.profile_model_name != args.document_model_name:
+        exp_name += f'_{args.profile_model_name}'
     if args.redaction_strategy:
         exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
+    exp_name += f'_{day}'
 
     if USE_WANDB:
         import wandb
         from pytorch_lightning.loggers import WandbLogger
+
+        wandb_logger = WandbLogger(
+            name=exp_name,
+            project='deid-wikibio', 
+            config=vars(args),
+            job_type='train',
+            entity='jack-morris',
+        )
+        wandb_logger.watch(model)
         loggers.append(
-            WandbLogger(
-                name=exp_name,
-                project='deid-wikibio', 
-                config=vars(args),
-                job_type='train',
-                entity='jack-morris',
-            )
+            wandb_logger
         )
     
     from pytorch_lightning.loggers import CSVLogger
@@ -121,7 +127,7 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs"))
 
-    # TODO: properly early stop with val metric that corresponds to args.redaction_strategy
+    # TODO: properly early stop with val metric that corresponds to args.redaction_strategy?
     val_metric = "val_exact/document/loss"
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
