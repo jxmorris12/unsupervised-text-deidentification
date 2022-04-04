@@ -316,6 +316,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
         dict_keys(['document', 'profile', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
         """
         # Alternate between training phases per epoch.
+        assert self.document_model.training
+        assert self.document_embed.training
+        assert self.profile_model.training
 
         document_optimizer, profile_optimizer = self.optimizers()
         if self.document_encoder_is_training:
@@ -347,6 +350,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.train_document_embeddings = None
 
     def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
+        assert not self.document_model.training
+        assert not self.document_embed.training
+        assert not self.profile_model.training
+
         if self.document_encoder_is_training:
             # Document embeddings (original document)
             document_embeddings = self.forward_document_text(
