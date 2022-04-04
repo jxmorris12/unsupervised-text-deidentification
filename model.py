@@ -10,10 +10,7 @@ import torch
 import tqdm
 
 from pytorch_lightning import LightningModule
-from sentence_transformers import SentenceTransformer
 from transformers import AdamW, AutoConfig, AutoModel, AutoTokenizer
-
-from sentence_transformers import SentenceTransformer
 
 from utils import words_from_text
 
@@ -66,8 +63,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.dataset_name = dataset_name
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.document_tokenizer = AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
-        # self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
-        self.profile_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+        self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
         self.profile_tokenizer = AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
 
         self.profile_embedding_dim = 384 if 'paraphrase-MiniLM' in profile_model_name_or_path else 768 # TODO: set dynamically based on model
@@ -92,9 +88,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
         #     # TODO: make these numbers a feature of model/embedding type
         # )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(3.0, dtype=torch.float32), requires_grad=True
+            torch.tensor(4.0, dtype=torch.float32), requires_grad=True
         )
         
+        # TODO: allow tapas model profile_encoder (but use it properly)
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
         self.max_seq_length = max_seq_length
@@ -211,22 +208,21 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def forward_profile_text(self, text: List[str]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
-        return torch.tensor(self.profile_model.encode(text), dtype=torch.float32).cuda()
-        # # if self.training:
-        # #     text = self.word_dropout_text(text=text, mask_token=self.profile_tokenizer.mask_token)
-        # inputs = self.profile_tokenizer.batch_encode_plus(
-        #     text,
-        #     # TODO: permit a different max seq length for profile?
-        #     max_length=self.max_seq_length,
-        #     padding=True,
-        #     truncation=True,
-        #     return_tensors='pt',
-        # )
-        # inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
-        # profile_embeddings = self.profile_model(**inputs)                       # (batch,  sequence_length) -> (batch, prof_emb_dim)
-        # profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
-        # # profile_embeddings = self.profile_embed(profile_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
-        # return profile_embeddings
+        # if self.training:
+        #     text = self.word_dropout_text(text=text, mask_token=self.profile_tokenizer.mask_token)
+        inputs = self.profile_tokenizer.batch_encode_plus(
+            text,
+            # TODO: permit a different max seq length for profile?
+            max_length=self.max_seq_length,
+            padding=True,
+            truncation=True,
+            return_tensors='pt',
+        )
+        inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
+        profile_embeddings = self.profile_model(**inputs)                       # (batch,  sequence_length) -> (batch, prof_emb_dim)
+        profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
+        # profile_embeddings = self.profile_embed(profile_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        return profile_embeddings
     
     def _compute_loss_exact(self,
             document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor, document_idxs: torch.Tensor,
@@ -431,6 +427,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def _precompute_initial_profile_embeddings(self):
         self.profile_model.cuda()
+        self.profile_model.eval()
         # self.profile_embed.cuda()
         print('Precomputing profile embeddings before first epoch...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
@@ -446,6 +443,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
                 profile_embeddings = self.forward_profile_text(text=val_batch["profile"])
             self.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
         self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings, dtype=torch.float32)
+        self.profile_model.train()
 
     def setup(self, stage=None) -> None:
         """Sets stuff up. Called once before training."""
