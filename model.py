@@ -41,7 +41,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self,
         document_model_name_or_path: str,
         profile_model_name_or_path: str,
-        dataset_name: str,
         learning_rate: float = 2e-5,
         lr_scheduler_factor: float = 0.5,
         lr_scheduler_patience: int = 3,
@@ -60,7 +59,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.dataset_name = dataset_name
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.document_tokenizer = AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
@@ -88,7 +86,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         #     # TODO: make these numbers a feature of model/embedding type
         # )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(4.0, dtype=torch.float32), requires_grad=True
+            torch.tensor(3.0, dtype=torch.float32), requires_grad=True
         )
         
         # TODO: allow tapas model profile_encoder (but use it properly)
@@ -254,10 +252,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
         loss = torch.nn.functional.cross_entropy(
             document_to_profile_sim, document_idxs
         )
-        diagonal_avg_prob = torch.diagonal(torch.nn.functional.softmax(document_to_profile_sim, dim=1)).mean()
         pct_correct = (document_to_profile_sim.argmax(1) == document_idxs).to(float).mean()
+        # TODO: log top-1, top-5, top-100 acc
         self.log(f"{metrics_key}/pct_correct", pct_correct)
-        self.log(f"{metrics_key}/diagonal_avg_prob", diagonal_avg_prob)
         self.log(f"{metrics_key}/loss", loss)
         return loss
     
@@ -384,7 +381,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
         text_key_id = torch.cat(
             [o['text_key_id'] for o in outputs], axis=0)
-        
+        document_scheduler, profile_scheduler = self.lr_schedulers()
         # Get embeddings.
         if self.document_encoder_is_training:
             document_embeddings = torch.cat(
@@ -399,6 +396,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.val_document_redact_ner_embeddings = document_redact_ner_embeddings
             self.val_document_redact_lexical_embeddings = document_redact_lexical_embeddings
 
+            scheduler = document_scheduler
+
         else:
             document_embeddings = self.val_document_embeddings
             document_redact_ner_embeddings = self.val_document_redact_ner_embeddings
@@ -407,6 +406,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
                 [o['profile_embeddings'] for o in outputs], axis=0)
             
             self.val_profile_embeddings = profile_embeddings
+
+            scheduler = profile_scheduler
         
         # Compute losses.
         # TODO: is `text_key_id` still correct when training profile encoder?
@@ -423,6 +424,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val_exact/document_redact_lexical'
         )
+        scheduler.step(doc_loss)
         return doc_loss
     
     def _precompute_initial_profile_embeddings(self):
@@ -462,7 +464,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         """Prepare optimizer and schedule (linear warmup and decay)"""
         # TODO!!(jxm): add embeddings back to optimizers here
         document_optimizer = AdamW(
-            list(self.document_model.parameters()) + [self.temperature], lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
+            list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature], lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
         )
         document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             document_optimizer, mode='min',
@@ -490,7 +492,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             "scheduler": profile_scheduler,
             "name": "profile_learning_rate",
         }
-
         # TODO: Consider adding a scheduler for word dropout?
 
         return [document_optimizer, profile_optimizer], [document_scheduler, profile_scheduler]
