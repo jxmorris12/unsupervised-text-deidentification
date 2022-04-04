@@ -113,14 +113,17 @@ def main(args: argparse.Namespace):
     if USE_WANDB:
         import wandb
         from pytorch_lightning.loggers import WandbLogger
+        
+        wandb_logger = WandbLogger(
+            name=exp_name,
+            project='deid-wikibio', 
+            config=vars(args),
+            job_type='train',
+            entity='jack-morris',
+        )
+        wandb_logger.watch(model)
         loggers.append(
-            WandbLogger(
-                name=exp_name,
-                project='deid-wikibio', 
-                config=vars(args),
-                job_type='train',
-                entity='jack-morris',
-            )
+            wandb_logger
         )
     
     from pytorch_lightning.loggers import CSVLogger

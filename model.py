@@ -104,8 +104,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         train_split = 'train[:10%]' # TODO: argparse for split/dataset?
         train_save_folder = os.path.join(self.base_folder, 'precomputed_similarities', self.profile_encoder_name, f'{dataset_name}__{train_split}__{k}')
         assert os.path.exists(train_save_folder), f'no precomputed similarities at folder {train_save_folder}'
-        train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
-        self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
+        # train_neighbors_path = os.path.join(train_save_folder, 'neighbors.p')
+        # self.train_neighbors = np.array(pickle.load(open(train_neighbors_path, 'rb')))
         train_embeddings_path = os.path.join(train_save_folder, 'embeddings.p')
         self.train_embeddings = pickle.load(open(train_embeddings_path, 'rb'))
         self.max_seq_length = max_seq_length
@@ -137,14 +137,16 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.hparams["len_train_embeddings"] = len(self.train_embeddings)
         self.hparams["len_val_embeddings"] = len(self.val_embeddings)
         self.hparams["num_neighbors"] = self.num_neighbors
+
+        self.automatic_optimization = False
     
     def word_dropout_text(self, text: List[str]):
         """Apply word dropout to text input."""
         # TODO: implement this in dataloader to take advantage of multiprocessing
-        if random.random() > self.word_dropout_ratio:
-            # Don't do dropout this % of the time
-            return text
         for i in range(len(text)):
+            if random.random() > self.word_dropout_ratio:
+                # Don't do dropout this % of the time
+                continue
             for w in words_from_text(text[i]):
                 if random.random() < self.word_dropout_perc:
                     text[i] = re.sub(
@@ -152,8 +154,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
                         self.word_dropout_mask_token, text[i], 1
                     )
         return text
-        
-
 
     def forward_text(self, text: List[str]):
         if self.training:
@@ -318,6 +318,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
             loss = self._compute_loss_exact(document_embeddings, profile_embeddings, batch['text_key_id'], metrics_key='train')
         else:
             raise ValueError(f'Unsupported loss function {self.loss_fn}')
+
+        optimizer = self.optimizers()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
@@ -381,7 +386,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
         optimizer = AdamW(
-            self.document_model.parameters(), lr=self.learning_rate, eps=self.hparams.adam_epsilon)
+            list(self.document_model.parameters()) + [self.temperature], lr=self.learning_rate, eps=self.hparams.adam_epsilon)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min',
             factor=self.lr_scheduler_factor,
