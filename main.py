@@ -43,7 +43,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
     parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--max_seq_length', type=int, default=128)
+    parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--redaction_strategy', type=str, default='',
         choices=('spacy_ner', 'lexical', '')
@@ -52,6 +52,9 @@ def get_args() -> argparse.Namespace:
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
+    parser.add_argument('--pretrained_profile_encoder', action='store_true', default=False,
+        help=('whether to fix profile encoder and just train document encoder. ' 
+            '[if false, does coordinate ascent alternating models across epochs]'))
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
@@ -67,9 +70,10 @@ def main(args: argparse.Namespace):
     assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
-    print(f"creating data module with redaction strategy '{args.redaction_strategy}'")
+    doc_mask_token = AutoTokenizer.from_pretrained(args.document_model_name).mask_token
+    print(f"creating data module with redaction strategy '{args.redaction_strategy}' / document mask token {doc_mask_token}")
     dm = WikipediaDataModule(
-        mask_token=AutoTokenizer.from_pretrained(args.document_model_name).mask_token,
+        mask_token=doc_mask_token,
         dataset_name=args.dataset_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
@@ -83,8 +87,11 @@ def main(args: argparse.Namespace):
         profile_model_name_or_path=args.profile_model_name,
         dataset_name=args.dataset_name,
         num_workers=min(8, num_cpus),
+        train_batch_size=args.batch_size,
+        eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         max_seq_length=args.max_seq_length,
+        pretrained_profile_encoder=args.pretrained_profile_encoder,
         redaction_strategy=args.redaction_strategy,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
@@ -98,12 +105,16 @@ def main(args: argparse.Namespace):
     # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
     exp_name = args.document_model_name
     if args.profile_model_name != args.document_model_name:
-        exp_name += f'_{args.profile_model_name}'
+        exp_name += f'__{args.profile_model_name}'
     if args.redaction_strategy:
         exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
     exp_name += f'_{day}'
+
+    # exp_name aliases
+    exp_name = exp_name.replace('roberta-base', 'roberta')
+    exp_name = exp_name.replace('sentence-transformers/paraphrase-MiniLM-L6-v2', 'st/paraphrase')
 
     if USE_WANDB:
         import wandb
@@ -127,8 +138,9 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs"))
 
-    # TODO: properly early stop with val metric that corresponds to args.redaction_strategy?
+    # TODO: argparse for val_metric
     val_metric = "val_exact/document/loss"
+    # val_metric = "val_exact/document_redact_lexical/loss"
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(monitor=val_metric),

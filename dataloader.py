@@ -154,5 +154,6 @@ class WikipediaDataModule(LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.train_batch_size,
-            num_workers=self.num_workers
+            num_workers=self.num_workers,
+            shuffle=False
         )
