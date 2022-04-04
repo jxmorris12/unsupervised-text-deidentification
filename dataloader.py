@@ -14,8 +14,11 @@ from redact import remove_named_entities_spacy_batch, remove_overlapping_words
 from utils import name_from_table_rows
 
 class WikipediaDataModule(LightningDataModule):
-    str_to_idx: Dict[str, int]  # maps un-redacted profile text (string) to index in training set
     dataset_name: str
+    dataset_version: str
+    dataset_train_split: str
+    dataset_val_split: str
+
     train_batch_size: int
     eval_batch_size: int
     num_workers: int
@@ -26,6 +29,9 @@ class WikipediaDataModule(LightningDataModule):
     def __init__(
         self,
         dataset_name: str = "wiki_bio",
+        dataset_train_split: str = "train[:10%]",
+        dataset_val_split: str = "val[:20%]",
+        dataset_version: str = None,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
@@ -37,6 +43,10 @@ class WikipediaDataModule(LightningDataModule):
         super().__init__()
         assert dataset_name == "wiki_bio"
         self.dataset_name = dataset_name
+        self.dataset_train_split = dataset_train_split
+        self.dataset_val_split = dataset_val_split
+        self.dataset_version = dataset_version
+
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
@@ -48,10 +58,13 @@ class WikipediaDataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # TODO: argparse for split 
-        train_split = 'train[:10%]'
-        val_split = 'val[:20%]'
-        self.train_dataset = datasets.load_dataset(self.dataset_name, split=train_split) # wiki_bio train size: 582,659
-        self.val_dataset = datasets.load_dataset(self.dataset_name, split=val_split) # wiki_bio val size: 72,831
+        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
+        self.train_dataset = datasets.load_dataset(
+            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version) # wiki_bio train size: 582,659
+
+        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
+        self.val_dataset = datasets.load_dataset(
+            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version) # wiki_bio val size: 72,831
 
         def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
             """
@@ -97,6 +110,8 @@ class WikipediaDataModule(LightningDataModule):
         ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
+        # TODO: consider fixing this with by setting `new_fingerprint` arg:
+        #       https://github.com/huggingface/datasets/issues/3178#issuecomment-1085932904
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True)

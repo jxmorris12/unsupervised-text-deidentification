@@ -38,6 +38,8 @@ def get_args() -> argparse.Namespace:
         description='Train a model.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    parser.add_argument('--num_validations_per_epoch', type=int, default=1,
+        help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=8)
     parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
@@ -61,8 +63,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--lr_scheduler_patience', type=int, default=3,
     help='factor to decrease learning rate by on drop [unit: epochs]')
 
+    parser.add_argument('--dataset_name', type=str, default='wiki_bio')
+    parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
+    parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
+    parser.add_argument('--dataset_version', type=str, default='1.2.0')
+
     args = parser.parse_args()
-    args.dataset_name = 'wiki_bio'
     return args
 
 
@@ -75,6 +81,9 @@ def main(args: argparse.Namespace):
     dm = WikipediaDataModule(
         mask_token=doc_mask_token,
         dataset_name=args.dataset_name,
+        dataset_train_split=args.dataset_train_split,
+        dataset_val_split=args.dataset_val_split,
+        dataset_version=args.dataset_version,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -85,7 +94,6 @@ def main(args: argparse.Namespace):
     model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=args.document_model_name,
         profile_model_name_or_path=args.profile_model_name,
-        dataset_name=args.dataset_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -101,8 +109,6 @@ def main(args: argparse.Namespace):
 
     loggers = []
 
-    day = time.strftime(f'%Y-%m-%d-%H%M')
-    # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
     exp_name = args.document_model_name
     if args.profile_model_name != args.document_model_name:
         exp_name += f'__{args.profile_model_name}'
@@ -110,7 +116,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
-    exp_name += f'_{day}'
+    # day = time.strftime(f'%Y-%m-%d-%H%M')
+    # exp_name += f'_{day}'
 
     # exp_name aliases
     exp_name = exp_name.replace('roberta-base', 'roberta')
@@ -144,12 +151,13 @@ def main(args: argparse.Namespace):
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(monitor=val_metric),
-        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=5, verbose=False, mode="min")
+        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=(args.lr_scheduler_patience*5), verbose=True, mode="min")
     ]
 
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
+        val_check_interval=1/args.num_validations_per_epoch,
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
