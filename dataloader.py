@@ -147,7 +147,7 @@ class WikipediaDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
-            shuffle=True # Only shuffle for train
+            shuffle=False # Only shuffle for train
         )
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
