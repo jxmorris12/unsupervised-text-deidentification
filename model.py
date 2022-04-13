@@ -86,7 +86,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         #     # TODO: make these numbers a feature of model/embedding type
         # )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(3.0, dtype=torch.float32), requires_grad=True
+            torch.tensor(3.5, dtype=torch.float32), requires_grad=True
         )
         
         # TODO: allow tapas model profile_encoder (but use it properly)
@@ -424,10 +424,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val_exact/document_redact_lexical'
         )
-        scheduler.step(doc_loss)
+        # scheduler.step(doc_loss)
+        scheduler.step(doc_redact_ner_loss)
+        # scheduler.step(doc_redact_lexical_loss)
         return doc_loss
     
-    def _precompute_initial_profile_embeddings(self):
+    def precompute_profile_embeddings(self):
         self.profile_model.cuda()
         self.profile_model.eval()
         # self.profile_embed.cuda()
@@ -458,11 +460,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
         ab_size = self.trainer.accumulate_grad_batches * float(self.trainer.max_epochs)
         self.total_steps = (len(train_loader.dataset) // tb_size) // ab_size
         # Precompute embeddings
-        self._precompute_initial_profile_embeddings()
+        self.precompute_profile_embeddings()
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
-        # TODO!!(jxm): add embeddings back to optimizers here
         document_optimizer = AdamW(
             list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature], lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
         )
@@ -470,7 +471,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
-            min_lr=1e-8
+            min_lr=1e-9
         )
         # see source:
         # pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html?highlight=optimizer_step#optimizer-step
@@ -486,7 +487,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             profile_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
-            min_lr=1e-8
+            min_lr=1e-9
         )
         profile_scheduler = {
             "scheduler": profile_scheduler,

@@ -61,7 +61,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
     parser.add_argument('--lr_scheduler_patience', type=int, default=3,
-    help='factor to decrease learning rate by on drop [unit: epochs]')
+        help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
@@ -146,12 +146,14 @@ def main(args: argparse.Namespace):
     loggers.append(CSVLogger("logs"))
 
     # TODO: argparse for val_metric
-    val_metric = "val_exact/document/loss"
+    # val_metric = "val_exact/document/loss"
     # val_metric = "val_exact/document_redact_lexical/loss"
+    val_metric = "val_exact/document_redact_ner/loss"
+    early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(monitor=val_metric),
-        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=(args.lr_scheduler_patience*5), verbose=True, mode="min")
+        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
 
     print("creating Trainer")
