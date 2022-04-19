@@ -67,10 +67,8 @@ class WikipediaDataModule(LightningDataModule):
         assert os.path.exists(val_save_folder), f'no precomputed similarities at folder {val_save_folder}'
         train_str_to_idx_path = os.path.join(train_save_folder, 'str_to_idx.p') 
         val_str_to_idx_path = os.path.join(val_save_folder, 'str_to_idx.p') 
-        self.str_to_idx = (
-            pickle.load(open(train_str_to_idx_path, 'rb')) |
-            pickle.load(open(val_str_to_idx_path, 'rb'))
-        )
+        self.str_to_idx = pickle.load(open(train_str_to_idx_path, 'rb'))
+        self.str_to_idx.update(pickle.load(open(val_str_to_idx_path, 'rb')))
 
         def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
             """
@@ -181,4 +179,4 @@ class WikipediaDataModule(LightningDataModule):
         # that was just loaded from the dataset. Either str_to_idx refers to a different split or dataset,
         # or it actually refers to a different version (i.e. it was precomputed with an older version of
         # wiki_bio data).
-        return example_batch | ids_dict
+        return dict(example_batch, **ids_dict)
