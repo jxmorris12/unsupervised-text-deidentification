@@ -67,6 +67,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
     parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
+    parser.add_argument('--train_without_names', action='store_true', default=False,
+        help='whether to remove names from profiles during training')
 
     args = parser.parse_args()
     return args
@@ -106,6 +108,7 @@ def main(args: argparse.Namespace):
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
         adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
+        train_without_names=args.train_without_names,
     )
 
     loggers = []
@@ -117,6 +120,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
+    if args.train_without_names:
+        exp_name += '__no_names'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
     # exp_name += f'_{day}'
 
@@ -146,9 +151,9 @@ def main(args: argparse.Namespace):
     loggers.append(CSVLogger("logs"))
 
     # TODO: argparse for val_metric
-    # val_metric = "val_exact/document/loss"
-    # val_metric = "val_exact/document_redact_lexical/loss"
-    val_metric = "val_exact/document_redact_ner/loss"
+    # val_metric = "val/document/loss"
+    # val_metric = "val/document_redact_lexical/loss"
+    val_metric = "val/document_redact_ner/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),

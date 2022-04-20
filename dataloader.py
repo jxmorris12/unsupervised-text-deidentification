@@ -11,7 +11,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 
 from redact import remove_named_entities_spacy_batch, remove_overlapping_words
-from utils import name_from_table_rows
+from utils import get_table_minus_name, name_from_table_rows
 
 class WikipediaDataModule(LightningDataModule):
     dataset_name: str
@@ -83,12 +83,18 @@ class WikipediaDataModule(LightningDataModule):
                 map(lambda s: s.strip(), table_info['column_header']),
                 map(lambda s: s.strip(), table_info['content']))
             )
-            table_text = '\n'.join([' | '.join(row) for row in table_rows])
+            table_text = (
+                '\n'.join([' | '.join(row) for row in table_rows])
+            )
+            table_text_without_name = (
+                '\n'.join([' | '.join(row) for row in get_table_minus_name(table_rows)])
+            )
             # return example: transformed table + first paragraph
             return {
                 'name': name_from_table_rows(table_rows),
                 'document': fixed_target_text,          # First paragraph of biography
-                'profile': table_text,             # Table re-printed as a string
+                'profile': table_text,                  # Table re-printed as a string
+                'profile_without_name': table_text_without_name, # Table with name removed
                 'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
             }
 
@@ -148,7 +154,8 @@ class WikipediaDataModule(LightningDataModule):
             "document_redact_lexical",
                     # [redacted_lexical] First paragraph of wikipedia page (str)
 
-            "profile" # Table from wikipedia infobox (str)
+            "profile", # Table from wikipedia infobox (str)
+            "profile_without_name" # Table from wikipedia infobox, with name removed (str)
         ]
         self.train_dataset.set_format(type=None, columns=self.columns)
         self.val_dataset.set_format(type=None, columns=self.columns)
