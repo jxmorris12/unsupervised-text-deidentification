@@ -128,10 +128,11 @@ def main(args: argparse.Namespace):
 
     if args.encoder == 'tapas':
         embeddings = tapas_embeddings_from_dataset(data)
+        # dimensionality: 768
     elif args.encoder == 'st-paraphrase':
         model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2').to(device)
         embeddings = model.encode(sentence_keys)
-        # dimensionality: 768
+        # dimensionality: 384
     else:
         raise ValueError(f'unknown encoder: {args.encoder}')
 
@@ -150,6 +151,7 @@ def main(args: argparse.Namespace):
 
     if not args.compute_neighbors:
         print('Not computing neighbors, exiting early')
+        exit()
 
     # put data in tree
     print('Building KDTree...')
