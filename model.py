@@ -37,6 +37,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     lr_scheduler_patience: int
 
     pretrained_profile_encoder: bool
+    train_without_names: bool
 
     def __init__(
         self,
@@ -55,6 +56,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
         pretrained_profile_encoder: bool = False,
+        train_without_names: bool = False,
         base_folder = "",
         **kwargs,
     ):
@@ -95,6 +97,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
 
         self.pretrained_profile_encoder = pretrained_profile_encoder
+        self.train_without_names = train_without_names
 
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
 
@@ -115,6 +118,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.val_document_redact_ner_embeddings = None
         self.val_document_redact_lexical_embeddings = None
         self.val_profile_embeddings = None
+        self.val_profile_without_name_embeddings = None
         
         # TODO: separate argparse for learning rates?
         self.document_learning_rate = learning_rate
@@ -142,6 +146,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
     @property
     def profile_model_device(self) -> torch.device:
         return next(self.profile_model.parameters()).device
+    
+    def _get_profile_for_training(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return batch["profile_without_name"] if self.train_without_names else batch["profile"]
 
     def on_train_epoch_start(self):
         # We only want to keep one model on GPU at a time.
@@ -155,6 +162,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             # 
             self.train_profile_embeddings = self.train_profile_embeddings.cuda()
             self.val_profile_embeddings = self.val_profile_embeddings.cuda()
+            self.val_profile_without_name_embeddings = self.val_profile_without_name_embeddings.cuda()
             self.document_model.cuda()
             self.document_embed.cuda()
             self.profile_model.cpu()
@@ -165,6 +173,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             # 
             self.train_document_embeddings = self.train_document_embeddings.cuda()
             self.val_document_embeddings = self.val_document_embeddings.cuda()
+            self.val_profile_without_name_embeddings = self.val_profile_without_name_embeddings.cuda()
             self.document_model.cpu()
             self.document_embed.cpu()
             self.profile_model.cuda()
@@ -304,7 +313,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def _training_step_profile(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """One step of training where training is supposed to update  `self.profile_model`."""
         profile_embeddings = self.forward_profile_text(
-            text=batch['profile'],
+            text=self._get_profile_for_training(batch),
         )
         self.log("temperature", self.temperature.exp())
 
@@ -321,7 +330,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
-        dict_keys(['document', 'profile', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
+        dict_keys(['document', 'profile', 'profile_without_name', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
         """
         # Alternate between training phases per epoch.
         assert self.document_model.training
@@ -386,10 +395,15 @@ class DocumentProfileMatchingTransformer(LightningModule):
         else:
             # Profile embeddings
             profile_embeddings = self.forward_profile_text(
-                text=batch['profile']
+                text=batch["profile"]
+            )
+            # Profile embeddings, without name
+            profile_without_name_embeddings = self.forward_profile_text(
+                text=batch["profile_without_name"]
             )
             return {
                 "profile_embeddings": profile_embeddings,
+                "profile_without_name_embeddings": profile_without_name_embeddings,
                 "text_key_id": batch['text_key_id']
             }
 
@@ -406,6 +420,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings = torch.cat(
                 [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
             profile_embeddings = self.val_profile_embeddings
+            profile_without_name_embeddings = self.val_profile_without_name_embeddings
 
             self.val_document_embeddings = document_embeddings
             self.val_document_redact_ner_embeddings = document_redact_ner_embeddings
@@ -419,8 +434,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings
             profile_embeddings = torch.cat(
                 [o['profile_embeddings'] for o in outputs], axis=0)
+            profile_without_name_embeddings = torch.cat(
+                [o['profile_without_name_embeddings'] for o in outputs], axis=0)
             
             self.val_profile_embeddings = profile_embeddings
+            self.val_profile_without_name_embeddings = profile_without_name_embeddings
 
             scheduler = profile_scheduler
         
@@ -429,15 +447,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
         #       i.e., will this still work if the validation data is shuffled?
         doc_loss = self._compute_loss_exact(
             document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
-            metrics_key='val_exact/document'
+            metrics_key='val/document'
+        )
+        doc_prof_without_name_loss = self._compute_loss_exact(
+            document_embeddings.cuda(), profile_without_name_embeddings.cuda(), text_key_id.cuda(),
+            metrics_key='val/document_profile_without_name'
         )
         doc_redact_ner_loss = self._compute_loss_exact(
             document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
-            metrics_key='val_exact/document_redact_ner'
+            metrics_key='val/document_redact_ner'
         )
         doc_redact_lexical_loss = self._compute_loss_exact(
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
-            metrics_key='val_exact/document_redact_lexical'
+            metrics_key='val/document_redact_lexical'
         )
         # scheduler.step(doc_loss)
         scheduler.step(doc_redact_ner_loss)
@@ -452,16 +474,21 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
-                profile_embeddings = self.forward_profile_text(text=train_batch["profile"])
+                profile_embeddings = self.forward_profile_text(text=self._get_profile_for_training(train_batch))
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
         self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
 
         self.val_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
+        self.val_profile_without_name_embeddings  = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
+
         for val_batch in tqdm.tqdm(self.trainer.datamodule.val_dataloader(), desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
             with torch.no_grad():
-                profile_embeddings = self.forward_profile_text(text=val_batch["profile"])
+                profile_embeddings = self.forward_profile_text(text=self._get_profile_for_training(val_batch))
+                profile_without_name_embeddings = self.forward_profile_text(text=val_batch["profile_without_name"])
             self.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
+            self.val_profile_without_name_embeddings[val_batch["text_key_id"]] = profile_without_name_embeddings.cpu()
         self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings, dtype=torch.float32)
+        self.val_profile_without_name_embeddings = torch.tensor(self.val_profile_without_name_embeddings, dtype=torch.float32)
         self.profile_model.train()
 
     def setup(self, stage=None) -> None:
@@ -486,7 +513,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
-            min_lr=1e-9
+            min_lr=1e-10
         )
         # see source:
         # pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html?highlight=optimizer_step#optimizer-step
@@ -502,7 +529,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             profile_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
-            min_lr=1e-9
+            min_lr=1e-10
         )
         profile_scheduler = {
             "scheduler": profile_scheduler,

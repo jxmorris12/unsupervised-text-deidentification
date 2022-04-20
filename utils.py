@@ -27,6 +27,15 @@ def name_from_table_rows(table_rows: List[str]) -> str:
     # capitalize name and return
     return ' '.join((word.capitalize() for word in name.split()))
 
+
+def get_table_minus_name(table_rows: List[str]) -> List[str]:
+    """gets person's name from rows of a Wikipedia infobox"""
+    out_rows = []
+    for row in table_rows:
+        if row[0] in ['name', 'article_title']: continue
+        out_rows.append(row)
+    return out_rows
+
 words_from_text_re = re.compile(r'\b\w+\b')
 def words_from_text(s: str):
     return words_from_text_re.findall(s)
