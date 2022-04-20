@@ -22,6 +22,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
     """
     profile_embedding_dim: int
     max_seq_length: int
+    
+    adversarial_mask_k_tokens: int
 
     word_dropout_ratio: float    # Percentage of the time to do word dropout
     word_dropout_perc: float     # Percentage of words to replace with mask token
@@ -46,6 +48,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
         weight_decay: float = 0.0,
+        adversarial_mask_k_tokens: int = 0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         max_seq_length: int = 128,
@@ -89,6 +92,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         
         # TODO: allow tapas model profile_encoder (but use it properly)
         self.max_seq_length = max_seq_length
+        self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
 
         self.pretrained_profile_encoder = pretrained_profile_encoder
 
@@ -274,16 +278,22 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
             metrics_key='train'
         )
-        loss.backward()
-        adv_document_inputs = redact_text_from_grad(
-            document_inputs["input_ids"],
-            self.document_model,
-            self.document_tokenizer.mask_token_id
-        )
-        adv_loss = self._compute_loss_exact(
-            adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
-            metrics_key='train'
-        )
+        
+        if self.adversarial_mask_k_tokens:
+            loss.backward()
+            topk_tokens, document_inputs["input_ids"] = redact_text_from_grad(
+                input_ids=document_inputs["input_ids"],
+                model=self.document_model,
+                k=self.adversarial_mask_k_tokens,
+                mask_token_id=self.document_tokenizer.mask_token_id
+            )
+            # print('topk_tokens:', self.document_tokenizer.decode(topk_tokens))
+            adv_document_embeddings = self.forward_document_inputs(document_inputs)
+            adv_loss = self._compute_loss_exact(
+                adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
+                metrics_key='train'
+            )
+            loss = adv_loss
 
         return {
             "loss": loss,

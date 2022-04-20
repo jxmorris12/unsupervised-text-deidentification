@@ -60,6 +60,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--lr_scheduler_patience', type=int, default=3,
         help='patience for lr scheduler [unit: epochs]')
 
+    parser.add_argument('--adversarial_mask_k_tokens', '--adv_k', 
+        type=int, default=0, help='number of tokens to adversarially mask')
+
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
     parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
@@ -87,6 +90,8 @@ def main(args: argparse.Namespace):
     )
     dm.setup("fit")
     
+    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
     model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=args.document_model_name,
         profile_model_name_or_path=args.profile_model_name,
@@ -100,6 +105,7 @@ def main(args: argparse.Namespace):
         word_dropout_perc=args.word_dropout_perc,
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
+        adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
     )
 
     loggers = []
@@ -107,6 +113,8 @@ def main(args: argparse.Namespace):
     exp_name = args.document_model_name
     if args.profile_model_name != args.document_model_name:
         exp_name += f'__{args.profile_model_name}'
+    if args.adversarial_mask_k_tokens:
+        exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
