@@ -12,7 +12,7 @@ import tqdm
 from pytorch_lightning import LightningModule
 from transformers import AdamW, AutoConfig, AutoModel, AutoTokenizer
 
-from utils import words_from_text
+from utils import redact_text_from_grad, words_from_text
 
 
 # TODO: make a better name for this class...
@@ -27,7 +27,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
     word_dropout_perc: float     # Percentage of words to replace with mask token
 
     profile_model_name_or_path: str
-    redaction_strategy: str      # one of ['', 'spacy_ner', 'lexical']
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
 
@@ -53,7 +52,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
         pretrained_profile_encoder: bool = False,
-        redaction_strategy = "",
         base_folder = "",
         **kwargs,
     ):
@@ -90,8 +88,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         )
         
         # TODO: allow tapas model profile_encoder (but use it properly)
-        assert redaction_strategy in ["", "spacy_ner", "lexical"]
-        self.redaction_strategy = redaction_strategy
         self.max_seq_length = max_seq_length
 
         self.pretrained_profile_encoder = pretrained_profile_encoder
@@ -185,11 +181,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
                         mask_token, text[i], 1
                     )
         return text
+    
+    def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
+        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
+        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
+        document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        return document_embeddings
         
-    def forward_document_text(self, text: List[str]) -> torch.Tensor:
+    def forward_document_text(self, text: List[str], return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
         if self.training:
             text = self.word_dropout_text(text=text, mask_token=self.document_tokenizer.mask_token)
+        # TODO: Log percentage of mask tokens, calculated like (inputs["input_ids"] == self.document_tokenizer.mask_token_id).sum().
         inputs = self.document_tokenizer.batch_encode_plus(
             text,
             max_length=self.max_seq_length,
@@ -197,12 +201,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             truncation=True,
             return_tensors='pt',
         )
-        # TODO: Log percentage of mask tokens, calculated like (inputs["input_ids"] == self.document_tokenizer.mask_token_id).sum().
-        inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
-        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
-        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
-        document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
-        return document_embeddings
+
+        outputs = self.forward_document_inputs(inputs)
+        if return_inputs:
+            return inputs, outputs
+        else:
+            return outputs
     
     def forward_profile_text(self, text: List[str]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
@@ -260,26 +264,27 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def _training_step_document(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """One step of training where training is supposed to update  `self.document_model`."""
-        if self.redaction_strategy == "":
-            document_embeddings = self.forward_document_text(
-                text=batch['document'],
-            )
-        elif self.redaction_strategy == "spacy_ner":
-            document_embeddings = self.forward_document_text(
-                text=batch['document_redact_ner'],
-            )
-        elif self.redaction_strategy == "lexical":
-            document_embeddings = self.forward_document_text(
-                text=batch['document_redact_lexical'],
-            )
-        else:
-            raise Exception(f"unknown redaction strategy {self.redaction_strategy}")
+        document_inputs, document_embeddings = self.forward_document_text(
+            text=batch['document'], return_inputs=True
+        )
+    
         self.log("temperature", self.temperature.exp())
 
         loss = self._compute_loss_exact(
             document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
             metrics_key='train'
         )
+        loss.backward()
+        adv_document_inputs = redact_text_from_grad(
+            document_inputs["input_ids"],
+            self.document_model,
+            self.document_tokenizer.mask_token_id
+        )
+        adv_loss = self._compute_loss_exact(
+            adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
+            metrics_key='train'
+        )
+
         return {
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
