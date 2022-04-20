@@ -47,9 +47,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--redaction_strategy', type=str, default='',
-        choices=('spacy_ner', 'lexical', '')
-    )
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
@@ -77,7 +74,7 @@ def main(args: argparse.Namespace):
     seed_everything(42)
 
     doc_mask_token = AutoTokenizer.from_pretrained(args.document_model_name).mask_token
-    print(f"creating data module with redaction strategy '{args.redaction_strategy}' / document mask token {doc_mask_token}")
+    print(f"creating data module with document mask token {doc_mask_token}")
     dm = WikipediaDataModule(
         mask_token=doc_mask_token,
         dataset_name=args.dataset_name,
@@ -87,7 +84,6 @@ def main(args: argparse.Namespace):
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
     
@@ -100,7 +96,6 @@ def main(args: argparse.Namespace):
         learning_rate=args.learning_rate,
         max_seq_length=args.max_seq_length,
         pretrained_profile_encoder=args.pretrained_profile_encoder,
-        redaction_strategy=args.redaction_strategy,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
         lr_scheduler_factor=args.lr_scheduler_factor,
@@ -112,8 +107,6 @@ def main(args: argparse.Namespace):
     exp_name = args.document_model_name
     if args.profile_model_name != args.document_model_name:
         exp_name += f'__{args.profile_model_name}'
-    if args.redaction_strategy:
-        exp_name += f'__redact_{args.redaction_strategy}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
     # day = time.strftime(f'%Y-%m-%d-%H%M')

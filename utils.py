@@ -2,6 +2,9 @@ from typing import List, Tuple
 
 import re
 
+import torch
+import transformers
+
 
 def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
     """Finds row in wikipedia infobox by a key
@@ -27,3 +30,16 @@ def name_from_table_rows(table_rows: List[str]) -> str:
 words_from_text_re = re.compile(r'\b\w+\b')
 def words_from_text(s: str):
     return words_from_text_re.findall(s)
+
+def redact_text_from_grad(
+    input_ids: torch.Tensor, model: transformers.PreTrainedModel, mask_token_id: int) -> torch.Tensor:
+    """Masks tokens in `input_ids` proportional to gradient."""
+    k = 10
+    
+    topk_tokens = (
+        model.embeddings.word_embeddings.weight.grad.norm(p=2, dim=1).argsort()[-k:]
+    )
+    topk_mask = (input_ids[..., None] == topk_tokens[None, :]).sum(-1)
+    breakpoint()
+
+    return torch.where(topk_mask, topk_tokens, torch.tensor(mask_token_id)[None, None])
