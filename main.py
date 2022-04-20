@@ -21,6 +21,7 @@ import torch
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
+from transformers import AutoTokenizer
 
 from dataloader import WikipediaDataModule
 from model import DocumentProfileMatchingTransformer
@@ -37,83 +38,95 @@ def get_args() -> argparse.Namespace:
         description='Train a model.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    parser.add_argument('--num_validations_per_epoch', type=int, default=1,
+        help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=8)
-    parser.add_argument('--model_name', type=str, default='distilbert-base-uncased')
+    parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
+    parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--max_seq_length', type=int, default=128)
+    parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--redaction_strategy', type=str, default='',
-        choices=('spacy_ner', 'lexical', '')
-    )
-    parser.add_argument('--loss_fn', type=str, default='exact',
-        choices=('exact', 'nearest_neighbors', 'num_neighbors')
-    )
-    parser.add_argument('--num_neighbors', type=int, default=512)
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
-    parser.add_argument('--profile_encoder_name', '--profile_encoder', type=str,
-        default='tapas', choices=('tapas', 'st-paraphrase'),
-        help='profile encoder to use'
-    )
+    parser.add_argument('--pretrained_profile_encoder', action='store_true', default=False,
+        help=('whether to fix profile encoder and just train document encoder. ' 
+            '[if false, does coordinate ascent alternating models across epochs]'))
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
     parser.add_argument('--lr_scheduler_patience', type=int, default=3,
-    help='factor to decrease learning rate by on drop [unit: epochs]')
+        help='patience for lr scheduler [unit: epochs]')
+
+    parser.add_argument('--adversarial_mask_k_tokens', '--adv_k', 
+        type=int, default=0, help='number of tokens to adversarially mask')
+
+    parser.add_argument('--dataset_name', type=str, default='wiki_bio')
+    parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
+    parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
+    parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     args = parser.parse_args()
-    args.dataset_name = 'wiki_bio'
     return args
 
 
 def main(args: argparse.Namespace):
+    assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
-    print(f"creating data module with redaction strategy '{args.redaction_strategy}'")
+    doc_mask_token = AutoTokenizer.from_pretrained(args.document_model_name).mask_token
+    print(f"creating data module with document mask token {doc_mask_token}")
     dm = WikipediaDataModule(
-        model_name_or_path=args.model_name,
+        mask_token=doc_mask_token,
         dataset_name=args.dataset_name,
-        profile_encoder_name=args.profile_encoder_name,
+        dataset_train_split=args.dataset_train_split,
+        dataset_val_split=args.dataset_val_split,
+        dataset_version=args.dataset_version,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        redaction_strategy=args.redaction_strategy,
     )
     dm.setup("fit")
     
+    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
     model = DocumentProfileMatchingTransformer(
-        model_name_or_path=args.model_name,
-        dataset_name=args.dataset_name,
-        profile_encoder_name=args.profile_encoder_name,
+        document_model_name_or_path=args.document_model_name,
+        profile_model_name_or_path=args.profile_model_name,
         num_workers=min(8, num_cpus),
+        train_batch_size=args.batch_size,
+        eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         max_seq_length=args.max_seq_length,
-        loss_fn=args.loss_fn,
-        num_neighbors=args.num_neighbors,
-        redaction_strategy=args.redaction_strategy,
+        pretrained_profile_encoder=args.pretrained_profile_encoder,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
+        adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
     )
 
     loggers = []
 
-    day = time.strftime(f'%Y-%m-%d-%H%M')
-    # NOTE(js): `args.model_name[:4]` just grabs "elmo" or "bert"; feel free to change later
-    exp_name = f'{args.model_name}_{day}'
-    if args.redaction_strategy:
-        exp_name += f'__redact_{args.redaction_strategy}'
+    exp_name = args.document_model_name
+    if args.profile_model_name != args.document_model_name:
+        exp_name += f'__{args.profile_model_name}'
+    if args.adversarial_mask_k_tokens:
+        exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.word_dropout_ratio:
-        exp_name += f'__dropout_{args.word_dropout_ratio}'
+        exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
+    # day = time.strftime(f'%Y-%m-%d-%H%M')
+    # exp_name += f'_{day}'
+
+    # exp_name aliases
+    exp_name = exp_name.replace('roberta-base', 'roberta')
+    exp_name = exp_name.replace('sentence-transformers/paraphrase-MiniLM-L6-v2', 'st/paraphrase')
 
     if USE_WANDB:
         import wandb
         from pytorch_lightning.loggers import WandbLogger
-        
         wandb_logger = WandbLogger(
             name=exp_name,
             project='deid-wikibio', 
@@ -132,17 +145,21 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs"))
 
-    # TODO: properly early stop with val metric that corresponds to args.redaction_strategy
-    val_metric = "val_exact/document/loss"
+    # TODO: argparse for val_metric
+    # val_metric = "val_exact/document/loss"
+    # val_metric = "val_exact/document_redact_lexical/loss"
+    val_metric = "val_exact/document_redact_ner/loss"
+    early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(monitor=val_metric),
-        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=5, verbose=False, mode="min")
+        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
 
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
+        val_check_interval=1/args.num_validations_per_epoch,
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
