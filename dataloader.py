@@ -175,7 +175,7 @@ class WikipediaDataModule(LightningDataModule):
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         return DataLoader(
             self.val_dataset,
-            batch_size=self.train_batch_size,
+            batch_size=self.eval_batch_size,
             num_workers=self.num_workers,
             shuffle=False
         )

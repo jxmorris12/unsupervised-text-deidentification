@@ -36,9 +36,11 @@ def get_table_minus_name(table_rows: List[str]) -> List[str]:
         out_rows.append(row)
     return out_rows
 
+
 words_from_text_re = re.compile(r'\b\w+\b')
 def words_from_text(s: str):
     return words_from_text_re.findall(s)
+
 
 def redact_text_from_grad(
     input_ids: torch.Tensor, model: transformers.PreTrainedModel, k: int, mask_token_id: int) -> torch.Tensor:
