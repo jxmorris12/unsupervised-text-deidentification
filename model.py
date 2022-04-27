@@ -257,7 +257,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         assert len(document_embeddings.shape) == len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         assert document_embeddings.shape[1] == profile_embeddings.shape[1] # embedding dims must match
         assert len(document_idxs.shape) == 1
-        assert document_embeddings.shape[0] == document_embeddings.shape[0] # batch dims must match
         batch_size = len(document_embeddings)
         # Normalize embeddings before computing similarity
         document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
@@ -386,12 +385,27 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_lexical_embeddings = self.forward_document_text(
                 text=batch['document_redact_lexical'],
             )
-            return {
+
+            out_embeddings = {
                 "document_embeddings": document_embeddings,
                 "document_redact_ner_embeddings": document_redact_ner_embeddings,
                 "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
                 "text_key_id": batch['text_key_id']
             }
+
+            # Document embeddings (redacted document - adversarial)
+            for k in [1]:
+                # Non-existent documents are represented by empty string;
+                # filter those out.
+                adv_docs = [s for s in batch[f'adv_document_{k}'] if len(s)]
+                document_adv_embeddings = []
+                if len(adv_docs):
+                    document_adv_embeddings = self.forward_document_text(
+                        text=adv_docs,
+                    )
+                out_embeddings[f"document_redact_adversarial_{k}"] = document_adv_embeddings
+
+            return out_embeddings
         else:
             # Profile embeddings
             profile_embeddings = self.forward_profile_text(
@@ -401,11 +415,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             profile_without_name_embeddings = self.forward_profile_text(
                 text=batch["profile_without_name"]
             )
-            return {
+            out_embeddings = {
                 "profile_embeddings": profile_embeddings,
                 "profile_without_name_embeddings": profile_without_name_embeddings,
                 "text_key_id": batch['text_key_id']
             }
+            return out_embeddings
 
     def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
         text_key_id = torch.cat(
@@ -425,6 +440,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.val_document_embeddings = document_embeddings
             self.val_document_redact_ner_embeddings = document_redact_ner_embeddings
             self.val_document_redact_lexical_embeddings = document_redact_lexical_embeddings
+
+            # Compute loss on adversarial documents.
+            # TODO: Store adv_embeddings and compute this over batches too.
+            for k in [1]:
+                document_redact_adversarial_embeddings = torch.cat(
+                    [o[f"document_redact_adversarial_{k}"] for o in outputs if len(o[f"document_redact_adversarial_{k}"])], axis=0)
+                # There may be far fewer adversarial documents than total profiles, so we only want to compare
+                # for the 'text_key_id' that we have adversarial profiles for.
+                adv_text_key_id = text_key_id[:len(document_redact_adversarial_embeddings)]
+                self._compute_loss_exact(
+                    document_redact_adversarial_embeddings.cuda(), profile_embeddings.cuda(), adv_text_key_id.cuda(),
+                    metrics_key=f'val/document_redact_adversarial_{k}'
+                )
 
             scheduler = document_scheduler
 

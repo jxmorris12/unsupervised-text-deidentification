@@ -6,6 +6,7 @@ import pickle
 
 import datasets
 import numpy as np
+import pandas as pd
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
@@ -56,8 +57,7 @@ class WikipediaDataModule(LightningDataModule):
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = base_folder
 
-    def setup(self, stage: str) -> None:
-        # TODO: argparse for split 
+    def _load_train_and_val_data(self):
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
         self.train_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_train_split, version=self.dataset_version) # wiki_bio train size: 582,659
@@ -159,6 +159,29 @@ class WikipediaDataModule(LightningDataModule):
         ]
         self.train_dataset.set_format(type=None, columns=self.columns)
         self.val_dataset.set_format(type=None, columns=self.columns)
+
+    def _load_adv_val_data(self):
+        val_n = len(self.val_dataset)
+        for k in [1]:
+            df = pd.read_csv(f'adv_csvs/results_{k}_1000.csv')
+            perturbed_text = df['perturbed_text'].map(lambda t: t.replace('<mask>', self.mask_token))
+            padded_perturbed_text = (
+                perturbed_text.tolist()[:val_n] + ([''] * (val_n - len(perturbed_text)))
+            )
+            assert len(padded_perturbed_text) == val_n
+            # Update columns & dataset output format.
+            self.val_dataset = self.val_dataset.add_column(f'adv_document_{k}', padded_perturbed_text)
+            new_columns = self.val_dataset._format_columns + [f'adv_document_{k}']
+            self.val_dataset.set_format(type=None, columns=new_columns)
+            # Note: this only works if these are properly aligned, i.e. val dataset is unshuffled,
+            # i.e. self.val_dataset['document'][:1000] == df['original_text']. However, we can't use
+            # assert here because of minor differences in those documents from loading and exporting
+            # to CSV (whitespace issues, weird tokens etc.).
+            print(f'Added column adv_document_{k} to dataset')
+
+    def setup(self, stage: str) -> None:
+        self._load_train_and_val_data()
+        self._load_adv_val_data()
 
     def prepare_data(self) -> None:
         # automatically download dataset
