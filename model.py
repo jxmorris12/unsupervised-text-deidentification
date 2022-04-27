@@ -7,6 +7,7 @@ import tqdm
 from pytorch_lightning import LightningModule
 from transformers import AdamW, AutoModel, AutoTokenizer
 
+from masking_tokenizer import MaskingTokenizer
 
 # TODO: make a better name for this class...
 class DocumentProfileMatchingTransformer(LightningModule):
@@ -16,7 +17,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
     profile_embedding_dim: int
     max_seq_length: int
     
-    sample_spans: bool
     adversarial_mask_k_tokens: int
     profile_model_name_or_path: str
 
@@ -73,10 +73,11 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.max_seq_length = max_seq_length
         self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
         self.masking_tokenizer = MaskingTokenizer(
-            tokenizer=tokenizer,
+            tokenizer=self.document_tokenizer,
             max_seq_length=max_seq_length,
             word_dropout_ratio=word_dropout_ratio,
-            sample_spans=self.sample_spans,
+            word_dropout_perc=word_dropout_perc,
+            sample_spans=sample_spans,
             adversarial_mask_k_tokens=adversarial_mask_k_tokens
         )
 
@@ -163,15 +164,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         
     def forward_document_text(self, text: List[str], return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
-        if self.training:
-        
-        # TODO: Log percentage of mask tokens, calculated like (inputs["input_ids"] == self.document_tokenizer.mask_token_id).sum().
-        inputs = self.document_tokenizer.batch_encode_plus(
-            text,
-            max_length=self.max_seq_length,
-            padding=True,
-            truncation=True,
-            return_tensors='pt',
+        inputs = self.masking_tokenizer.redact_and_tokenize_str(
+            text=text, training=self.training
         )
 
         outputs = self.forward_document_inputs(inputs)

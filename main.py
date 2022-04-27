@@ -61,7 +61,7 @@ def get_args() -> argparse.Namespace:
         help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--sample_spans', action='store_true',
-        type=bool, default=False, help='sample spans from the document randomly during training')
+        default=False, help='sample spans from the document randomly during training')
     parser.add_argument('--adversarial_mask_k_tokens', '--adv_k', 
         type=int, default=0, help='number of tokens to adversarially mask')
 

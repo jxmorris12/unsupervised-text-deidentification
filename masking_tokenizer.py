@@ -76,7 +76,6 @@ class MaskingTokenizer:
         assert isinstance(text[0], str)
         if training:
             # Do word dropout.
-            breakpoint()
             text = self._sample_and_word_dropout_text(text=text)
             
         inputs = self.tokenizer.batch_encode_plus(
@@ -86,9 +85,6 @@ class MaskingTokenizer:
             truncation=True,
             return_tensors='pt',
         )
-        if training and self.sample_spans:
-            # Sample spans.
-            inputs = self._sample_spans_from_inputs(inputs)
         return inputs
 
     
