@@ -92,12 +92,12 @@ def main(args: argparse.Namespace):
     )
     dm.setup("fit")
     
-    # model = DocumentProfileMatchingTransformer(
-    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
-        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
+        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
+    model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=args.document_model_name,
         profile_model_name_or_path=args.profile_model_name,
         num_workers=min(8, num_cpus),
