@@ -1,18 +1,11 @@
-from typing import Dict, List, Optional
-
-import os
-import pickle
-import random
-import re
+from typing import Dict, List
 
 import numpy as np
 import torch
 import tqdm
 
 from pytorch_lightning import LightningModule
-from transformers import AdamW, AutoConfig, AutoModel, AutoTokenizer
-
-from utils import redact_text_from_grad, words_from_text
+from transformers import AdamW, AutoModel, AutoTokenizer
 
 
 # TODO: make a better name for this class...
@@ -23,11 +16,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
     profile_embedding_dim: int
     max_seq_length: int
     
+    sample_spans: bool
     adversarial_mask_k_tokens: int
-
-    word_dropout_ratio: float    # Percentage of the time to do word dropout
-    word_dropout_perc: float     # Percentage of words to replace with mask token
-
     profile_model_name_or_path: str
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
@@ -49,6 +39,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
         weight_decay: float = 0.0,
+        sample_spans: bool = False,
         adversarial_mask_k_tokens: int = 0,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
@@ -67,27 +58,13 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
         self.profile_tokenizer = AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
 
-        self.profile_embedding_dim = 384 if 'paraphrase-MiniLM' in profile_model_name_or_path else 768 # TODO: set dynamically based on model
+        self.profile_embedding_dim = 768 # TODO: set dynamically based on model
         self.document_embed = torch.nn.Sequential(
             # TODO: consider a nonlinearity here?
-            # TODO: consider embedding profile into a shared (smaller) space?
             torch.nn.Dropout(p=0.1),
             torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim),
-            # (769 + 1) * 384 = 295,680 parameters
-            # TODO: different options for this, or less dropout?
             # TODO: make these numbers a feature of model/embedding type
         )
-        # TODO: be smarter about how this dimension is provided
-        profile_in_features_dim = 384 if 'paraphrase-MiniLM' in profile_model_name_or_path else 768
-        # self.profile_embed = torch.nn.Sequential(
-        #     # TODO: consider a nonlinearity here?
-        #     # TODO: consider embedding profile into a shared (smaller) space?
-        #     torch.nn.Dropout(p=0.2),
-        #     torch.nn.Linear(in_features=profile_in_features_dim, out_features=self.profile_embedding_dim),
-        #     # (769 + 1) * 384 = 295,680 parameters
-        #     # TODO: different options for this, or less dropout?
-        #     # TODO: make these numbers a feature of model/embedding type
-        # )
         self.temperature = torch.nn.parameter.Parameter(
             torch.tensor(3.5, dtype=torch.float32), requires_grad=True
         )
@@ -95,21 +72,18 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # TODO: allow tapas model profile_encoder (but use it properly)
         self.max_seq_length = max_seq_length
         self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
+        self.masking_tokenizer = MaskingTokenizer(
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            word_dropout_ratio=word_dropout_ratio,
+            sample_spans=self.sample_spans,
+            adversarial_mask_k_tokens=adversarial_mask_k_tokens
+        )
 
         self.pretrained_profile_encoder = pretrained_profile_encoder
         self.train_without_names = train_without_names
 
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
-
-        self.word_dropout_ratio = word_dropout_ratio
-        self.word_dropout_perc = word_dropout_perc
-
-        if self.word_dropout_ratio:
-            print('[*] Word dropout hyperparameters:', 
-                'ratio:', self.word_dropout_ratio, '/',
-                'percentage:', self.word_dropout_perc, '/',
-                'token:', self.document_tokenizer.mask_token
-            )
 
         self.train_document_embeddings = None
         self.train_profile_embeddings = None
@@ -126,8 +100,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
 
-        # Important: This property activates manual optimization.
-        # (but we have to do loss.backward() ourselves below)
+        # Important: This property activates manual optimization,
+        # but we have to do loss.backward() ourselves below.
         self.automatic_optimization = False
 
     @property
@@ -179,21 +153,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.profile_model.cuda()
             # self.profile_embed.cuda()
         self.log("document_encoder_is_training", float(self.document_encoder_is_training))
-
-    def word_dropout_text(self, text: List[str], mask_token: str) -> List[str]:
-        """Apply word dropout to list of text inputs."""
-        # TODO: implement this in dataloader to take advantage of multiprocessing
-        for i in range(len(text)):
-            if random.random() > self.word_dropout_ratio:
-                # Don't do dropout this % of the time
-                continue
-            for w in words_from_text(text[i]):
-                if random.random() < self.word_dropout_perc:
-                    text[i] = re.sub(
-                        (r'\b{}\b').format(w),
-                        mask_token, text[i], 1
-                    )
-        return text
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
@@ -205,7 +164,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def forward_document_text(self, text: List[str], return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
         if self.training:
-            text = self.word_dropout_text(text=text, mask_token=self.document_tokenizer.mask_token)
+        
         # TODO: Log percentage of mask tokens, calculated like (inputs["input_ids"] == self.document_tokenizer.mask_token_id).sum().
         inputs = self.document_tokenizer.batch_encode_plus(
             text,
@@ -223,8 +182,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def forward_profile_text(self, text: List[str]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
-        # if self.training:
-        #     text = self.word_dropout_text(text=text, mask_token=self.profile_tokenizer.mask_token)
+        # TODO: consider allowing dropout from the profile.
         inputs = self.profile_tokenizer.batch_encode_plus(
             text,
             # TODO: permit a different max seq length for profile?
@@ -279,8 +237,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
         document_inputs, document_embeddings = self.forward_document_text(
             text=batch['document'], return_inputs=True
         )
-    
-        self.log("temperature", self.temperature.exp())
 
         loss = self._compute_loss_exact(
             document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
@@ -289,13 +245,14 @@ class DocumentProfileMatchingTransformer(LightningModule):
         
         if self.adversarial_mask_k_tokens:
             loss.backward()
-            topk_tokens, document_inputs["input_ids"] = redact_text_from_grad(
-                input_ids=document_inputs["input_ids"],
-                model=self.document_model,
-                k=self.adversarial_mask_k_tokens,
-                mask_token_id=self.document_tokenizer.mask_token_id
+            topk_tokens, document_inputs["input_ids"] = (
+                self.masking_tokenizer.redact_and_tokenize_ids_from_grad(
+                    input_ids=document_inputs["input_ids"],
+                    model=self.document_model,
+                    k=self.adversarial_mask_k_tokens,
+                    mask_token_id=self.document_tokenizer.mask_token_id
+                )
             )
-            # print('topk_tokens:', self.document_tokenizer.decode(topk_tokens))
             adv_document_embeddings = self.forward_document_inputs(document_inputs)
             adv_loss = self._compute_loss_exact(
                 adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
@@ -303,6 +260,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             )
             loss = adv_loss
 
+        self.log("temperature", self.temperature.exp())
         return {
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
@@ -394,7 +352,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             }
 
             # Document embeddings (redacted document - adversarial)
-            for k in [1]:
+            for k in [1, 10]:
                 # Non-existent documents are represented by empty string;
                 # filter those out.
                 adv_docs = [s for s in batch[f'adv_document_{k}'] if len(s)]
@@ -443,7 +401,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
             # Compute loss on adversarial documents.
             # TODO: Store adv_embeddings and compute this over batches too.
-            for k in [1]:
+            for k in [1, 10]:
                 document_redact_adversarial_embeddings = torch.cat(
                     [o[f"document_redact_adversarial_{k}"] for o in outputs if len(o[f"document_redact_adversarial_{k}"])], axis=0)
                 # There may be far fewer adversarial documents than total profiles, so we only want to compare

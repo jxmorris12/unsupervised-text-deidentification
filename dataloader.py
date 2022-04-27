@@ -162,9 +162,17 @@ class WikipediaDataModule(LightningDataModule):
 
     def _load_adv_val_data(self):
         val_n = len(self.val_dataset)
-        for k in [1]:
+        for k in [1, 10]:
             df = pd.read_csv(f'adv_csvs/results_{k}_1000.csv')
-            perturbed_text = df['perturbed_text'].map(lambda t: t.replace('<mask>', self.mask_token))
+            perturbed_text = df['perturbed_text'].map(
+                lambda t: (
+                    t
+                    .replace('<mask>', self.mask_token)
+                    .replace('<SPLIT>', '\n')
+                    .strip()
+                )
+            )
+            
             padded_perturbed_text = (
                 perturbed_text.tolist()[:val_n] + ([''] * (val_n - len(perturbed_text)))
             )
