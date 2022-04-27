@@ -38,27 +38,10 @@ def get_table_minus_name(table_rows: List[str]) -> List[str]:
 
 
 words_from_text_re = re.compile(r'\b\w+\b')
-def words_from_text(s: str):
+def word_start_and_end_idxs_from_text(s: str) -> List[Tuple[int, int]]:
+    assert isinstance(s, str)
+    return [(m.start(0), m.end(0)) for m in words_from_text_re.finditer(s)]
+
+def words_from_text(s: str) -> List[str]:
+    assert isinstance(s, str)
     return words_from_text_re.findall(s)
-
-
-def redact_text_from_grad(
-    input_ids: torch.Tensor, model: transformers.PreTrainedModel, k: int, mask_token_id: int) -> torch.Tensor:
-    """Masks tokens in `input_ids` proportional to gradient."""
-    topk_tokens = (
-        model.embeddings.word_embeddings.weight.grad.norm(p=2, dim=1).argsort()
-    )
-    special_tokens_mask = (
-        (topk_tokens == 0) | (topk_tokens == 100) | (topk_tokens == 101) | (topk_tokens == 102) | (topk_tokens == 103)
-    )
-    topk_tokens = topk_tokens[~special_tokens_mask][-k:]
-    topk_mask = (
-        input_ids[..., None].to(topk_tokens.device) == topk_tokens[None, :]).any(dim=-1)
-
-    return (
-        topk_tokens, torch.where(
-            topk_mask,
-            torch.tensor(mask_token_id)[None, None].to(topk_tokens.device),
-            input_ids.to(topk_tokens.device)
-        )
-    )

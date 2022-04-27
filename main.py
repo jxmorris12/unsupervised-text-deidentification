@@ -60,6 +60,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--lr_scheduler_patience', type=int, default=3,
         help='patience for lr scheduler [unit: epochs]')
 
+    parser.add_argument('--sample_spans', action='store_true',
+        type=bool, default=False, help='sample spans from the document randomly during training')
     parser.add_argument('--adversarial_mask_k_tokens', '--adv_k', 
         type=int, default=0, help='number of tokens to adversarially mask')
 
@@ -110,6 +112,7 @@ def main(args: argparse.Namespace):
         word_dropout_perc=args.word_dropout_perc,
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
+        sample_spans=args.sample_spans,
         adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
         train_without_names=args.train_without_names,
     )
