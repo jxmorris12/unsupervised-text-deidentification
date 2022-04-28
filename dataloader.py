@@ -196,7 +196,7 @@ class WikipediaDataModule(LightningDataModule):
 
             adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
         
-        val_n = len(self.val_dataset)
+        val_n = len([i for i in adv_idxs if i < len(self.val_dataset)])
         adv_val_dataset = { k: v[:val_n] for k,v in adv_val_dataset.items() }
         self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
 

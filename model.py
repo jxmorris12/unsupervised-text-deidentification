@@ -229,13 +229,15 @@ class DocumentProfileMatchingTransformer(LightningModule):
         for k in [1, 5, 10, 50, 100, 500, 1000]:
             if k >= batch_size: # can't compute top-k accuracy here.
                 continue
-            print(f'computing top-k with k={k} and batch_size={batch_size} and metrics_key={metrics_key}')
-            if "adversarial" in metrics_key:
-                breakpoint()
             top_k_acc = (
-                document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).any(dim=1).float().mean()
+                document_to_profile_sim.topk(k=k, dim=1)
+                    .indices
+                    .eq(document_idxs[:, None])
+                    .any(dim=1)
+                    .float()
+                    .mean()
             )
-            print(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
+            # print(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
             self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
         return loss
     
