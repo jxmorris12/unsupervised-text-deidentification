@@ -206,7 +206,7 @@ class WikipediaDataModule(LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         train_tokenizing_dataset = MaskingTokenizingDataset(
-            self.val_dataset,
+            self.train_dataset,
             document_tokenizer=self.document_tokenizer,
             profile_tokenizer=self.profile_tokenizer,
             max_seq_length=self.max_seq_length,
