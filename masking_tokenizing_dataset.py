@@ -34,15 +34,19 @@ class MaskingTokenizingDataset(Dataset):
         self.dataset = dataset
         self.document_tokenizer = document_tokenizer
         self.profile_tokenizer = profile_tokenizer
-        self.masking_span_sampler = MaskingSpanSampler(
-            word_dropout_ratio=word_dropout_ratio,
-            word_dropout_perc=word_dropout_perc,
-            sample_spans=sample_spans,
-            mask_token=document_tokenizer.mask_token
-        )
         self.document_types = document_types
         self.is_train_dataset = is_train_dataset
         self.max_seq_length = max_seq_length
+
+        if self.is_train_dataset:
+            self.masking_span_sampler = MaskingSpanSampler(
+                word_dropout_ratio=word_dropout_ratio,
+                word_dropout_perc=word_dropout_perc,
+                sample_spans=sample_spans,
+                mask_token=document_tokenizer.mask_token
+            )
+        else:
+            self.masking_span_sampler = None
     
     def __len__(self) -> int:
         return len(self.dataset)
@@ -50,14 +54,16 @@ class MaskingTokenizingDataset(Dataset):
     def _get_profile_df(self, keys: List[str], values: List[str]) -> pd.DataFrame:
         # TODO: why do we have to truncate? Why would we ever get different-length
         # keys and values?
-        if len(values) > len(keys):
-            values = values[:len(keys)]
+        assert isinstance(keys, list) and len(keys) and isinstance(keys[0], str)
+        assert isinstance(values, list) and len(values) and isinstance(values[0], str)
         if len(keys) > len(values):
             keys = keys[:len(values)]
+        if len(values) > len(keys):
+            values = values[:len(keys)]
         # Arbitrarily limit to 32 columns (TODO: figure this out too. Why doesn't
         # truncate=True already truncate to max_length during tokenization?)
-        values_list = values[:32]
         keys = keys[:32]
+        values = values[:32]
         return pd.DataFrame(columns=keys, data=[values])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
@@ -73,7 +79,6 @@ class MaskingTokenizingDataset(Dataset):
         # 
         # Tokenize documents.
         # 
-        print('ex.keys():', ex.keys())
         if self.is_train_dataset: # Only consider redaction if this is a train dataset!
             ex["document"] = self.masking_span_sampler.redact(ex["document"])
         for doc_type in self.document_types:
@@ -93,8 +98,10 @@ class MaskingTokenizingDataset(Dataset):
         # TODO: Consider permitting separate max_seq_length for profile.
         if self.profile_tokenizer is not None:
             if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
+                prof_keys = ex["profile_keys"].split("||")
+                prof_values = ex["profile_values"].split("||")
                 df = self._get_profile_df(
-                    keys=ex["profile_keys"], values=ex["profile_values"]
+                    keys=prof_keys, values=prof_values
                 )
                 profile_tokenized = self.profile_tokenizer.encode_plus(
                     table=df,

@@ -9,8 +9,6 @@ import tqdm
 from pytorch_lightning import LightningModule
 from transformers import AdamW, AutoModel, AutoTokenizer
 
-from masking_tokenizer import MaskingTokenizer
-
 # hide warning:
 # TAPAS is a question answering model but you have not passed a query. Please be aware that the model will probably not behave correctly.
 from transformers.utils import logging as transformers_logging
@@ -24,7 +22,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
     profile_embedding_dim: int
     
     adversarial_mask_k_tokens: int
-    profile_model_name_or_path: str
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
 
@@ -43,23 +40,15 @@ class DocumentProfileMatchingTransformer(LightningModule):
         lr_scheduler_patience: int = 3,
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
-        weight_decay: float = 0.0,
         adversarial_mask_k_tokens: int = 0,
         train_batch_size: int = 32,
-        eval_batch_size: int = 32,
         pretrained_profile_encoder: bool = False,
-        base_folder = "",
         **kwargs,
     ):
         super().__init__()
         self.save_hyperparameters()
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
-
-        self.profile_model_name_or_path = profile_model_name_or_path
-        if profile_model_name_or_path == 'tapas':
-            self.profile_model = transformers.TapasModel.from_pretrained("google/tapas-base")
-        else:
-            self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
+        self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
         self.profile_embedding_dim = 768 # TODO: set dynamically based on model
         self.document_embed = torch.nn.Sequential(
@@ -73,17 +62,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         )
         
         # TODO: allow tapas model profile_encoder (but use it properly)
-        self.max_seq_length = max_seq_length
         self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
-        self.masking_tokenizer = MaskingTokenizer(
-            tokenizer=self.document_tokenizer,
-            max_seq_length=max_seq_length,
-            word_dropout_ratio=word_dropout_ratio,
-            word_dropout_perc=word_dropout_perc,
-            sample_spans=sample_spans,
-            adversarial_mask_k_tokens=adversarial_mask_k_tokens
-        )
-
         self.pretrained_profile_encoder = pretrained_profile_encoder
 
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
@@ -154,6 +133,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
             # self.profile_embed.cuda()
         self.log("document_encoder_is_training", float(self.document_encoder_is_training))
     
+    def _get_inputs_from_prefix(self, batch: Dict[str, torch.Tensor], prefix: str) -> Dict[str, torch.Tensor]:
+        prefix += '__'
+        return {k.replace(prefix, ''): v for k,v in batch.items() if k.startswith(prefix)}
+    
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
         document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
@@ -161,95 +144,20 @@ class DocumentProfileMatchingTransformer(LightningModule):
         document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
         
-    def forward_document_text(self, text: List[str], return_inputs: bool = False) -> torch.Tensor:
+    def forward_document(self, batch: List[str], document_type: str, return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
-        inputs = self.masking_tokenizer.redact_and_tokenize_str(
-            text=text, training=self.training
-        )
-        outputs = self.forward_document_inputs(inputs)
+        inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
+        outputs = self.forward_document_inputs(inputs=inputs)
         if return_inputs:
             return inputs, outputs
         else:
             return outputs
-    
-    def _forward_profile_transformers(self, text: List[str]) -> torch.Tensor:
-        # TODO: consider allowing dropout from the profile.
-        inputs = self.profile_tokenizer.batch_encode_plus(
-            text,
-            # TODO: permit a different max seq length for profile?
-            max_length=self.max_seq_length,
-            padding=True,
-            truncation=True,
-            return_tensors='pt',
-        )
-        inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
-        profile_embeddings = self.profile_model(**inputs)                       # (batch,  sequence_length) -> (batch, prof_emb_dim)
-        profile_embeddings = profile_embeddings['last_hidden_state'][:, 0, :]
-        return profile_embeddings
 
-    def _forward_profile_tapas(
-            self, profile_keys:  List[str], profile_values: List[str]
-        ) -> torch.Tensor:
-        assert len(profile_keys) == len(profile_values)
-        batch_size = len(profile_keys)
-        prof_device = next(self.profile_model.parameters()).device
-
-        input_ids = []
-        attention_mask = []
-        token_type_ids = []
-        for keys, values in zip(profile_keys, profile_values):
-            keys_list = keys.split('|')
-            values_list = values.split('|')
-            # TODO: why do i have to truncate? Look into these data issues more.
-            if len(values_list) > len(keys_list):
-                values_list = values_list[:len(keys_list)]
-            if len(keys_list) > len(values_list):
-                keys_list = keys_list[:len(values_list)]
-            # Arbitrarily limit to 32 columns (TODO: figure this out too.)
-            values_list = values_list[:32]
-            keys_list = keys_list[:32]
-            df = pd.DataFrame(columns=keys_list, data=[values_list])
-            try:
-                inputs = self.profile_tokenizer(
-                    table=df,
-                    padding="max_length",
-                    max_length=self.max_seq_length,
-                    truncation=True,
-                    return_tensors="pt"
-                )
-            except ValueError:
-                print(keys, values)
-                breakpoint()
-            input_ids.append(inputs['input_ids'][0])
-            attention_mask.append(inputs['attention_mask'][0])
-            token_type_ids.append(inputs['token_type_ids'][0])
-
-        input_ids = torch.stack(input_ids).to(prof_device)
-        attention_mask = torch.stack(attention_mask).to(prof_device)
-        token_type_ids = torch.stack(token_type_ids).to(prof_device)
-
-        outputs = self.profile_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids
-        ).pooler_output
-        assert outputs.shape == (batch_size, 768)
-
-        return outputs
-    
-    def forward_profile_text(
-        self, text: List[str], profile_keys:  List[str], profile_values: List[str]
-        ) -> torch.Tensor:
+    def forward_profile(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
-        if self.profile_model_name_or_path == 'tapas':
-            return self._forward_profile_tapas(
-                profile_keys=profile_keys,
-                profile_values=profile_values
-            )
-        else:
-            return self._forward_profile_transformers(
-                text=text
-            )
+        inputs = self._get_inputs_from_prefix(batch=batch, prefix='profile')
+        inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
+        return self.profile_model(**inputs)['last_hidden_state'][:, 0, :]
     
     def _compute_loss_exact(
             self,
@@ -303,8 +211,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def _training_step_document(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """One step of training where training is supposed to update  `self.document_model`."""
-        document_inputs, document_embeddings = self.forward_document_text(
-            text=batch['document'], return_inputs=True
+        document_inputs, document_embeddings = self.forward_document(
+            batch=batch, document_type='document', return_inputs=True
         )
 
         loss = self._compute_loss_exact(
@@ -312,22 +220,22 @@ class DocumentProfileMatchingTransformer(LightningModule):
             metrics_key='train'
         )
         
-        if self.adversarial_mask_k_tokens:
-            loss.backward()
-            topk_tokens, document_inputs["input_ids"] = (
-                self.masking_tokenizer.redact_and_tokenize_ids_from_grad(
-                    input_ids=document_inputs["input_ids"],
-                    model=self.document_model,
-                    k=self.adversarial_mask_k_tokens,
-                    mask_token_id=self.document_tokenizer.mask_token_id
-                )
-            )
-            adv_document_embeddings = self.forward_document_inputs(document_inputs)
-            adv_loss = self._compute_loss_exact(
-                adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
-                metrics_key='train'
-            )
-            loss = adv_loss
+        # if self.adversarial_mask_k_tokens:
+        #     loss.backward()
+        #     topk_tokens, document_inputs["input_ids"] = (
+        #         self.masking_tokenizer.redact_and_tokenize_ids_from_grad(
+        #             input_ids=document_inputs["input_ids"],
+        #             model=self.document_model,
+        #             k=self.adversarial_mask_k_tokens,
+        #             mask_token_id=self.document_tokenizer.mask_token_id
+        #         )
+        #     )
+        #     adv_document_embeddings = self.forward_document_inputs(document_inputs)
+        #     adv_loss = self._compute_loss_exact(
+        #         adv_document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
+        #         metrics_key='train'
+        #     )
+        #     loss = adv_loss
 
         self.log("temperature", self.temperature.exp())
         return {
@@ -338,11 +246,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def _training_step_profile(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """One step of training where training is supposed to update  `self.profile_model`."""
-        profile_embeddings = self.forward_profile_text(
-            text=self._get_profile_for_training(batch),
-            profile_keys=batch['profile_keys'],
-            profile_values=batch['profile_values'],
-        )
+        profile_embeddings = self.forward_profile(batch=batch)
         self.log("temperature", self.temperature.exp())
 
         loss = self._compute_loss_exact(
@@ -398,18 +302,18 @@ class DocumentProfileMatchingTransformer(LightningModule):
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         if self.document_encoder_is_training:
             # Document embeddings (original document)
-            document_embeddings = self.forward_document_text(
-                text=batch['document'],
+            document_embeddings = self.forward_document(
+                batch=batch, document_type='document'
             )
 
             # Document embeddings (redacted document - NER)
-            document_redact_ner_embeddings = self.forward_document_text(
-                text=batch['document_redact_ner']
+            document_redact_ner_embeddings = self.forward_document(
+                batch=batch, document_type='document_redact_ner'
             )
 
             # Document embeddings (redacted document - lexical overlap)
-            document_redact_lexical_embeddings = self.forward_document_text(
-                text=batch['document_redact_lexical'],
+            document_redact_lexical_embeddings = self.forward_document(
+                batch=batch, document_type='document_redact_lexical'
             )
 
             return {
@@ -420,11 +324,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
             }
         else:
             # Profile embeddings
-            profile_embeddings = self.forward_profile_text(
-                text=batch["profile"],
-                profile_keys=batch['profile_keys'],
-                profile_values=batch['profile_values'],
-            )
+            profile_embeddings = self.forward_profile(batch=batch)
             return {
                 "profile_embeddings": profile_embeddings,
                 "text_key_id": batch['text_key_id']
@@ -436,14 +336,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
             "adv_text_key_id": batch['text_key_id']
         }
         for k in [1, 10, 100, 1000]:
-            # Non-existent documents are represented by empty string;
-            # filter those out.
-            adv_docs = [s for s in batch[f'adv_document_{k}'] if len(s)]
-            document_adv_embeddings = []
-            if len(adv_docs):
-                document_adv_embeddings = self.forward_document_text(
-                    text=adv_docs,
-                )
+            document_adv_embeddings = self.forward_document(
+                batch=batch, document_type=f'adv_document_{k}'
+            )
             out_embeddings[f"adv_document_{k}"] = document_adv_embeddings
         return out_embeddings
 
@@ -453,10 +348,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
         assert not self.profile_model.training
 
         assert dataloader_idx in [0, 1]
-        if dataloader_idx == 0:
-            return self._process_validation_batch(batch=batch, batch_idx=batch_idx)
-        else:
-            return self._process_adv_validation_batch(batch=batch, batch_idx=batch_idx)
+        with torch.no_grad():
+            if dataloader_idx == 0:
+                output = self._process_validation_batch(batch=batch, batch_idx=batch_idx)
+            else:
+                output = self._process_adv_validation_batch(batch=batch, batch_idx=batch_idx)
+        return output
 
     def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
         val_outputs, adv_val_outputs = output_list
@@ -530,11 +427,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
-                profile_embeddings = self.forward_profile_text(
-                    text=self._get_profile_for_training(train_batch),    
-                    profile_keys=train_batch['profile_keys'],
-                    profile_values=train_batch['profile_values']
-                )
+                profile_embeddings = self.forward_profile(batch=train_batch)
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
         self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
 
@@ -543,11 +436,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         val_dataloader, adv_val_dataloader = self.trainer.datamodule.val_dataloader()
         for val_batch in tqdm.tqdm(val_dataloader, desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
             with torch.no_grad():
-                profile_embeddings = self.forward_profile_text(
-                    text=self._get_profile_for_training(val_batch),
-                    profile_keys=val_batch['profile_keys'],
-                    profile_values=val_batch['profile_values']
-                )
+                profile_embeddings = self.forward_profile(batch=val_batch)
                 # TODO: remove name for TAPAS?
             self.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
         self.val_profile_embeddings = torch.tensor(self.val_profile_embeddings, dtype=torch.float32)
