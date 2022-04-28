@@ -70,11 +70,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
-    parser.add_argument('--train_without_names', action='store_true', default=False,
-        help='whether to remove names from profiles during training')
 
     args = parser.parse_args()
-    args.dataset_val_split = 'val[:2%]'
+    args.dataset_val_split = 'val[:20%]'
     return args
 
 
@@ -82,41 +80,40 @@ def main(args: argparse.Namespace):
     assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
-    doc_mask_token = AutoTokenizer.from_pretrained(args.document_model_name).mask_token
     print(f"creating data module with document mask token {doc_mask_token}")
     dm = WikipediaDataModule(
-        mask_token=doc_mask_token,
+        document_model_name_or_path=args.document_model_name,
+        profile_model_name_or_path=args.profile_model_name,
+        max_seq_length=args.max_seq_length,
         dataset_name=args.dataset_name,
         dataset_train_split=args.dataset_train_split,
         dataset_val_split=args.dataset_val_split,
         dataset_version=args.dataset_version,
-        num_workers=min(8, num_cpus),
+        word_dropout_ratio=args.word_dropout_ratio,
+        word_dropout_perc=args.word_dropout_perc,
+        sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
+        num_workers=min(8, num_cpus),
     )
     dm.setup("fit")
     
-    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
-        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
-    # model = DocumentProfileMatchingTransformer(
+        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
+    model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=args.document_model_name,
         profile_model_name_or_path=args.profile_model_name,
         num_workers=min(8, num_cpus),
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        max_seq_length=args.max_seq_length,
         pretrained_profile_encoder=args.pretrained_profile_encoder,
-        word_dropout_ratio=args.word_dropout_ratio,
-        word_dropout_perc=args.word_dropout_perc,
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
-        sample_spans=args.sample_spans,
         adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
-        train_without_names=args.train_without_names,
     )
 
     loggers = []
@@ -130,8 +127,6 @@ def main(args: argparse.Namespace):
         exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
-    if args.train_without_names:
-        exp_name += '__no_names'
     if args.pretrained_profile_encoder:
         exp_name += '__fixprof'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
@@ -146,7 +141,7 @@ def main(args: argparse.Namespace):
         from pytorch_lightning.loggers import WandbLogger
         wandb_logger = WandbLogger(
             name=exp_name,
-            project='deid-wikibio', 
+            project='deid-wikibio-2', 
             config=vars(args),
             job_type='train',
             entity='jack-morris',

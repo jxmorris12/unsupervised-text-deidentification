@@ -7,12 +7,14 @@ import pickle
 import datasets
 import numpy as np
 import pandas as pd
+import transformers
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 
+from masking_tokenizing_dataset import MaskingTokenizingDataset
 from redact import remove_named_entities_spacy_batch, remove_overlapping_words
-from utils import get_table_minus_name, name_from_table_rows
+from utils import create_document_and_profile_from_wikibio
 
 # 
 # TODO: filter data to have > 10 words or something? And maybe a certain
@@ -31,8 +33,18 @@ class WikipediaDataModule(LightningDataModule):
     dataset_train_split: str
     dataset_val_split: str
 
+    document_model_name_or_path: str
+    profile_model_name_or_path: str
+    document_tokenizer: transformers.AutoTokenizer
+    profile_tokenizer: transformers.AutoTokenizer
+
+    word_dropout_perc: float
+    word_dropout_ratio: float
+    sample_spans: bool
+
     train_batch_size: int
     eval_batch_size: int
+    max_seq_length: int
     num_workers: int
     mask_token: str
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
@@ -44,6 +56,9 @@ class WikipediaDataModule(LightningDataModule):
 
     def __init__(
         self,
+        document_model_name_or_path: str,
+        profile_model_name_or_path: str,
+        max_seq_length: int,
         dataset_name: str = "wiki_bio",
         dataset_train_split: str = "train[:10%]",
         dataset_val_split: str = "val[:20%]",
@@ -51,13 +66,26 @@ class WikipediaDataModule(LightningDataModule):
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
-        mask_token: str = "[MASK]",
+        word_dropout_ratio: float = 0.0,
+        word_dropout_perc: float = 0.0,
+        sample_spans: bool = False,
         redaction_strategy = "",
         base_folder = "",
         **kwargs,
     ):
         super().__init__()
         assert dataset_name == "wiki_bio"
+
+        self.document_model_name_or_path = document_model_name_or_path
+        self.profile_model_name_or_path = profile_model_name_or_path
+        self.document_tokenizer = transformers.AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
+        self.profile_tokenizer = transformers.AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
+        self.max_seq_length = max_seq_length
+
+        self.word_dropout_ratio = word_dropout_ratio
+        self.word_dropout_perc = word_dropout_perc
+        self.sample_spans = sample_spans
+
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
         self.dataset_val_split = dataset_val_split
@@ -68,7 +96,7 @@ class WikipediaDataModule(LightningDataModule):
         self.num_workers = num_workers
         assert redaction_strategy in ["", "spacy_ner", "lexical"]
         self.redaction_strategy = redaction_strategy
-        self.mask_token = mask_token
+        self.mask_token = self.document_tokenizer.mask_token
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = base_folder
 
@@ -81,40 +109,8 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version) # wiki_bio val size: 72,831
 
-        def create_document_and_profile_from_wikibio_instance(ex: Dict) -> Dict:
-            """
-            transforms wiki_bio example into (document, profile) pair
-
-            >>> ex['target_text']
-            'walter extra is a german award-winning aerobatic pilot , chief aircraft designer and founder of extra....
-            >>> ex['input_text']
-            {'table': {'column_header': ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 'row_number': [1, 1, 1, 1, 1], 'content': ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']}, 'context': 'walter extra\n'}
-            """
-            # replace weird textual artifacts: -lrb- with ( and -rrb- with )
-            fixed_target_text = ex['target_text'].replace('-lrb- ', '(').replace(' -rrb-', ')')
-            # transform table to str
-            table_info = ex['input_text']['table']
-            table_rows = list(zip(
-                map(lambda s: s.strip(), table_info['column_header']),
-                map(lambda s: s.strip(), table_info['content']))
-            )
-            table_text = (
-                '\n'.join([' | '.join(row) for row in table_rows])
-            )
-            table_text_without_name = (
-                '\n'.join([' | '.join(row) for row in get_table_minus_name(table_rows)])
-            )
-            # return example: transformed table + first paragraph
-            return {
-                'name': name_from_table_rows(table_rows),
-                'document': fixed_target_text,          # First paragraph of biography
-                'profile': table_text,                  # Table re-printed as a string
-                'profile_without_name': table_text_without_name, # Table with name removed
-                'text_key': ex['target_text'] + ' ' + table_text, # store (document, profile) str key
-            }
-
-        self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio_instance)
-        self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio_instance)
+        self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio)
+        self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio)
         
         def redact_example(redact_func: Callable, example: Dict, suffix: str):
             # redact 'text1' field
@@ -170,10 +166,11 @@ class WikipediaDataModule(LightningDataModule):
                     # [redacted_lexical] First paragraph of wikipedia page (str)
 
             "profile", # Table from wikipedia infobox (str)
-            "profile_without_name" # Table from wikipedia infobox, with name removed (str)
+            "profile_keys", # Keys to table from wikipedia infobox (str)
+            "profile_values", # Values to table from wikipedia infobox (str)
         ]
-        self.train_dataset.set_format(type=None, columns=self.columns)
-        self.val_dataset.set_format(type=None, columns=self.columns)
+        # self.train_dataset.set_format(type=None, columns=self.columns)
+        # self.val_dataset.set_format(type=None, columns=self.columns)
 
     def _load_adv_val_data(self):
         # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
@@ -209,25 +206,61 @@ class WikipediaDataModule(LightningDataModule):
         datasets.load_dataset(self.dataset_name)
 
     def train_dataloader(self) -> DataLoader:
+        train_tokenizing_dataset = MaskingTokenizingDataset(
+            self.val_dataset,
+            document_tokenizer=self.document_tokenizer,
+            profile_tokenizer=self.profile_tokenizer,
+            max_seq_length=self.max_seq_length,
+            word_dropout_ratio=self.word_dropout_ratio,
+            word_dropout_perc=self.word_dropout_perc,
+            sample_spans=self.sample_spans,
+            document_types=["document", "document_redact_ner", "document_redact_lexical"],
+            is_train_dataset=True
+        )
         return DataLoader(
-            self.train_dataset,
+            train_tokenizing_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
+            # collate_fn=collate_batch,
             shuffle=False # Only shuffle for train
         )
 
     def val_dataloader(self) -> List[DataLoader]:
+        val_tokenizing_dataset = MaskingTokenizingDataset(
+            self.val_dataset,
+            document_tokenizer=self.document_tokenizer,
+            profile_tokenizer=self.profile_tokenizer,
+            max_seq_length=self.max_seq_length,
+            word_dropout_ratio=0.0,
+            word_dropout_perc=0.0,
+            sample_spans=False,
+            document_types=["document", "document_redact_ner", "document_redact_lexical"],
+            is_train_dataset=False
+        )
+        adv_val_tokenizing_dataset = MaskingTokenizingDataset(
+            self.adv_val_dataset,
+            document_tokenizer=self.document_tokenizer,
+            profile_tokenizer=None,
+            max_seq_length=self.max_seq_length,
+            word_dropout_ratio=0.0,
+            word_dropout_perc=0.0,
+            sample_spans=False,
+            document_types=['adv_document_1', 'adv_document_10', 'adv_document_100', 'adv_document_1000'],
+            is_train_dataset=False
+        )
         return [
             DataLoader(
-                self.val_dataset,
+                val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=self.num_workers,
+                # collate_fn=collate_batch,
                 shuffle=False
             ),
             DataLoader(
-                self.adv_val_dataset,
+                adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=self.num_workers,
+                # collate_fn=collate_batch,
                 shuffle=False
             )
         ]
