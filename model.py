@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -191,9 +191,13 @@ class DocumentProfileMatchingTransformer(LightningModule):
         # profile_embeddings = self.profile_embed(profile_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return profile_embeddings
     
-    def _compute_loss_exact(self,
-            document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor, document_idxs: torch.Tensor,
-        metrics_key: str) -> torch.Tensor:
+    def _compute_loss_exact(
+            self,
+            document_embeddings: torch.Tensor,
+            profile_embeddings: torch.Tensor,
+            document_idxs: torch.Tensor,
+            metrics_key: str
+        ) -> torch.Tensor:
         """Computes classification loss from document embeddings to profile embeddings. 
         
         There are typically many more profiles than documents.
@@ -220,10 +224,19 @@ class DocumentProfileMatchingTransformer(LightningModule):
         loss = torch.nn.functional.cross_entropy(
             document_to_profile_sim, document_idxs
         )
-        pct_correct = (document_to_profile_sim.argmax(1) == document_idxs).to(float).mean()
-        # TODO: log top-1, top-5, top-100 acc
-        self.log(f"{metrics_key}/pct_correct", pct_correct)
         self.log(f"{metrics_key}/loss", loss)
+        # Log top-k accuracies.
+        for k in [1, 5, 10, 50, 100, 500, 1000]:
+            if k >= batch_size: # can't compute top-k accuracy here.
+                continue
+            print(f'computing top-k with k={k} and batch_size={batch_size} and metrics_key={metrics_key}')
+            if "adversarial" in metrics_key:
+                breakpoint()
+            top_k_acc = (
+                document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).any(dim=1).float().mean()
+            )
+            print(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
+            self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
         return loss
     
     def _training_step_document(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -316,12 +329,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
                 self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
             self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, requires_grad=False, dtype=torch.float32)
             self.train_document_embeddings = None
-
-    def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
-        assert not self.document_model.training
-        assert not self.document_embed.training
-        assert not self.profile_model.training
-
+        
+    
+    def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         if self.document_encoder_is_training:
             # Document embeddings (original document)
             document_embeddings = self.forward_document_text(
@@ -338,26 +348,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
                 text=batch['document_redact_lexical'],
             )
 
-            out_embeddings = {
+            return {
                 "document_embeddings": document_embeddings,
                 "document_redact_ner_embeddings": document_redact_ner_embeddings,
                 "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
                 "text_key_id": batch['text_key_id']
             }
-
-            # Document embeddings (redacted document - adversarial)
-            for k in [1, 10]:
-                # Non-existent documents are represented by empty string;
-                # filter those out.
-                adv_docs = [s for s in batch[f'adv_document_{k}'] if len(s)]
-                document_adv_embeddings = []
-                if len(adv_docs):
-                    document_adv_embeddings = self.forward_document_text(
-                        text=adv_docs,
-                    )
-                out_embeddings[f"document_redact_adversarial_{k}"] = document_adv_embeddings
-
-            return out_embeddings
         else:
             # Profile embeddings
             profile_embeddings = self.forward_profile_text(
@@ -367,25 +363,53 @@ class DocumentProfileMatchingTransformer(LightningModule):
             profile_without_name_embeddings = self.forward_profile_text(
                 text=batch["profile_without_name"]
             )
-            out_embeddings = {
+            return {
                 "profile_embeddings": profile_embeddings,
                 "profile_without_name_embeddings": profile_without_name_embeddings,
                 "text_key_id": batch['text_key_id']
             }
-            return out_embeddings
 
-    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
+    def _process_adv_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
+        # Document embeddings (redacted document - adversarial)
+        out_embeddings = {
+            "adv_text_key_id": batch['text_key_id']
+        }
+        for k in [1, 10, 100, 1000]:
+            # Non-existent documents are represented by empty string;
+            # filter those out.
+            adv_docs = [s for s in batch[f'adv_document_{k}'] if len(s)]
+            document_adv_embeddings = []
+            if len(adv_docs):
+                document_adv_embeddings = self.forward_document_text(
+                    text=adv_docs,
+                )
+            out_embeddings[f"adv_document_{k}"] = document_adv_embeddings
+        return out_embeddings
+
+    def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
+        assert not self.document_model.training
+        assert not self.document_embed.training
+        assert not self.profile_model.training
+
+        assert dataloader_idx in [0, 1]
+        if dataloader_idx == 0:
+            return self._process_validation_batch(batch=batch, batch_idx=batch_idx)
+        else:
+            return self._process_adv_validation_batch(batch=batch, batch_idx=batch_idx)
+
+    def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
+        val_outputs, adv_val_outputs = output_list
         text_key_id = torch.cat(
-            [o['text_key_id'] for o in outputs], axis=0)
+            [o['text_key_id'] for o in val_outputs], axis=0)
         document_scheduler, profile_scheduler = self.lr_schedulers()
         # Get embeddings.
         if self.document_encoder_is_training:
             document_embeddings = torch.cat(
-                [o['document_embeddings'] for o in outputs], axis=0)
+                [o['document_embeddings'] for o in val_outputs], axis=0)
             document_redact_ner_embeddings = torch.cat(
-                [o['document_redact_ner_embeddings'] for o in outputs], axis=0)
+                [o['document_redact_ner_embeddings'] for o in val_outputs], axis=0)
             document_redact_lexical_embeddings = torch.cat(
-                [o['document_redact_lexical_embeddings'] for o in outputs], axis=0)
+                [o['document_redact_lexical_embeddings'] for o in val_outputs], axis=0)
             profile_embeddings = self.val_profile_embeddings
             profile_without_name_embeddings = self.val_profile_without_name_embeddings
 
@@ -394,13 +418,12 @@ class DocumentProfileMatchingTransformer(LightningModule):
             self.val_document_redact_lexical_embeddings = document_redact_lexical_embeddings
 
             # Compute loss on adversarial documents.
-            # TODO: Store adv_embeddings and compute this over batches too.
-            for k in [1, 10]:
+            for k in [1, 10, 100, 1000]:
                 document_redact_adversarial_embeddings = torch.cat(
-                    [o[f"document_redact_adversarial_{k}"] for o in outputs if len(o[f"document_redact_adversarial_{k}"])], axis=0)
+                    [o[f"adv_document_{k}"] for o in adv_val_outputs], axis=0)
                 # There may be far fewer adversarial documents than total profiles, so we only want to compare
                 # for the 'text_key_id' that we have adversarial profiles for.
-                adv_text_key_id = text_key_id[:len(document_redact_adversarial_embeddings)]
+                adv_text_key_id = torch.cat([o['adv_text_key_id'] for o in adv_val_outputs], axis=0)
                 self._compute_loss_exact(
                     document_redact_adversarial_embeddings.cuda(), profile_embeddings.cuda(), adv_text_key_id.cuda(),
                     metrics_key=f'val/document_redact_adversarial_{k}'
@@ -413,9 +436,9 @@ class DocumentProfileMatchingTransformer(LightningModule):
             document_redact_ner_embeddings = self.val_document_redact_ner_embeddings
             document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings
             profile_embeddings = torch.cat(
-                [o['profile_embeddings'] for o in outputs], axis=0)
+                [o['profile_embeddings'] for o in val_outputs], axis=0)
             profile_without_name_embeddings = torch.cat(
-                [o['profile_without_name_embeddings'] for o in outputs], axis=0)
+                [o['profile_without_name_embeddings'] for o in val_outputs], axis=0)
             
             self.val_profile_embeddings = profile_embeddings
             self.val_profile_without_name_embeddings = profile_without_name_embeddings
@@ -461,7 +484,8 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.val_profile_embeddings = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
         self.val_profile_without_name_embeddings  = np.zeros((len(self.trainer.datamodule.val_dataset), self.profile_embedding_dim))
 
-        for val_batch in tqdm.tqdm(self.trainer.datamodule.val_dataloader(), desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
+        val_dataloader, adv_val_dataloader = self.trainer.datamodule.val_dataloader()
+        for val_batch in tqdm.tqdm(val_dataloader, desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile_text(text=self._get_profile_for_training(val_batch))
                 profile_without_name_embeddings = self.forward_profile_text(text=val_batch["profile_without_name"])

@@ -49,12 +49,14 @@ class MaskingTokenizer:
             if self.sample_spans:
                 start_and_end_idxs = word_start_and_end_idxs_from_text(text[i])
                 num_words = len(start_and_end_idxs)
-                span_length = random.randint(1, num_words)
-                span_start = random.randint(0, num_words - span_length)
-                span_idxs = start_and_end_idxs[span_start:span_start+span_length]
-                start_idx = span_idxs[0][0]
-                end_idx = span_idxs[-1][1]
-                text[i] = text[i][start_idx : end_idx]
+
+                if num_words > 1:
+                    span_length = random.randint(1, num_words)
+                    span_start = random.randint(0, num_words - span_length)
+                    span_idxs = start_and_end_idxs[span_start:span_start+span_length]
+                    start_idx = span_idxs[0][0]
+                    end_idx = span_idxs[-1][1]
+                    text[i] = text[i][start_idx : end_idx]
 
             #
             # [2/2] Randomly mask some words.

@@ -14,6 +14,17 @@ from torch.utils.data import DataLoader
 from redact import remove_named_entities_spacy_batch, remove_overlapping_words
 from utils import get_table_minus_name, name_from_table_rows
 
+# 
+# TODO: filter data to have > 10 words or something? And maybe a certain
+#   number of rows?
+# TODO: think about this tomorrow!!
+# bad data example:
+# [train example 326510] - 0 words in target text
+#   {'input_text': {'table': {'column_header': ['name', 'background', 'label', 'origin', 'years_active', 'article_title', 'genre'], 'row_number': [1, 1, 1, 1, 1, 1, 1], 'content': ['hardliner', 'group_or_band', 'runaway wreckords', "st. john 's , newfoundland & labrador , canada", '1999-2004\xa02009-2010', 'hardliner -lrb- band -rrb-\n', 'hard rock']}, 'context': 'hardliner -lrb- band -rrb-\n'}, 'target_text': "'' ''\n"}
+# [train example 262678] - 1 word in target text
+# {'input_text': {'table': {'column_header': ['caption', 'name', 'known_for', 'death_date', 'image', 'nationality', 'birth_place', 'birth_date', 'article_title', 'death_place'], 'row_number': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 'content': ['-lrb- ನಮ ಮ -rrb- ಕ ತ ತ ರ ರ ಣ ಚ ನ', 'kittur chennamma', 'indian freedom fighter', '21 february 1829', 'kittur chenamma.jpg', 'indian', 'kakati , belgaum taluk , british india', '23 october 1778', 'kittur chennamma\n', 'bailhongal taluk']}, 'context': 'kittur chennamma\n'}, 'target_text': "' `` kittur\n"}
+# 
+
 class WikipediaDataModule(LightningDataModule):
     dataset_name: str
     dataset_version: str
@@ -26,6 +37,10 @@ class WikipediaDataModule(LightningDataModule):
     mask_token: str
     redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
     base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
+
+    train_dataset: datasets.Dataset     # train examples
+    val_dataset: datasets.Dataset       # validation examples
+    adv_val_dataset: datasets.Dataset   # adversarially-generated validation examples
 
     def __init__(
         self,
@@ -161,31 +176,29 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset.set_format(type=None, columns=self.columns)
 
     def _load_adv_val_data(self):
-        val_n = len(self.val_dataset)
-        for k in [1, 10]:
+        # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
+        # dataset don't have adversarial examples.
+        adv_idxs = list(map(int, open('adv_csvs/results_idx.txt').readlines()))[:1000]
+        adv_val_dataset = { "text_key_id": adv_idxs }
+
+        # Load CSV files with adversarial examples generated at different values of k.
+        for k in [1, 10, 100, 1000]:
             df = pd.read_csv(f'adv_csvs/results_{k}_1000.csv')
             perturbed_text = df['perturbed_text'].map(
                 lambda t: (
                     t
                     .replace('<mask>', self.mask_token)
                     .replace('<SPLIT>', '\n')
+                    .replace('-lrb- ', '(').replace(' -rrb-', ')')
                     .strip()
                 )
             )
-            
-            padded_perturbed_text = (
-                perturbed_text.tolist()[:val_n] + ([''] * (val_n - len(perturbed_text)))
-            )
-            assert len(padded_perturbed_text) == val_n
-            # Update columns & dataset output format.
-            self.val_dataset = self.val_dataset.add_column(f'adv_document_{k}', padded_perturbed_text)
-            new_columns = self.val_dataset._format_columns + [f'adv_document_{k}']
-            self.val_dataset.set_format(type=None, columns=new_columns)
-            # Note: this only works if these are properly aligned, i.e. val dataset is unshuffled,
-            # i.e. self.val_dataset['document'][:1000] == df['original_text']. However, we can't use
-            # assert here because of minor differences in those documents from loading and exporting
-            # to CSV (whitespace issues, weird tokens etc.).
-            print(f'Added column adv_document_{k} to dataset')
+
+            adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
+        
+        val_n = len(self.val_dataset)
+        adv_val_dataset = { k: v[:val_n] for k,v in adv_val_dataset.items() }
+        self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
 
     def setup(self, stage: str) -> None:
         self._load_train_and_val_data()
@@ -203,10 +216,18 @@ class WikipediaDataModule(LightningDataModule):
             shuffle=False # Only shuffle for train
         )
 
-    def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.eval_batch_size,
-            num_workers=self.num_workers,
-            shuffle=False
-        )
+    def val_dataloader(self) -> List[DataLoader]:
+        return [
+            DataLoader(
+                self.val_dataset,
+                batch_size=self.eval_batch_size,
+                num_workers=self.num_workers,
+                shuffle=False
+            ),
+            DataLoader(
+                self.adv_val_dataset,
+                batch_size=self.eval_batch_size,
+                num_workers=self.num_workers,
+                shuffle=False
+            )
+        ]

@@ -42,11 +42,13 @@ def get_args() -> argparse.Namespace:
         help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=8)
-    parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
-    parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
+
+    parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
+    parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
+    
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
@@ -67,12 +69,12 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
-    parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
     parser.add_argument('--train_without_names', action='store_true', default=False,
         help='whether to remove names from profiles during training')
 
     args = parser.parse_args()
+    args.dataset_val_split = 'val[:1%]'
     return args
 
 
@@ -94,12 +96,12 @@ def main(args: argparse.Namespace):
     )
     dm.setup("fit")
     
-    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
-        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
-    model = DocumentProfileMatchingTransformer(
+        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
+    # model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=args.document_model_name,
         profile_model_name_or_path=args.profile_model_name,
         num_workers=min(8, num_cpus),
@@ -122,12 +124,16 @@ def main(args: argparse.Namespace):
     exp_name = args.document_model_name
     if args.profile_model_name != args.document_model_name:
         exp_name += f'__{args.profile_model_name}'
+    if args.sample_spans:
+        exp_name += f'__sample_spans'
     if args.adversarial_mask_k_tokens:
         exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
     if args.train_without_names:
         exp_name += '__no_names'
+    if args.pretrained_profile_encoder:
+        exp_name += '__fixprof'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
     # exp_name += f'_{day}'
 
