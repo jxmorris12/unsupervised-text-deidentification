@@ -11,7 +11,7 @@ from utils import words_from_text, word_start_and_end_idxs_from_text
 class MaskingSpanSampler:
     word_dropout_ratio: float     # Percentage of the time to do word dropout
     word_dropout_perc: float      # Percentage of words to replace with mask token
-    sample_spans: True              # Whether or not to sample spans.
+    sample_spans: True            # Whether or not to sample spans.
     mask_token: str
 
     def __init__(

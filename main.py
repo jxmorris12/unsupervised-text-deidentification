@@ -95,8 +95,7 @@ def main(args: argparse.Namespace):
 
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
-
-    print(f"creating data module with document mask token {doc_mask_token}")
+    
     dm = WikipediaDataModule(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,

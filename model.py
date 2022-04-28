@@ -139,25 +139,27 @@ class DocumentProfileMatchingTransformer(LightningModule):
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
-        document_embeddings = self.document_model(**inputs)                     # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
-        document_embeddings = document_embeddings['last_hidden_state'][:, 0, :] # (batch, document_emb_dim)
+        document_outputs = self.document_model(**inputs)                        # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
+        document_embeddings = document_outputs['last_hidden_state'][:, 0, :]    # (batch, document_emb_dim)
         document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
         
     def forward_document(self, batch: List[str], document_type: str, return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
         inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
-        outputs = self.forward_document_inputs(inputs=inputs)
+        doc_embeddings = self.forward_document_inputs(inputs=inputs)
         if return_inputs:
-            return inputs, outputs
+            return inputs, doc_embeddings
         else:
-            return outputs
+            return doc_embeddings
 
     def forward_profile(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
         inputs = self._get_inputs_from_prefix(batch=batch, prefix='profile')
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
-        return self.profile_model(**inputs)['last_hidden_state'][:, 0, :]
+        output = self.profile_model(**inputs)
+        # breakpoint()
+        return output['last_hidden_state'][:, 0, :]
     
     def _compute_loss_exact(
             self,
