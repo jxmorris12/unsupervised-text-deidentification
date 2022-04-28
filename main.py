@@ -74,7 +74,7 @@ def get_args() -> argparse.Namespace:
         help='whether to remove names from profiles during training')
 
     args = parser.parse_args()
-    args.dataset_val_split = 'val[:1%]'
+    args.dataset_val_split = 'val[:2%]'
     return args
 
 

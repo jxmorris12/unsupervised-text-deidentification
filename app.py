@@ -208,7 +208,6 @@ def main():
             st.write(f'<b style="font-size:22px;color:{color}">{prob*100:.2f}% · {prof_name}</b>', unsafe_allow_html=True)
             st.write(make_infobox_html(prof_table), unsafe_allow_html=True)
             st.write('<br>', unsafe_allow_html=True)
-        # breakpoint()
 
     # doc_col, prof_col = st.columns(2)
     
