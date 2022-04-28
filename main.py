@@ -46,8 +46,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
 
-    parser.add_argument('--document_model_name', '--document_model', type=str, default='roberta-base')
-    parser.add_argument('--profile_model_name', '--profile_model', type=str, default='roberta-base')
+    parser.add_argument('--document_model_name', '--document_model', type=str,
+        default='roberta', choices=['distilbert', 'bert', 'roberta'])
+    parser.add_argument('--profile_model_name', '--profile_model', type=str,
+        default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
     
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
@@ -75,15 +77,29 @@ def get_args() -> argparse.Namespace:
     args.dataset_val_split = 'val[:20%]'
     return args
 
+def transformers_name_from_name(name: str) -> str:
+    if name == 'roberta':
+        return 'roberta-base'
+    elif name == 'tapas':
+        return 'google/tapas-base'
+    elif name == 'bert':
+        return 'bert-base-uncased'
+    elif name == 'distilbert':
+        return 'distilbert-base-uncased'
+    else:
+        return f'unsupported model name {name}'
 
 def main(args: argparse.Namespace):
     assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
+    document_model = transformers_name_from_name(args.document_model_name)
+    profile_model = transformers_name_from_name(args.profile_model_name)
+
     print(f"creating data module with document mask token {doc_mask_token}")
     dm = WikipediaDataModule(
-        document_model_name_or_path=args.document_model_name,
-        profile_model_name_or_path=args.profile_model_name,
+        document_model_name_or_path=document_model,
+        profile_model_name_or_path=profile_model,
         max_seq_length=args.max_seq_length,
         dataset_name=args.dataset_name,
         dataset_train_split=args.dataset_train_split,
@@ -104,16 +120,15 @@ def main(args: argparse.Namespace):
         # roberta-distilbert model
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
     model = DocumentProfileMatchingTransformer(
-        document_model_name_or_path=args.document_model_name,
-        profile_model_name_or_path=args.profile_model_name,
-        num_workers=min(8, num_cpus),
-        train_batch_size=args.batch_size,
-        eval_batch_size=args.batch_size,
+        document_model_name_or_path=document_model,
+        profile_model_name_or_path=profile_model,
         learning_rate=args.learning_rate,
         pretrained_profile_encoder=args.pretrained_profile_encoder,
         lr_scheduler_factor=args.lr_scheduler_factor,
         lr_scheduler_patience=args.lr_scheduler_patience,
         adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
+        train_batch_size=args.batch_size,
+        num_workers=min(8, num_cpus),
     )
 
     loggers = []

@@ -190,7 +190,6 @@ class WikipediaDataModule(LightningDataModule):
                     .strip()
                 )
             )
-
             adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
         
         val_n = len([i for i in adv_idxs if i < len(self.val_dataset)])
@@ -221,7 +220,6 @@ class WikipediaDataModule(LightningDataModule):
             train_tokenizing_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
-            # collate_fn=collate_batch,
             shuffle=False # Only shuffle for train
         )
 
@@ -253,14 +251,12 @@ class WikipediaDataModule(LightningDataModule):
                 val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=self.num_workers,
-                # collate_fn=collate_batch,
                 shuffle=False
             ),
             DataLoader(
                 adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=self.num_workers,
-                # collate_fn=collate_batch,
                 shuffle=False
             )
         ]

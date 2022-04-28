@@ -81,7 +81,7 @@ def create_document_and_profile_from_wikibio(ex: Dict) -> Dict:
         'document': fixed_target_text,                      # First paragraph of biography
         'profile': table_text,                              # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,    # Table with name removed
-        'profile_keys': '|'.join(profile_keys),             # Keys in profile box
-        'profile_values': '|'.join(profile_values),         # Values in profile box
+        'profile_keys': '||'.join(profile_keys),             # Keys in profile box
+        'profile_values': '||'.join(profile_values),         # Values in profile box
         'text_key': ex['target_text'] + ' ' + table_text,   # store (document, profile) str key
     }
