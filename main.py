@@ -30,7 +30,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = os.cpu_count()
+num_cpus = len(os.sched_getaffinity(0))
 
 
 def get_args() -> argparse.Namespace:
@@ -109,7 +109,7 @@ def main(args: argparse.Namespace):
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        num_workers=min(8, num_cpus),
+        num_workers=min(16, num_cpus),
     )
     dm.setup("fit")
     

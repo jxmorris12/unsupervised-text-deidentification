@@ -146,6 +146,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         
     def forward_document(self, batch: List[str], document_type: str, return_inputs: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to document encoder."""
+        if torch.cuda.is_available(): assert self.document_model_device.type == 'cuda'
         inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
         doc_embeddings = self.forward_document_inputs(inputs=inputs)
         if return_inputs:
@@ -155,10 +156,10 @@ class DocumentProfileMatchingTransformer(LightningModule):
 
     def forward_profile(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
+        if torch.cuda.is_available(): assert self.profile_model_device.type == 'cuda'
         inputs = self._get_inputs_from_prefix(batch=batch, prefix='profile')
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
         output = self.profile_model(**inputs)
-        # breakpoint()
         return output['last_hidden_state'][:, 0, :]
     
     def _compute_loss_exact(
@@ -207,7 +208,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
                     .float()
                     .mean()
             )
-            # print(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
             self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
         return loss
     
@@ -333,18 +333,22 @@ class DocumentProfileMatchingTransformer(LightningModule):
             }
 
     def _process_adv_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        # Document embeddings (redacted document - adversarial)
-        out_embeddings = {
-            "adv_text_key_id": batch['text_key_id']
-        }
-        for k in [1, 10, 100, 1000]:
-            document_adv_embeddings = self.forward_document(
-                batch=batch, document_type=f'adv_document_{k}'
-            )
-            out_embeddings[f"adv_document_{k}"] = document_adv_embeddings
-        return out_embeddings
+        if self.document_encoder_is_training:
+            # Document embeddings (redacted document - adversarial)
+            out_embeddings = {
+                "adv_text_key_id": batch['text_key_id']
+            }
+            for k in [1, 10, 100, 1000]:
+                document_adv_embeddings = self.forward_document(
+                    batch=batch, document_type=f'adv_document_{k}'
+                )
+                out_embeddings[f"adv_document_{k}"] = document_adv_embeddings
+            return out_embeddings
+        else:
+            # Don't recompute this loss if the document encoder isn't training.
+            return {}
 
-    def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx=0) -> Dict[str, torch.Tensor]:
+    def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx: int=0) -> Dict[str, torch.Tensor]:
         assert not self.document_model.training
         assert not self.document_embed.training
         assert not self.profile_model.training

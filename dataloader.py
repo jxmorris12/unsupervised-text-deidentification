@@ -156,7 +156,6 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.columns = [
             "text_key_id", # Indices of item in original dataset  (int)
-                           # (used for getting precomputed nearest-neighbors)
 
             "document",
                     # [original] First paragraph of wikipedia page (str)
@@ -165,9 +164,9 @@ class WikipediaDataModule(LightningDataModule):
             "document_redact_lexical",
                     # [redacted_lexical] First paragraph of wikipedia page (str)
 
-            "profile", # Table from wikipedia infobox (str)
-            "profile_keys", # Keys to table from wikipedia infobox (str)
-            "profile_values", # Values to table from wikipedia infobox (str)
+            "profile",          # Table from wikipedia infobox (str)
+            "profile_keys",     # Keys to table from wikipedia infobox (str)
+            "profile_values",   # Values to table from wikipedia infobox (str)
         ]
         # self.train_dataset.set_format(type=None, columns=self.columns)
         # self.val_dataset.set_format(type=None, columns=self.columns)
@@ -243,20 +242,20 @@ class WikipediaDataModule(LightningDataModule):
             word_dropout_ratio=0.0,
             word_dropout_perc=0.0,
             sample_spans=False,
-            document_types=['adv_document_1', 'adv_document_10', 'adv_document_100', 'adv_document_1000'],
+            document_types=["adv_document_1", "adv_document_10", "adv_document_100", "adv_document_1000"],
             is_train_dataset=False
         )
         return [
             DataLoader(
                 val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
-                num_workers=self.num_workers,
+                num_workers=min(self.num_workers, 8),
                 shuffle=False
             ),
             DataLoader(
                 adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
-                num_workers=self.num_workers,
+                num_workers=min(self.num_workers, 8),
                 shuffle=False
             )
         ]
