@@ -69,6 +69,7 @@ class MaskingTokenizingDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """Gets an item from the dataset."""
         ex = self.dataset[idx]
+
         # ex.keys():
         # dict_keys([
         #   'input_text', 'target_text', 'name', 'document', 'profile', 'profile_keys',
@@ -105,6 +106,7 @@ class MaskingTokenizingDataset(Dataset):
                 )
                 profile_tokenized = self.profile_tokenizer.encode_plus(
                     table=df,
+                    queries=["who is this person?"],
                     max_length=self.max_seq_length,
                     padding='max_length',
                     truncation=True,
@@ -120,6 +122,6 @@ class MaskingTokenizingDataset(Dataset):
                 )
             for _k, _v in profile_tokenized.items():
                 out_ex[f"profile__{_k}"] = _v[0]
-        
+
         return out_ex
 

@@ -28,7 +28,7 @@ class TestEnd2End:
             sample_spans=True,
             train_batch_size=16,
             eval_batch_size=3,
-            num_workers=0,
+            num_workers=4,
         )
         dm.setup("fit")
         
@@ -41,9 +41,10 @@ class TestEnd2End:
             lr_scheduler_factor=0.5,
             lr_scheduler_patience=1000,
             adversarial_mask_k_tokens=0,
-            num_workers=0,
+            num_workers=4,
         )
         return (dm, model)
+
     def _run_e2e_test(self, tmpdir: str, document_model: str, profile_model: str, max_seq_length: 32):
         dm, model = self._get_dm_and_model(
             document_model=document_model, profile_model=profile_model, max_seq_length=max_seq_length
@@ -52,7 +53,7 @@ class TestEnd2End:
             default_root_dir=tmpdir,
             val_check_interval=0.5,
             callbacks=[],
-            max_epochs=1,
+            max_epochs=2,
             log_every_n_steps=min(len(dm.train_dataloader()), 50),
             limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
             limit_val_batches=1.0,
@@ -73,6 +74,9 @@ class TestEnd2End:
         )
         train_batch = next(iter(dm.train_dataloader()))
         val_batch = next(iter(dm.val_dataloader()[0]))
+        if torch.cuda.is_available(): 
+            model.document_model.cuda()
+            model.document_embed.cuda()
         train_doc_outputs = model.forward_document(batch=train_batch, document_type='document')
         val_doc_outputs = model.forward_document(batch=val_batch, document_type='document')
         assert not (train_doc_outputs.isnan().any())
