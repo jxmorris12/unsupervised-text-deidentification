@@ -39,7 +39,8 @@ class TestMaskingSpanSampler:
             word_dropout_ratio=0.0,
             word_dropout_perc=0.0,
             sample_spans=True,
-            mask_token='<mask>'
+            mask_token='<mask>',
+            min_num_words=1
         )
         # Every time we call redact_and_tokenize_str(),
         # we should randomly get back things of length [4, 8, ..., 32].
