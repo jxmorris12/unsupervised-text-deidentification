@@ -1,13 +1,3 @@
-""" adapted from "Finetune Transformers Models with PyTorch Lightning"
-https://pytorch-lightning.readthedocs.io/en/stable/notebooks/lightning_examples/text-transformers.html
-"""
-
-# 
-#   Produce tracebacks for SIGSEGV, SIGFPE, SIGABRT, SIGBUS and SIGILL signals
-#           see docs.python.org/3/library/faulthandler.html
-# 
-# import faulthandler; faulthandler.enable()
-# 
 
 from typing import List, Tuple, Union
 
@@ -113,12 +103,14 @@ def main(args: argparse.Namespace):
     )
     dm.setup("fit")
     
-    # model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
-    model = DocumentProfileMatchingTransformer(
+        # roberta-distilbert trained on .8.8 dropout for 10hrs:
+        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
+    # model = DocumentProfileMatchingTransformer(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         learning_rate=args.learning_rate,
@@ -174,7 +166,8 @@ def main(args: argparse.Namespace):
     # TODO: argparse for val_metric
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
-    val_metric = "val/document_redact_ner/loss"
+    # val_metric = "val/document_redact_ner/loss"
+    val_metric = "val/document_redact_adversarial_1/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),

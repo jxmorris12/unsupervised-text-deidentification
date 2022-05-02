@@ -49,7 +49,7 @@ def words_from_text(s: str) -> List[str]:
     return words_from_text_re.findall(s)
 
 
-def create_document_and_profile_from_wikibio(ex: Dict) -> Dict:
+def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
 
