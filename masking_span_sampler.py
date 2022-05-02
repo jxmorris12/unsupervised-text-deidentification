@@ -13,18 +13,21 @@ class MaskingSpanSampler:
     word_dropout_perc: float      # Percentage of words to replace with mask token
     sample_spans: True            # Whether or not to sample spans.
     mask_token: str
+    min_num_words: int
 
     def __init__(
             self,
             word_dropout_ratio: float,
             word_dropout_perc: float, 
             mask_token: str,
-            sample_spans: bool
+            sample_spans: bool,
+            min_num_words: int = 8
         ):
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
         self.sample_spans = sample_spans
         self.mask_token = mask_token
+        self.min_num_words = min_num_words
         
         print('[***] Masking hyperparameters:', 
             'ratio:', word_dropout_ratio, '/',
@@ -40,7 +43,7 @@ class MaskingSpanSampler:
         start_and_end_idxs = word_start_and_end_idxs_from_text(text)
         num_words = len(start_and_end_idxs)
 
-        min_num_words = 8
+        min_num_words = self.min_num_words
 
         if num_words > min_num_words:
             span_length = random.randint(min_num_words, num_words)
