@@ -40,8 +40,10 @@ class MaskingSpanSampler:
         start_and_end_idxs = word_start_and_end_idxs_from_text(text)
         num_words = len(start_and_end_idxs)
 
-        if num_words > 1:
-            span_length = random.randint(1, num_words)
+        min_num_words = 8
+
+        if num_words > min_num_words:
+            span_length = random.randint(min_num_words, num_words)
             span_start = random.randint(0, num_words - span_length)
             span_idxs = start_and_end_idxs[span_start:span_start+span_length]
             start_idx = span_idxs[0][0]

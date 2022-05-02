@@ -47,8 +47,7 @@ class WikipediaDataModule(LightningDataModule):
     max_seq_length: int
     num_workers: int
     mask_token: str
-    redaction_strategy: str     # one of ['', 'spacy_ner', 'lexical']
-    base_folder: str            # base folder for precomputed_similarities/. defaults to ''.
+    base_folder: str
 
     train_dataset: datasets.Dataset     # train examples
     val_dataset: datasets.Dataset       # validation examples
@@ -69,8 +68,6 @@ class WikipediaDataModule(LightningDataModule):
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
         sample_spans: bool = False,
-        redaction_strategy = "",
-        base_folder = "",
         **kwargs,
     ):
         super().__init__()
@@ -94,20 +91,20 @@ class WikipediaDataModule(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
-        assert redaction_strategy in ["", "spacy_ner", "lexical"]
-        self.redaction_strategy = redaction_strategy
         self.mask_token = self.document_tokenizer.mask_token
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
-        self.base_folder = base_folder
+        self.base_folder = os.path.dirname(os.path.abspath(__file__))
 
     def _load_train_and_val_data(self):
+        # wiki_bio train size: 582,659
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
         self.train_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version) # wiki_bio train size: 582,659
+            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
 
+         # wiki_bio val size: 72,831
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
         self.val_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version) # wiki_bio val size: 72,831
+            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
 
         self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio)
         self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio)
@@ -174,12 +171,17 @@ class WikipediaDataModule(LightningDataModule):
     def _load_adv_val_data(self):
         # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
         # dataset don't have adversarial examples.
-        adv_idxs = list(map(int, open('adv_csvs/results_idx.txt').readlines()))[:1000]
+        adv_idxs = list(
+            map(
+                int, 
+                open(os.path.join(self.base_folder, 'adv_csvs/results_idx.txt')).readlines()
+                )
+        )[:1000]
         adv_val_dataset = { "text_key_id": adv_idxs }
 
         # Load CSV files with adversarial examples generated at different values of k.
         for k in [1, 10, 100, 1000]:
-            df = pd.read_csv(f'adv_csvs/results_{k}_1000.csv')
+            df = pd.read_csv(os.path.join(self.base_folder, f'adv_csvs/results_{k}_1000.csv'))
             perturbed_text = df['perturbed_text'].map(
                 lambda t: (
                     t
@@ -219,7 +221,7 @@ class WikipediaDataModule(LightningDataModule):
             train_tokenizing_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
-            shuffle=False # Only shuffle for train
+            shuffle=True
         )
 
     def val_dataloader(self) -> List[DataLoader]:

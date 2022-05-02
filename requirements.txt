@@ -3,6 +3,6 @@ nltk
 sentence-transformers
 pytorch-lightning
 spacy
-tokenizer
+tokenizers
 tqdm
 transformers

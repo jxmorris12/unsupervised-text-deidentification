@@ -7,7 +7,7 @@ import transformers
 import tqdm
 
 from pytorch_lightning import LightningModule
-from transformers import AdamW, AutoModel, AutoTokenizer
+from transformers import AdamW, AutoModel
 
 # hide warning:
 # TAPAS is a question answering model but you have not passed a query. Please be aware that the model will probably not behave correctly.
@@ -50,7 +50,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
-        self.profile_embedding_dim = 768 # TODO: set dynamically based on model
+        self.profile_embedding_dim = 768
         self.document_embed = torch.nn.Sequential(
             # TODO: consider a nonlinearity here?
             torch.nn.Dropout(p=0.1),
@@ -61,7 +61,6 @@ class DocumentProfileMatchingTransformer(LightningModule):
             torch.tensor(3.5, dtype=torch.float32), requires_grad=True
         )
         
-        # TODO: allow tapas model profile_encoder (but use it properly)
         self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
         self.pretrained_profile_encoder = pretrained_profile_encoder
 
@@ -74,8 +73,7 @@ class DocumentProfileMatchingTransformer(LightningModule):
         self.val_document_redact_ner_embeddings = None
         self.val_document_redact_lexical_embeddings = None
         self.val_profile_embeddings = None
-        
-        # TODO: separate argparse for learning rates?
+
         self.document_learning_rate = learning_rate
         self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
