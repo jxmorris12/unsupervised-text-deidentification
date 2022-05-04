@@ -2,16 +2,16 @@ from typing import Dict
 
 import abc
 
+import numpy as np
 import torch
+import tqdm
+
+from transformers import AdamW
 
 from .model import Model
 
 class ContrastiveModel(Model):
-    def __init__(self, ??):
-        self.scheduler = ??
-        self.optimizer = ??
-
-    def get_optimizer(self, epoch: int) -> torch.optim.Optimizer:
+    def get_optimizer(self) -> torch.optim.Optimizer:
         return self.optimizers()
     
     def get_scheduler(self):

@@ -2,13 +2,17 @@ from typing import Dict
 
 import abc
 
+import numpy as np
 import torch
+import tqdm
+
+from transformers import AdamW
 
 from .model import Model
 
 class CoordinateAscentModel(Model):
     def __init__(self, *args, **kwargs):
-        super().__init__(args=*args, kwargs=**kwargs)
+        super().__init__(*args, **kwargs)
         self.train_document_embeddings = None
         self.train_profile_embeddings = None
 
@@ -17,7 +21,7 @@ class CoordinateAscentModel(Model):
         if stage != "fit":
             return
         # Precompute embeddings
-        self.precompute_profile_embeddings()
+        self._precompute_profile_embeddings()
     
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
@@ -35,28 +39,22 @@ class CoordinateAscentModel(Model):
         # We only want to keep one model on GPU at a time.
         if self._document_encoder_is_training:
             self.train_document_embeddings = None
-            self.val_document_embeddings = None
-            self.val_document_redact_ner_embeddings = None
-            self.val_document_redact_lexical_embeddings = None
             # 
             self.train_profile_embeddings = self.train_profile_embeddings.cuda()
-            self.val_profile_embeddings = self.val_profile_embeddings.cuda()
             self.document_model.cuda()
             self.document_embed.cuda()
             self.profile_model.cpu()
         else:
             self.train_profile_embeddings = None
-            self.val_profile_embeddings = None
             # 
             self.train_document_embeddings = self.train_document_embeddings.cuda()
-            self.val_document_embeddings = self.val_document_embeddings.cuda()
             self.document_model.cpu()
             self.document_embed.cpu()
             self.profile_model.cuda()
         self.log("document_encoder_is_training", float(self._document_encoder_is_training))
 
     def training_epoch_end(self, training_step_outputs: Dict):
-        if self.document_encoder_is_training:
+        if self._document_encoder_is_training:
             self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
             for output in training_step_outputs:
                 self.train_document_embeddings[output["text_key_id"]] = output["document_embeddings"]
@@ -69,6 +67,7 @@ class CoordinateAscentModel(Model):
             self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, requires_grad=False, dtype=torch.float32)
             self.train_document_embeddings = None
 
+    @property
     def _document_encoder_is_training(self) -> bool:
         """True if we're training the document encoder. If false, we are training the profile encoder.
         Should alternate during training epochs."""
@@ -78,16 +77,16 @@ class CoordinateAscentModel(Model):
         else:
             return self.current_epoch % 2 == 0
 
-    def get_optimizer(self, epoch: int) -> torch.optim.Optimizer:
-        document_optimizer, profile_optimizer = self.optimizers
-        if self._document_encoder_is_training(epoch=epoch):
+    def get_optimizer(self) -> torch.optim.Optimizer:
+        document_optimizer, profile_optimizer = self.optimizers()
+        if self._document_encoder_is_training:
             return document_optimizer
         else:
             return profile_optimizer
 
     def get_scheduler(self):
         document_scheduler, profile_scheduler = self.lr_schedulers()
-        if self._document_encoder_is_training(epoch=epoch):
+        if self._document_encoder_is_training:
             return document_scheduler
         else:
             return profile_scheduler
@@ -123,19 +122,8 @@ class CoordinateAscentModel(Model):
             "profile_embeddings": profile_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
         }
-
-    def _get_optimizer(
-            self, batch: Dict[str, torch.Tensor], batch_idx: int
-        ) -> torch.Tensor:
-        document_optimizer, profile_optimizer = self.optimizers()
-        if self._document_encoder_is_training:
-            return document_optimizer
-            results = self._training_step_document(batch, batch_idx)
-        else:
-            optimizer = profile_optimizer
-            results = self._training_step_profile(batch, batch_idx)
     
-    def _compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
+    def compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
         if self._document_encoder_is_training:
             return self._training_step_document(
                 batch=batch,
