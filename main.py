@@ -29,7 +29,7 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument('--loss_function', type=str,
+    parser.add_argument('--loss_function', '--loss', type=str,
         choices=['coordinate_ascent', 'contrastive'],
         default='coordinate_ascent',
         help='loss function to use for training'
@@ -114,7 +114,7 @@ def main(args: argparse.Namespace):
         'coordinate_ascent': CoordinateAscentModel,
         'contrastive': ContrastiveModel,
     }
-    model_cls = model_cls[args.loss_function]
+    model_cls = model_cls_dict[args.loss_function]
     # model = model_cls.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
