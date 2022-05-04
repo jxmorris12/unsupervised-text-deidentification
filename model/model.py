@@ -1,13 +1,11 @@
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
-import pandas as pd
 import torch
 import transformers
-import tqdm
 
 from pytorch_lightning import LightningModule
-from transformers import AdamW, AutoModel
+from transformers import AutoModel
 
 # hide warning:
 # TAPAS is a question answering model but you have not passed a query. Please be aware that the model will probably not behave correctly.
@@ -121,11 +119,11 @@ class Model(LightningModule):
         # TODO: make abcmethod
         raise NotImplementedError()
 
-    def get_scheduler(self) -> torch.optim.Optimizer:
+    def get_scheduler(self):
         # TODO: make abcmethod
         raise NotImplementedError()
     
-    def compute_loss(self) -> Dict[str, tocrh.Tensor]:
+    def compute_loss(self) -> Dict[str, torch.Tensor]:
         # TODO: make abcmethod
         raise NotImplementedError()
 
@@ -181,6 +179,11 @@ class Model(LightningModule):
             )
             out_embeddings[f"adv_document_{k}"] = document_adv_embeddings
         return out_embeddings
+    
+    def on_validation_start(self):
+        self.profile_model.cuda()
+        self.document_model.cuda()
+        self.document_embed.cuda()
 
     def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx: int=0) -> Dict[str, torch.Tensor]:
         assert not self.document_model.training
@@ -195,6 +198,53 @@ class Model(LightningModule):
                 output = self._process_adv_validation_batch(batch=batch, batch_idx=batch_idx)
         return output
 
+    def _compute_loss_exact(
+            self,
+            document_embeddings: torch.Tensor,
+            profile_embeddings: torch.Tensor,
+            document_idxs: torch.Tensor,
+            metrics_key: str
+        ) -> torch.Tensor:
+        """Computes classification loss from document embeddings to profile embeddings. 
+        
+        There are typically many more profiles than documents.
+        Args:
+            document_embeddings (float torch.Tensor) - document embeddings for batch, of shape (batch, emb_dim)
+            profile_embeddings (float torch.Tensor) - all profile embeddings in dataset, of shape (num_profiles, emb_dim)
+            document_idxs (int torch.Tensor) - integer indices of documents in profile_embeddings, of shape (batch,)
+        Returns:
+            loss (float torch.Tensor) - the loss, a scalar
+        """
+        assert len(document_embeddings.shape) == len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
+        assert document_embeddings.shape[1] == profile_embeddings.shape[1] # embedding dims must match
+        assert len(document_idxs.shape) == 1
+        batch_size = len(document_embeddings)
+        # Normalize embeddings before computing similarity
+        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
+        # Match documents to profiles
+        document_to_profile_sim = (
+            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
+        )
+        loss = torch.nn.functional.cross_entropy(
+            document_to_profile_sim, document_idxs
+        )
+        self.log(f"{metrics_key}/loss", loss)
+        # Log top-k accuracies.
+        for k in [1, 5, 10, 50, 100, 500, 1000]:
+            if k >= batch_size: # can't compute top-k accuracy here.
+                continue
+            top_k_acc = (
+                document_to_profile_sim.topk(k=k, dim=1)
+                    .indices
+                    .eq(document_idxs[:, None])
+                    .any(dim=1)
+                    .float()
+                    .mean()
+            )
+            self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
+        return loss
+
     def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
         val_outputs, adv_val_outputs = output_list
         text_key_id = torch.cat(
@@ -207,7 +257,8 @@ class Model(LightningModule):
             [o['document_redact_ner_embeddings'] for o in val_outputs], axis=0)
         document_redact_lexical_embeddings = torch.cat(
             [o['document_redact_lexical_embeddings'] for o in val_outputs], axis=0)
-        profile_embeddings = self.val_profile_embeddings
+        profile_embeddings = torch.cat(
+            [o['profile_embeddings'] for o in val_outputs], axis=0)
 
         # Compute loss on adversarial documents.
         for k in [1, 10, 100, 1000]:
@@ -221,17 +272,9 @@ class Model(LightningModule):
                 metrics_key=f'val/document_redact_adversarial_{k}'
             )
 
-        scheduler = document_scheduler
-
-        document_embeddings = self.val_document_embeddings
-        document_redact_ner_embeddings = self.val_document_redact_ner_embeddings
-        document_redact_lexical_embeddings = self.val_document_redact_lexical_embeddings
-        profile_embeddings = torch.cat(
-            [o['profile_embeddings'] for o in val_outputs], axis=0)
+        scheduler = self.get_scheduler()
 
         # Compute losses.
-        # TODO: is `text_key_id` still correct when training profile encoder?
-        #       i.e., will this still work if the validation data is shuffled?
         doc_loss = self._compute_loss_exact(
             document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document'
