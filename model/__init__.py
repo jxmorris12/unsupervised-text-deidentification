@@ -1,0 +1,2 @@
+from .contrastive import ContrastiveModel
+from .coordinate_ascent import CoordinateAscentModel
