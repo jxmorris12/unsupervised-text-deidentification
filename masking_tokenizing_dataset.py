@@ -8,7 +8,7 @@ import transformers
 from torch.utils.data import Dataset
 
 from masking_span_sampler import MaskingSpanSampler
-
+from utils import try_encode_table_tapas
 
 class MaskingTokenizingDataset(Dataset):
     """A PyTorch Dataset that tokenizes strings and, optionally, samples spans of text, and
@@ -101,16 +101,18 @@ class MaskingTokenizingDataset(Dataset):
             if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
                 prof_keys = ex["profile_keys"].split("||")
                 prof_values = ex["profile_values"].split("||")
+                if not len(prof_keys):
+                    raise ValueError("empty profile_keys")
+                if not len(prof_values):
+                    raise ValueError("empty prof_values")
                 df = self._get_profile_df(
                     keys=prof_keys, values=prof_values
                 )
-                profile_tokenized = self.profile_tokenizer.encode_plus(
-                    table=df,
-                    queries=["who is this person?"],
+                profile_tokenized = try_encode_table_tapas(
+                    df=df,
+                    tokenizer=self.profile_tokenizer,
                     max_length=self.max_seq_length,
-                    padding='max_length',
-                    truncation=True,
-                    return_tensors='pt',
+                    query="Who is this?",
                 )
             else:
                 profile_tokenized = self.profile_tokenizer.encode_plus(

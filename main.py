@@ -14,7 +14,7 @@ from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, Mode
 from transformers import AutoTokenizer
 
 from dataloader import WikipediaDataModule
-from model import DocumentProfileMatchingTransformer
+from model import ContrastiveModel, CoordinateAscentModel
 
 USE_WANDB = True
 
@@ -28,6 +28,13 @@ def get_args() -> argparse.Namespace:
         description='Train a model.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+
+    parser.add_argument('--loss_function', type=str,
+        choices=['coordinate_ascent', 'contrastive'],
+        default='coordinate_ascent',
+        help='loss function to use for training'
+    )
+
     parser.add_argument('--num_validations_per_epoch', type=int, default=1,
         help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
@@ -102,15 +109,20 @@ def main(args: argparse.Namespace):
         num_workers=min(16, num_cpus),
     )
     dm.setup("fit")
-    
-    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+
+    model_cls_dict = {
+        'coordinate_ascent': CoordinateAscentModel,
+        'contrastive': ContrastiveModel,
+    }
+    model_cls = model_cls[args.loss_function]
+    # model = model_cls.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
         # roberta-distilbert trained on .8.8 dropout for 10hrs:
-        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
-    # model = DocumentProfileMatchingTransformer(
+        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
+    model = model_cls(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         learning_rate=args.learning_rate,

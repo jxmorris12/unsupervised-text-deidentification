@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 import collections
 import re
 
+import pandas as pd
 import torch
 import transformers
 
@@ -85,3 +86,19 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
         'profile_values': '||'.join(profile_values),         # Values in profile box
         'text_key': ex['target_text'] + ' ' + table_text,   # store (document, profile) str key
     }
+
+
+def try_encode_table_tapas(df: pd.DataFrame, tokenizer: transformers.AutoTokenizer, max_length: int, query: str, num_cols: int = 50) -> Dict[str, torch.Tensor]:
+    if num_cols <= 0:
+        raise ValueError(f'failed to encode df: {str(df)}')
+    try:
+        return tokenizer(
+            table=df[df.columns[:num_cols]],
+            queries=[query],
+            max_length=max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt',
+        )
+    except ValueError:
+        return try_encode_table_tapas(df=df, tokenizer=tokenizer, max_length=max_length, query=query, num_cols=num_cols-1)
