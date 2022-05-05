@@ -29,7 +29,7 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument('--loss_function', '--loss', type=str,
+    parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
         choices=['coordinate_ascent', 'contrastive'],
         default='coordinate_ascent',
         help='loss function to use for training'
@@ -42,6 +42,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
+    parser.add_argument('--num_nearest_neighbors', '--n',
+        type=int, default=0, 'number of negative samples for contrastive loss')
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
         default='roberta', choices=['distilbert', 'bert', 'roberta'])
@@ -107,6 +109,7 @@ def main(args: argparse.Namespace):
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
         num_workers=min(16, num_cpus),
+        num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
 
@@ -136,7 +139,11 @@ def main(args: argparse.Namespace):
 
     loggers = []
 
-    exp_name = args.document_model_name
+    lf_short = {
+        'coordinate_ascent': 'ca',
+        'contrastive': 'co',
+    }[args.loss_function]
+    exp_name = lf_short + '__' + args.document_model_name
     if args.profile_model_name != args.document_model_name:
         exp_name += f'__{args.profile_model_name}'
     if args.sample_spans:
@@ -178,8 +185,8 @@ def main(args: argparse.Namespace):
     # TODO: argparse for val_metric
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
-    # val_metric = "val/document_redact_ner/loss"
-    val_metric = "val/document_redact_adversarial_1/loss"
+    val_metric = "val/document_redact_ner/loss"
+    # val_metric = "val/document_redact_adversarial_1/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),

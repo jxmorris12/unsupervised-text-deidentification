@@ -17,21 +17,26 @@ class ContrastiveModel(Model):
     def get_scheduler(self):
         return self.lr_schedulers()
         
-    def _compute_loss_infonce(self, document_embeddings: torch.Tensor, profile_embeddings: torch.Tensor,
-        metrics_key: str) -> torch.Tensor:
+    def _compute_loss_infonce(
+            self,
+            document_embeddings: torch.Tensor,
+            profile_embeddings: torch.Tensor,
+            metrics_key: str
+        ) -> torch.Tensor:
         """InfoNCE matching loss between `document_embeddings` and `profile_embeddings`. Computes
         metrics and prints, prefixing with `metrics_key`.
          """
-        assert document_embeddings.shape == profile_embeddings.shape
-        assert len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
+        assert len(document_embeddings.shape) == len(document_embeddings.shape) == 2 # [batch_dim, embedding_dim]
+        assert document_embeddings.shape[1] == profile_embeddings.shape[1]
         batch_size = len(document_embeddings)
         # Normalize embeddings before computing similarity
-        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
+        # Commented-out because the DPR paper ("Dense Passage Retrieval for Open-Domain Question Answering") reports
+        # better results with dot-product than cosine similarity.
+        # document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        # profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
-        document_to_profile_sim = (
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
-        )
+        document_to_profile_sim = torch.matmul(document_embeddings, profile_embeddings.T)
+        document_to_profile_sim *= self.temperature.exp()
         diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
         loss = torch.nn.functional.cross_entropy(
             document_to_profile_sim, diagonal_idxs
@@ -49,16 +54,28 @@ class ContrastiveModel(Model):
                     .float()
                     .mean()
             )
-            self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
+            self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
         return loss
     
     def compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
         document_embeddings = self.forward_document(
             batch=batch, document_type='document'
         )
-        profile_embeddings = self.forward_profile(
-            batch=batch
+        profile_embeddings = self.forward_profile(batch=batch)
+
+        # If keys that start with 'profile_neighbor' are present in the batch,
+        # include those in the loss.
+        profile_neighbors_present = len(
+            self._get_inputs_from_prefix(batch=batch, prefix='profile_neighbor')
         )
+        if profile_neighbors_present > 0:
+            extra_profile_embeddings = self.forward_profile(
+                batch=batch, profile_key='profile_neighbor', collapse_axis=True
+            )
+            profile_embeddings = torch.cat(
+                (profile_embeddings, extra_profile_embeddings), dim=0
+            )
+
         loss = self._compute_loss_infonce(
             document_embeddings=document_embeddings,
             profile_embeddings=profile_embeddings,
@@ -70,7 +87,6 @@ class ContrastiveModel(Model):
             "profile_embeddings": profile_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
         }
-
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
