@@ -7,5 +7,5 @@ checkpoints/
 deid-wikibio/
 lightning_logs/
 logs/
-precomputed_similarities/
+nearest_neighbors/
 wandb/

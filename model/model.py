@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
+import abc
+
 import numpy as np
 import torch
 import transformers
@@ -7,13 +9,8 @@ import transformers
 from pytorch_lightning import LightningModule
 from transformers import AutoModel
 
-# hide warning:
-# TAPAS is a question answering model but you have not passed a query. Please be aware that the model will probably not behave correctly.
-from transformers.utils import logging as transformers_logging
-transformers_logging.set_verbosity_error()
 
-# TODO: make a better name for this class...
-class Model(LightningModule):
+class Model(LightningModule, abc.ABC):
     """Encodes profiles using pre-computed encodings. Uses nearest-neighbors
     to create 'hard negatives' to get similarity.
     """
@@ -51,8 +48,7 @@ class Model(LightningModule):
         self.profile_embedding_dim = 768
         self.document_embed = torch.nn.Sequential(
             # torch.nn.Dropout(p=0.1),
-            torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim),
-            # TODO: make these numbers a feature of model/embedding type
+            torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
             torch.tensor(3.5, dtype=torch.float32), requires_grad=True
@@ -112,12 +108,13 @@ class Model(LightningModule):
         assert len(document_idxs.shape) == 1
         batch_size = len(document_embeddings)
         # Normalize embeddings before computing similarity
-        document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
-        profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
+        # Commented-out because the DPR paper ("Dense Passage Retrieval for Open-Domain Question Answering") reports
+        # better results with dot-product than cosine similarity.
+        # document_embeddings = document_embeddings / torch.norm(document_embeddings, p=2, dim=1, keepdim=True)
+        # profile_embeddings = profile_embeddings / torch.norm(profile_embeddings, p=2, dim=1, keepdim=True)
         # Match documents to profiles
-        document_to_profile_sim = (
-            (torch.matmul(document_embeddings, profile_embeddings.T) * self.temperature.exp())
-        )
+        document_to_profile_sim = torch.matmul(document_embeddings, profile_embeddings.T)
+        document_to_profile_sim *= self.temperature.exp()
         loss = torch.nn.functional.cross_entropy(
             document_to_profile_sim, document_idxs
         )
@@ -134,7 +131,7 @@ class Model(LightningModule):
                     .float()
                     .mean()
             )
-            self.log(f"{metrics_key}/acc_top_k/{k}",top_k_acc)
+            self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
         return loss
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
@@ -154,24 +151,29 @@ class Model(LightningModule):
         else:
             return doc_embeddings
 
-    def forward_profile(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward_profile(self, batch: Dict[str, torch.Tensor], profile_key: str = 'profile', collapse_axis: bool = False) -> torch.Tensor:
         """Tokenizes text and inputs to profile encoder."""
         if torch.cuda.is_available(): assert self.profile_model_device.type == 'cuda'
-        inputs = self._get_inputs_from_prefix(batch=batch, prefix='profile')
+        inputs = self._get_inputs_from_prefix(batch=batch, prefix=profile_key)
+        if collapse_axis: # Collapse shape (b, n, s) -> (b * n, s)
+            inputs = {
+                k: v.flatten(end_dim=1)
+                for k,v in inputs.items()
+            }
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
         output = self.profile_model(**inputs)
         return output['last_hidden_state'][:, 0, :]
 
+    @abc.abstractmethod
     def get_optimizer(self) -> torch.optim.Optimizer:
-        # TODO: make abcmethod
         raise NotImplementedError()
 
+    @abc.abstractmethod
     def get_scheduler(self):
-        # TODO: make abcmethod
         raise NotImplementedError()
     
+    @abc.abstractmethod
     def compute_loss(self) -> Dict[str, torch.Tensor]:
-        # TODO: make abcmethod
         raise NotImplementedError()
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -188,8 +190,7 @@ class Model(LightningModule):
         self.log("temperature", self.temperature.exp())
 
         optimizer.zero_grad()
-        loss = results["loss"]
-        loss.backward()
+        self.manual_backward(results["loss"])
         optimizer.step()
 
         return results
@@ -204,8 +205,8 @@ class Model(LightningModule):
         document_redact_lexical_embeddings = self.forward_document(
             batch=batch, document_type='document_redact_lexical'
         )
-
         profile_embeddings = self.forward_profile(batch=batch)
+
 
         return {
             "document_embeddings": document_embeddings,

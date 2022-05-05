@@ -19,7 +19,6 @@ from utils import create_document_and_profile_from_wikibio
 # 
 # TODO: filter data to have > 10 words or something? And maybe a certain
 #   number of rows?
-# TODO: think about this tomorrow!!
 # bad data example:
 # [train example 326510] - 0 words in target text
 #   {'input_text': {'table': {'column_header': ['name', 'background', 'label', 'origin', 'years_active', 'article_title', 'genre'], 'row_number': [1, 1, 1, 1, 1, 1, 1], 'content': ['hardliner', 'group_or_band', 'runaway wreckords', "st. john 's , newfoundland & labrador , canada", '1999-2004\xa02009-2010', 'hardliner -lrb- band -rrb-\n', 'hard rock']}, 'context': 'hardliner -lrb- band -rrb-\n'}, 'target_text': "'' ''\n"}
@@ -49,6 +48,10 @@ class WikipediaDataModule(LightningDataModule):
     mask_token: str
     base_folder: str
 
+    # If `num_nearest_neighbors` is set, will tokenize nearest-neighbors
+    # in the train dataset and return, alongside the regular examples.
+    num_nearest_neighbors: int
+
     train_dataset: datasets.Dataset     # train examples
     val_dataset: datasets.Dataset       # validation examples
     adv_val_dataset: datasets.Dataset   # adversarially-generated validation examples
@@ -67,6 +70,7 @@ class WikipediaDataModule(LightningDataModule):
         num_workers: int = 1,
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
+        num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
         **kwargs,
     ):
@@ -82,6 +86,7 @@ class WikipediaDataModule(LightningDataModule):
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
         self.sample_spans = sample_spans
+        self.num_nearest_neighbors = num_nearest_neighbors
 
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
@@ -151,22 +156,19 @@ class WikipediaDataModule(LightningDataModule):
                     )
             )
         )
-        self.columns = [
-            "text_key_id", # Indices of item in original dataset  (int)
 
-            "document",
-                    # [original] First paragraph of wikipedia page (str)
-            "document_redact_ner",
-                    # [redacted_ner] First paragraph of wikipedia page (str)
-            "document_redact_lexical",
-                    # [redacted_lexical] First paragraph of wikipedia page (str)
-
-            "profile",          # Table from wikipedia infobox (str)
-            "profile_keys",     # Keys to table from wikipedia infobox (str)
-            "profile_values",   # Values to table from wikipedia infobox (str)
-        ]
-        # self.train_dataset.set_format(type=None, columns=self.columns)
-        # self.val_dataset.set_format(type=None, columns=self.columns)
+        # Load nearest-neighbors to train set, if requested.
+        if self.num_nearest_neighbors > 0:
+            nn_file_path = os.path.join('nearest_neighbors', 'nn__train[:10%]__256.p')
+            assert os.path.exists(nn_file_path)
+            print("loading nearest-neighbors from:", nn_file_path)
+            nearest_neighbors = pickle.load(open(nn_file_path, 'rb'))
+            assert len(nearest_neighbors) >= len(self.train_dataset)
+            nearest_neighbors = nearest_neighbors[:len(self.train_dataset)]
+            self.train_dataset = self.train_dataset.add_column(
+                "nearest_neighbor_idxs", nearest_neighbors.tolist()
+            )
+            
 
     def _load_adv_val_data(self):
         # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
@@ -214,6 +216,7 @@ class WikipediaDataModule(LightningDataModule):
             word_dropout_ratio=self.word_dropout_ratio,
             word_dropout_perc=self.word_dropout_perc,
             sample_spans=self.sample_spans,
+            num_nearest_neighbors=self.num_nearest_neighbors,
             document_types=["document", "document_redact_ner", "document_redact_lexical"],
             is_train_dataset=True
         )
