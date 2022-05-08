@@ -7,8 +7,13 @@ import tqdm
 
 from rank_bm25 import BM25Okapi
 
-def main():
-    split = 'train[:100%]'
+def create_index_our_model():
+    split = 'train[:10%]'
+    train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
+    train_data = train_data.map(make_table_str)
+
+def get_top_matches_bm25():
+    split = 'train[:10%]'
     train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
     num_proc = min(8, len(os.sched_getaffinity(0)))
     k = 256
@@ -55,4 +60,6 @@ def main():
     pickle.dump(top_matches, open(outfile, "wb"))
     print(f"wrote {len(top_matches)} top matches to file {outfile}")
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    # get_top_matches_bm25()
+    create_index_our_model()

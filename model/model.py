@@ -23,6 +23,7 @@ class Model(LightningModule, abc.ABC):
     learning_rate: float
     lr_scheduler_factor: float
     lr_scheduler_patience: int
+    grad_norm_clip: float
 
     pretrained_profile_encoder: bool
 
@@ -33,6 +34,7 @@ class Model(LightningModule, abc.ABC):
         learning_rate: float = 2e-5,
         lr_scheduler_factor: float = 0.5,
         lr_scheduler_patience: int = 3,
+        grad_norm_clip: float = 5.0,
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
         adversarial_mask_k_tokens: int = 0,
@@ -63,6 +65,8 @@ class Model(LightningModule, abc.ABC):
         self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
+
+        self.grad_norm_clip = grad_norm_clip
 
         # Important: This property activates manual optimization,
         # but we have to do loss.backward() ourselves below.
@@ -191,6 +195,7 @@ class Model(LightningModule, abc.ABC):
 
         optimizer.zero_grad()
         self.manual_backward(results["loss"])
+        torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
         optimizer.step()
 
         return results
