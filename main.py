@@ -42,8 +42,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
+    parser.add_argument('--grad_norm_clip', type=float, default=5.0)
+    
     parser.add_argument('--num_nearest_neighbors', '--n',
-        type=int, default=0, 'number of negative samples for contrastive loss')
+        type=int, default=0,
+        help='number of negative samples for contrastive loss'
+    )
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
         default='roberta', choices=['distilbert', 'bert', 'roberta'])
@@ -118,14 +122,16 @@ def main(args: argparse.Namespace):
         'contrastive': ContrastiveModel,
     }
     model_cls = model_cls_dict[args.loss_function]
-    # model = model_cls.load_from_checkpoint(
+    model = model_cls.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
         # roberta-distilbert trained on .8.8 dropout for 10hrs:
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
-    model = model_cls(
+        # roberta-tapas trained on 0/0 dropout for 12epochs/4 hours:
+        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas/deid-wikibio-2_default/1v0lkeoq_290/checkpoints/epoch=11-step=5357.ckpt',
+    # model = model_cls(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         learning_rate=args.learning_rate,
@@ -135,6 +141,7 @@ def main(args: argparse.Namespace):
         adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
         train_batch_size=args.batch_size,
         num_workers=min(8, num_cpus),
+        gradient_clip_val=args.grad_norm_clip,
     )
 
     loggers = []
@@ -150,6 +157,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__sample_spans'
     if args.adversarial_mask_k_tokens:
         exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
+    if args.num_nearest_neighbors:
+        exp_name += f'__n_{args.num_nearest_neighbors}'
     if args.word_dropout_ratio:
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
     if args.pretrained_profile_encoder:

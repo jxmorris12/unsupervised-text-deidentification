@@ -126,6 +126,7 @@ class MaskingTokenizingDataset(Dataset):
         # 
         if self.is_train_dataset: # Only consider redaction if this is a train dataset!
             ex["document"] = self.masking_span_sampler.redact(ex["document"])
+        
         for doc_type in self.document_types:
             doc_tokenized = self._tokenize_document(ex=ex, doc_type=doc_type)
             for _k, _v in doc_tokenized.items():
