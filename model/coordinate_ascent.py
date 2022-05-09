@@ -26,7 +26,7 @@ class CoordinateAscentModel(Model):
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
         self.profile_model.eval()
-        print('Precomputing profile embeddings before first epoch...')
+        print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
@@ -34,23 +34,40 @@ class CoordinateAscentModel(Model):
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
         self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
         self.profile_model.train()
+    
+    def _precompute_document_embeddings(self):
+        self.document_model.cuda()
+        self.document_model.eval()
+        print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
+        self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
+        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
+            with torch.no_grad():
+                document_embeddings = self.forward_document(batch=train_batch, document_type='document')
+            self.train_document_embeddings[train_batch["text_key_id"]] = document_embeddings.cpu()
+        self.train_document_embeddings = torch.tensor(self.train_document_embeddings, dtype=torch.float32)
+        self.profile_model.train()
 
     def on_train_epoch_start(self):
         # We only want to keep one model on GPU at a time.
         if self._document_encoder_is_training:
             self.train_document_embeddings = None
-            # 
+            self._precompute_profile_embeddings()
             self.train_profile_embeddings = self.train_profile_embeddings.cuda()
+            # 
             self.document_model.cuda()
             self.document_embed.cuda()
+            self.document_model.train()
+            self.document_embed.train()
             self.profile_model.cpu()
         else:
             self.train_profile_embeddings = None
-            # 
+            self._precompute_document_embeddings()
             self.train_document_embeddings = self.train_document_embeddings.cuda()
+            # 
             self.document_model.cpu()
             self.document_embed.cpu()
             self.profile_model.cuda()
+            self.profile_model.train()
         self.log("document_encoder_is_training", float(self._document_encoder_is_training))
 
     def training_epoch_end(self, training_step_outputs: Dict):

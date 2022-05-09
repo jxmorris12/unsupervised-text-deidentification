@@ -1,7 +1,7 @@
 from typing import List, Tuple
 
 from dataloader import WikipediaDataModule
-from model import DocumentProfileMatchingTransformer
+from model import AbstractModel, CoordinateAscentModel
 
 import argparse
 import os
@@ -24,6 +24,9 @@ from textattack.constraints.pre_transformation import RepeatModification
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 from tqdm import tqdm
+
+
+num_cpus = len(os.sched_getaffinity(0))
 
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
@@ -141,13 +144,15 @@ class WikiDataset(textattack.datasets.Dataset):
         return input_dict, self.dataset[i]['text_key_id']
 
 class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
-    model: DocumentProfileMatchingTransformer
+    model: AbstractModel
+    document_tokenizer: transformers.AutoTokenizer
     profile_embeddings: torch.Tensor
     max_seq_length: int
     
-    def __init__(self, model: DocumentProfileMatchingTransformer, max_seq_length: int = 64):
+    def __init__(self, model: AbstractModel, document_tokenizer: transformers.AutoTokenizer, max_seq_length: int = 128):
         self.model = model
         self.model.eval()
+        self.document_tokenizer = document_tokenizer
         self.profile_embeddings = model.val_profile_embeddings.clone().detach()
         self.max_seq_length = max_seq_length
                  
@@ -158,10 +163,18 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
 
     def __call__(self, text_input_list, batch_size=32):
         model_device = next(self.model.parameters()).device
-        
-        # TODO: implement batch size if we start running out of memory here.
+
+        tokenized_documents = self.document_tokenizer.batch_encode_plus(
+            text_input_list,
+            max_length=self.max_seq_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt',
+        )
+        batch = {f"document__{k}": v for k,v in tokenized_documents.items()}
+
         with torch.no_grad():
-            document_embeddings = self.model.forward_document_text(text=text_input_list)
+            document_embeddings = self.model.forward_document(batch=batch, document_type='document')
             document_to_profile_logits = document_embeddings @ self.profile_embeddings.T.to(model_device) * (1/10.)
             document_to_profile_probs = torch.nn.functional.softmax(
                 document_to_profile_logits, dim=-1
@@ -171,51 +184,49 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
 
 
 def precompute_profile_embeddings(
-    model: DocumentProfileMatchingTransformer,
-    dm: WikipediaDataModule
+        model: AbstractModel,
+        dm: WikipediaDataModule
     ):
     model.profile_model.cuda()
     model.profile_model.eval()
     print('Precomputing profile embeddings before first epoch...')
     # no need to compute train embeddings in this setting
-    # - we only use val embeddings for inference
-    #
+    # - we only use val embeddings.
     model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.profile_embedding_dim))
-    # for train_batch in tqdm(dm.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
-    #     with torch.no_grad():
-    #         profile_embeddings = model.forward_profile_text(text=train_batch["profile"])
-    #     model.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
     model.train_profile_embeddings = torch.tensor(model.train_profile_embeddings, dtype=torch.float32)
 
     model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader(), desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
+    for val_batch in tqdm(dm.val_dataloader()[0], desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
         with torch.no_grad():
-            profile_embeddings = model.forward_profile_text(text=val_batch["profile"])
+            profile_embeddings = model.forward_profile(batch=val_batch)
         model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
     model.val_profile_embeddings = torch.tensor(model.val_profile_embeddings, dtype=torch.float32)
     model.profile_model.train()
 
 
 def main(k: int, n: int):
-    checkpoint_path = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/3nbt75gp_171/checkpoints/epoch=20-step=382387.ckpt'
-    model = DocumentProfileMatchingTransformer.load_from_checkpoint(
+    # one of the best models I have that's roberta-distilbert, from here:
+    #   wandb.ai/jack-morris/deid-wikibio-2/runs/xjybn01j/logs?workspace=user-jxmorris12
+    model_key, checkpoint_path = (
+        "model_2",
+        "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/xjybn01j_273/checkpoints/epoch=20-step=93335.ckpt"
+    )
+
+    model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path,
         document_model_name_or_path="roberta-base",
         profile_model_name_or_path="distilbert-base-uncased",
         train_batch_size=64,
-        eval_batch_size=64,
-        max_seq_length=256,
         pretrained_profile_encoder=False,
         redaction_strategy="",
         dataset_name='wiki_bio',
-        num_workers=1,
+        num_workers=num_cpus,
         word_dropout_ratio=0.0, word_dropout_perc=0.0,
     )
 
-    num_cpus = os.cpu_count()
-
     dm = WikipediaDataModule(
-        mask_token=model.document_tokenizer.mask_token,
+        document_model_name_or_path="roberta-base",
+        profile_model_name_or_path="distilbert-base-uncased",
         dataset_name='wiki_bio',
         dataset_train_split='train[:10%]', # this model was trained with 40% of training data
         dataset_val_split='val[:20%]',
@@ -223,19 +234,23 @@ def main(k: int, n: int):
         num_workers=1,
         train_batch_size=64,
         eval_batch_size=64,
-        max_seq_length=256,
-        redaction_strategy=""
+        max_seq_length=128,
+        sample_spans=False,
     )
     dm.setup("fit")
 
     dataset = WikiDataset(dm)
 
     precompute_profile_embeddings(model, dm)
-    model_wrapper = MyModelWrapper(model)
+    model_wrapper = MyModelWrapper(
+        model=model,
+        document_tokenizer=dm.document_tokenizer,
+        max_seq_length=dm.max_seq_length
+    )
     model_wrapper.to('cuda')
 
     constraints = [RepeatModification()]
-    transformation = WordSwapSingleWord(single_word=model.document_tokenizer.mask_token)
+    transformation = WordSwapSingleWord(single_word=dm.document_tokenizer.mask_token)
     # search_method = textattack.search_methods.GreedyWordSwapWIR()
     search_method = textattack.search_methods.BeamSearch(beam_width=4)
 
@@ -254,7 +269,7 @@ def main(k: int, n: int):
     for result in results_iterable:
         logger.log_attack_result(result)
     
-    logger.df.to_csv(f'adv_csvs/results_{k}_{n}.csv')
+    logger.df.to_csv(f'adv_csvs/{model_key}/results_{k}_{n}.csv')
     
 
 def get_args() -> argparse.Namespace:

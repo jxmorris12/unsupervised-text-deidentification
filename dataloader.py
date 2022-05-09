@@ -176,19 +176,20 @@ class WikipediaDataModule(LightningDataModule):
             
 
     def _load_adv_val_data(self):
+        # TODO: load multiple adv-val datasets?
         # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
         # dataset don't have adversarial examples.
         adv_idxs = list(
             map(
                 int, 
-                open(os.path.join(self.base_folder, 'adv_csvs/results_idx.txt')).readlines()
+                open(os.path.join(self.base_folder, 'adv_csvs/model1/results_idx.txt')).readlines()
                 )
         )[:1000]
         adv_val_dataset = { "text_key_id": adv_idxs }
 
         # Load CSV files with adversarial examples generated at different values of k.
         for k in [1, 10, 100, 1000]:
-            df = pd.read_csv(os.path.join(self.base_folder, f'adv_csvs/results_{k}_1000.csv'))
+            df = pd.read_csv(os.path.join(self.base_folder, f'adv_csvs/model1/results_{k}_1000.csv'))
             perturbed_text = df['perturbed_text'].map(
                 lambda t: (
                     t

@@ -55,7 +55,7 @@ class ContrastiveModel(Model):
                     .mean()
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-        return loss
+        return document_to_profile_sim, loss
     
     def compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
         document_embeddings = self.forward_document(
@@ -75,12 +75,22 @@ class ContrastiveModel(Model):
             profile_embeddings = torch.cat(
                 (profile_embeddings, extra_profile_embeddings), dim=0
             )
-
-        loss = self._compute_loss_infonce(
-            document_embeddings=document_embeddings,
-            profile_embeddings=profile_embeddings,
-            metrics_key='train'
-        )
+            document_to_profile_sim, loss = self._compute_loss_infonce(
+                document_embeddings=document_embeddings,
+                profile_embeddings=profile_embeddings,
+                metrics_key='train'
+            )
+            # idxs = torch.cat(
+            #     (batch['text_key_id'], batch['profile_neighbor_idxs']), dim=0)
+            # breakpoint()
+            # TODO:: somehow update nearest-neighbors here to take top-K of document2profilesim along axis 1.
+            # self.trainer.datamodule.compute_new_nearest_neighbors(document_to_profile_sim, idxs)
+        else:
+            _, loss = self._compute_loss_infonce(
+                document_embeddings=document_embeddings,
+                profile_embeddings=profile_embeddings,
+                metrics_key='train'
+            )
         return {
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
