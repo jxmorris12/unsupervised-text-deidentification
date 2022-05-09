@@ -1,5 +1,7 @@
 from typing import Dict, List, Union
 
+import random
+
 import datasets
 import pandas as pd
 import torch
@@ -28,6 +30,7 @@ class MaskingTokenizingDataset(Dataset):
             max_seq_length: int,
             word_dropout_ratio: float,
             word_dropout_perc: float, 
+            profile_row_dropout_perc: float,
             sample_spans: bool,
             document_types: List[str],
             is_train_dataset: bool, # bool so we can make sure not to redact validation data.
@@ -40,6 +43,7 @@ class MaskingTokenizingDataset(Dataset):
         self.document_types = document_types
         self.is_train_dataset = is_train_dataset
         self.num_nearest_neighbors = num_nearest_neighbors
+        self.profile_row_dropout_perc = profile_row_dropout_perc
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
@@ -125,7 +129,7 @@ class MaskingTokenizingDataset(Dataset):
         # Tokenize documents.
         # 
         if self.is_train_dataset: # Only consider redaction if this is a train dataset!
-            ex["document"] = self.masking_span_sampler.redact(ex["document"])
+            ex["document"] = self.masking_span_sampler.redact_str(ex["document"])
         
         for doc_type in self.document_types:
             doc_tokenized = self._tokenize_document(ex=ex, doc_type=doc_type)
@@ -137,6 +141,27 @@ class MaskingTokenizingDataset(Dataset):
         # 
         # TODO: Consider permitting separate max_seq_length for profile.
         if self.profile_tokenizer is not None:
+            # TODO: finish profile row-sampling.
+            if self.is_train_dataset:
+                if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
+                    # TODO redact profile_keys and profile_values
+                    profile_keys = ex["profile_keys"].split('|')
+                    profile_values = ex["profile_values"].split('|')
+                    profile_keys_list, profile_values_list = [], []
+                    for k, v in zip(profile_keys, profile_values):
+                        if random.random() >= self.profile_row_dropout_perc:
+                            profile_keys_list.append(k)
+                            profile_values_list.append(v)
+                    ex["profile_keys"] = '|'.join(profile_keys_list) 
+                    ex["profile_values"] = '|'.join(profile_values_list) 
+                else:
+                    ex["profile"] = ' | '.join(
+                        (
+                            r for r in ex["profile"].split(' | ')
+                            if random.random() >= self.profile_row_dropout_perc
+                         )
+                    )
+
             profile_tokenized = self._tokenize_profile(ex=ex)
             for _k, _v in profile_tokenized.items():
                 out_ex[f"profile__{_k}"] = _v[0]

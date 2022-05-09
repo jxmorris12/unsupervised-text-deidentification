@@ -58,6 +58,8 @@ def get_args() -> argparse.Namespace:
         help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
+    parser.add_argument('--profile_row_dropout_perc', type=float,
+        default=0.0, help='\% of rows to dropout'
     parser.add_argument('--pretrained_profile_encoder', action='store_true', default=False,
         help=('whether to fix profile encoder and just train document encoder. ' 
             '[if false, does coordinate ascent alternating models across epochs]'))
@@ -109,6 +111,7 @@ def main(args: argparse.Namespace):
         dataset_version=args.dataset_version,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
+        profile_row_dropout_perc=args.profile_row_dropout_perc,
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -159,8 +162,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
     if args.num_nearest_neighbors:
         exp_name += f'__n_{args.num_nearest_neighbors}'
-    if args.word_dropout_ratio:
-        exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}'
+    if args.word_dropout_ratio or args.profile_row_dropout_perc:
+        exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}_{args.profile_row_dropout_perc}'
     if args.pretrained_profile_encoder:
         exp_name += '__fixprof'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
