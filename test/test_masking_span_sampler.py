@@ -12,7 +12,7 @@ class TestMaskingSpanSampler:
             mask_token='<mask>'
         )
         x = "Silly seller Sally sells scaly seashells by the southern seashore"
-        y = mt.redact(x)
+        y = mt.redact_str(x)
         assert x == y
 
     def test_word_dropout(self):
@@ -25,7 +25,7 @@ class TestMaskingSpanSampler:
             sample_spans=False,
             mask_token=mask_token
         )
-        outputs = mt.redact(
+        outputs = mt.redact_str(
             "Silly seller Sally sells scaly seashells by the southern seashore"
         )
         # Make sure there are some masks
@@ -51,6 +51,6 @@ class TestMaskingSpanSampler:
 
         large_sample_size = 5555
         for _ in range(large_sample_size):
-            spans_seen.add(mt.redact(s))
+            spans_seen.add(mt.redact_str(s))
         # The number of possible spans is 1+2+...+num_words.
         assert len(spans_seen) == int(num_words * (num_words + 1) / 2)

@@ -58,21 +58,30 @@ class MaskingSpanSampler:
         """Randomly mask some words."""
         if random.random() < self.word_dropout_ratio:
             # Don't do dropout this % of the time
-            for w in words_from_text(text):
+            for w in set(words_from_text(text)):
                 if random.random() < self.word_dropout_perc:
                     text = re.sub(
                         (r'\b{}\b').format(w),
-                        self.mask_token, text, 1
+                        self.mask_token, text, count=0
                     )
         return text
     
-    def redact(self, text: str) -> Dict[str, torch.Tensor]:
+    def redact_str(self, text: str) -> str:
+        assert isinstance(text, str)
         assert len(text) > 0
         assert isinstance(text, str)
         if self.sample_spans:
             text = self._sample_spans(text=text)
         if self.word_dropout_ratio > 0:
             text = self._word_dropout(text=text)
+        return text
+
+    def redact_table_str(self, text: str) -> str:
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+        # TODO: redact able
+
         return text
 
     

@@ -7,6 +7,7 @@ import pickle
 import datasets
 import numpy as np
 import pandas as pd
+import torch
 import transformers
 
 from pytorch_lightning import LightningDataModule
@@ -39,6 +40,7 @@ class WikipediaDataModule(LightningDataModule):
 
     word_dropout_perc: float
     word_dropout_ratio: float
+    profile_row_dropout_perc: float
     sample_spans: bool
 
     train_batch_size: int
@@ -70,6 +72,7 @@ class WikipediaDataModule(LightningDataModule):
         num_workers: int = 1,
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
+        profile_row_dropout_perc: float = 0.0,
         num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
         **kwargs,
@@ -85,6 +88,7 @@ class WikipediaDataModule(LightningDataModule):
 
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
+        self.profile_row_dropout_perc = profile_row_dropout_perc
         self.sample_spans = sample_spans
         self.num_nearest_neighbors = num_nearest_neighbors
 
@@ -96,6 +100,9 @@ class WikipediaDataModule(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
+
+        if torch.cuda.is_available() and self.num_workers < 4:
+            print(f'Warning: set num_workers to {self.num_workers}, expect dataloader bottleneck')
         self.mask_token = self.document_tokenizer.mask_token
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
@@ -121,19 +128,17 @@ class WikipediaDataModule(LightningDataModule):
 
         lexical_redact_func = functools.partial(
             remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
-        self.train_dataset = self.train_dataset.map(
-            lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
+        # self.train_dataset = self.train_dataset.map(
+        #     lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
 
         ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
-        # TODO: consider fixing this with by setting `new_fingerprint` arg:
-        #       https://github.com/huggingface/datasets/issues/3178#issuecomment-1085932904
-        self.train_dataset = self.train_dataset.map(
-            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
-            batched=True)
+        # self.train_dataset = self.train_dataset.map(
+        #     lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
+        #     batched=True)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True)
@@ -215,9 +220,10 @@ class WikipediaDataModule(LightningDataModule):
             max_seq_length=self.max_seq_length,
             word_dropout_ratio=self.word_dropout_ratio,
             word_dropout_perc=self.word_dropout_perc,
+            profile_row_dropout_perc=self.profile_row_dropout_perc,
             sample_spans=self.sample_spans,
             num_nearest_neighbors=self.num_nearest_neighbors,
-            document_types=["document", "document_redact_ner", "document_redact_lexical"],
+            document_types=["document"],
             is_train_dataset=True
         )
         return DataLoader(
@@ -235,6 +241,7 @@ class WikipediaDataModule(LightningDataModule):
             max_seq_length=self.max_seq_length,
             word_dropout_ratio=0.0,
             word_dropout_perc=0.0,
+            profile_row_dropout_perc=0.0,
             sample_spans=False,
             document_types=["document", "document_redact_ner", "document_redact_lexical"],
             is_train_dataset=False
@@ -246,6 +253,7 @@ class WikipediaDataModule(LightningDataModule):
             max_seq_length=self.max_seq_length,
             word_dropout_ratio=0.0,
             word_dropout_perc=0.0,
+            profile_row_dropout_perc=0.0,
             sample_spans=False,
             document_types=["adv_document_1", "adv_document_10", "adv_document_100", "adv_document_1000"],
             is_train_dataset=False

@@ -25,6 +25,7 @@ class TestEnd2End:
             dataset_version='1.2.0',
             word_dropout_ratio=0.2,
             word_dropout_perc=0.3,
+            profile_row_dropout_perc=0.4,
             sample_spans=True,
             train_batch_size=16,
             eval_batch_size=3,
