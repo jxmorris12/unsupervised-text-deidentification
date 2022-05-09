@@ -21,7 +21,7 @@ class CoordinateAscentModel(Model):
         self.profile_model.eval()
         print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
+        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile(batch=train_batch)
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
@@ -33,7 +33,7 @@ class CoordinateAscentModel(Model):
         self.document_model.eval()
         print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
         self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="[1/2] Precomputing train embeddings", colour="magenta", leave=False):
+        for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 document_embeddings = self.forward_document(batch=train_batch, document_type='document')
             self.train_document_embeddings[train_batch["text_key_id"]] = document_embeddings.cpu()

@@ -1,3 +1,5 @@
+from typing import List
+
 import os
 import pickle
 
@@ -5,6 +7,7 @@ import datasets
 import numpy as np
 import tqdm
 
+from nltk.corpus import stopwords
 from rank_bm25 import BM25Okapi
 
 def create_index_our_model():
@@ -12,16 +15,22 @@ def create_index_our_model():
     train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
     train_data = train_data.map(make_table_str)
 
+
+eng_stopwords = stopwords.words('english')
+
+def get_words_from_doc(s: List[str]) -> List[str]:
+    words = s.split()
+    return [w for w in words if not w in eng_stopwords]
+
+
 def get_top_matches_bm25():
     split = 'train[:10%]'
     train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
-    num_proc = min(8, len(os.sched_getaffinity(0)))
     k = 256
 
     def make_table_str(ex):
         ex['table_str'] = (
-            ' '.join(ex['input_text']['table']['column_header']) + 
-            ' '.join(ex['input_text']['table']['content'])
+            ' '.join(ex['input_text']['table']['column_header'] + ex['input_text']['table']['content'])
         )
         return ex
 
@@ -30,7 +39,7 @@ def get_top_matches_bm25():
 
     print("tokenizing corpus")
     tokenized_corpus = [
-        doc.split(" ") for doc in corpus
+        get_words_from_doc(doc) for doc in corpus
     ]
     # (Pdb) p tokenized_corpus[-1]
     # ['nfl', 'position', 'highschool', 'height_in', 'statvalue', 'debutteam', 'birth_date', 'article_title', 
@@ -44,6 +53,15 @@ def get_top_matches_bm25():
     print("creating search index")
     bm25 = BM25Okapi(tokenized_corpus)
 
+    #####################################################################
+    # for i in range(10):
+    #     ex = train_data[i]
+    #     query = ex["target_text"].split()
+    #     qscores = bm25.get_scores(query)
+    #     qtop_k = qscores.argsort()[::-1][:1+k]
+    #     breakpoint()
+    ####################################################################
+
     print("getting top-k matches")
     top_matches = []
     def get_top_k(ex):
@@ -51,7 +69,9 @@ def get_top_matches_bm25():
         ex["top_k"] = bm25.get_scores(query).argsort()[::-1][:1+k]
         return ex
     
+    num_proc = min(8, len(os.sched_getaffinity(0)))
     train_data = train_data.map(get_top_k, num_proc=num_proc)
+    # train_data = train_data.map(get_top_k)
 
     top_matches = np.array(train_data['top_k'])
     
@@ -61,5 +81,4 @@ def get_top_matches_bm25():
     print(f"wrote {len(top_matches)} top matches to file {outfile}")
 
 if __name__ == '__main__':
-    # get_top_matches_bm25()
-    create_index_our_model()
+    get_top_matches_bm25()
