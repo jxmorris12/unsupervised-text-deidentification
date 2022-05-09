@@ -59,7 +59,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
         help='when word dropout is applied, percentage of words to apply it to')
     parser.add_argument('--profile_row_dropout_perc', type=float,
-        default=0.0, help='\% of rows to dropout'
+        default=0.0, help='\% of rows to dropout')
     parser.add_argument('--pretrained_profile_encoder', action='store_true', default=False,
         help=('whether to fix profile encoder and just train document encoder. ' 
             '[if false, does coordinate ascent alternating models across epochs]'))
@@ -132,8 +132,8 @@ def main(args: argparse.Namespace):
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
         # roberta-distilbert trained on .8.8 dropout for 10hrs:
         # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
-        # roberta-tapas trained on 0/0 dropout for 12epochs/4 hours:
-        '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas/deid-wikibio-2_default/1v0lkeoq_290/checkpoints/epoch=11-step=5357.ckpt',
+        # roberta-tapas trained on 0/0 dropout for 52epochs/12 hours:
+        "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/11ov6e6v_320/checkpoints/epoch=38-step=17555.ckpt",
     # model = model_cls(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,

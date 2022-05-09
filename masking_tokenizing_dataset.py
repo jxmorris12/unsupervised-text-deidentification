@@ -182,6 +182,7 @@ class MaskingTokenizingDataset(Dataset):
                     out_ex[f"profile_neighbor__{_k}"] = torch.stack([
                         n[_k][0] for n in neighbors_tokenized
                     ])
+                out_ex["profile_neighbor_idxs"] = torch.tensor(neighbor_idxs)
 
         return out_ex
 
