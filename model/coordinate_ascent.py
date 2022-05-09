@@ -15,13 +15,6 @@ class CoordinateAscentModel(Model):
         super().__init__(*args, **kwargs)
         self.train_document_embeddings = None
         self.train_profile_embeddings = None
-
-    def setup(self, stage=None) -> None:
-        super().setup(stage=stage)
-        if stage != "fit":
-            return
-        # Precompute embeddings
-        self._precompute_profile_embeddings()
     
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
@@ -45,7 +38,7 @@ class CoordinateAscentModel(Model):
                 document_embeddings = self.forward_document(batch=train_batch, document_type='document')
             self.train_document_embeddings[train_batch["text_key_id"]] = document_embeddings.cpu()
         self.train_document_embeddings = torch.tensor(self.train_document_embeddings, dtype=torch.float32)
-        self.profile_model.train()
+        self.document_model.train()
 
     def on_train_epoch_start(self):
         # We only want to keep one model on GPU at a time.
