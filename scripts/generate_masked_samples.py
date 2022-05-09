@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
+
 from typing import List, Tuple
 
 from dataloader import WikipediaDataModule
@@ -208,7 +211,7 @@ def main(k: int, n: int):
     # one of the best models I have that's roberta-distilbert, from here:
     #   wandb.ai/jack-morris/deid-wikibio-2/runs/xjybn01j/logs?workspace=user-jxmorris12
     model_key, checkpoint_path = (
-        "model_2",
+        "model2",
         "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/xjybn01j_273/checkpoints/epoch=20-step=93335.ckpt"
     )
 

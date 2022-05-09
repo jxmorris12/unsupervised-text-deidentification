@@ -116,8 +116,6 @@ class MaskingTokenizingDataset(Dataset):
         """Gets an item from the dataset."""
         ex = self.dataset[idx]
 
-        # filter out: 58069, 42619
-
         # ex.keys():
         # dict_keys([
         #   'input_text', 'target_text', 'name', 'document', 'profile', 'profile_keys',
@@ -167,8 +165,11 @@ class MaskingTokenizingDataset(Dataset):
                 out_ex[f"profile__{_k}"] = _v[0]
             
             # Also tokenize profiles of nearest-neighbors, if specified.
+            # This block of code is how neighbors are provided to our contrastive
+            # learning algorithm.
             if self.num_nearest_neighbors > 0:
                 assert "nearest_neighbor_idxs" in ex
+                # filter out: 58069, 42619
                 eligible_neighbor_idxs = [
                     _i for _i in ex["nearest_neighbor_idxs"] if _i not in [idx, 42619, 58069]
                 ]
