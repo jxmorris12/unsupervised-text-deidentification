@@ -143,8 +143,8 @@ class MaskingTokenizingDataset(Dataset):
             if self.is_train_dataset:
                 if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
                     # TODO redact profile_keys and profile_values
-                    profile_keys = ex["profile_keys"].split('|')
-                    profile_values = ex["profile_values"].split('|')
+                    profile_keys = ex["profile_keys"].split('||')
+                    profile_values = ex["profile_values"].split('||')
                     profile_keys_list, profile_values_list = [], []
                     for k, v in zip(profile_keys, profile_values):
                         if random.random() >= self.profile_row_dropout_perc:
