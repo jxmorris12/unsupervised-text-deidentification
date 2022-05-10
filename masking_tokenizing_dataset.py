@@ -86,6 +86,7 @@ class MaskingTokenizingDataset(Dataset):
             df = self._get_profile_df(
                 keys=prof_keys, values=prof_values
             )
+            breakpoint()
             profile_tokenized = try_encode_table_tapas(
                 df=df,
                 tokenizer=self.profile_tokenizer,
@@ -155,8 +156,8 @@ class MaskingTokenizingDataset(Dataset):
                         profile_keys_list.append(profile_keys[random_idx])
                         profile_values_list.append(profile_values[random_idx])
 
-                    ex["profile_keys"] = '|'.join(profile_keys_list) 
-                    ex["profile_values"] = '|'.join(profile_values_list) 
+                    ex["profile_keys"] = '||'.join(profile_keys_list) 
+                    ex["profile_values"] = '||'.join(profile_values_list) 
                 else:
                     ex["profile"] = ' | '.join(
                         (

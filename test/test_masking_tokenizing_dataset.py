@@ -29,7 +29,7 @@ class TestMaskingTokenizingDataset:
             max_seq_length=64,
             word_dropout_ratio=0.0,
             word_dropout_perc=0.0,
-            profile_row_dropout_perc=0.9,
+            profile_row_dropout_perc=0.0,
             sample_spans=False,
             num_nearest_neighbors=0,
             document_types=["document"],
