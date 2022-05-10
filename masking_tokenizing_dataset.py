@@ -150,6 +150,11 @@ class MaskingTokenizingDataset(Dataset):
                         if random.random() >= self.profile_row_dropout_perc:
                             profile_keys_list.append(k)
                             profile_values_list.append(v)
+                    if not len(profile_keys_list):
+                        random_idx = random.choice(range(len(profile_keys)))
+                        profile_keys_list.append(profile_keys[random_idx])
+                        profile_values_list.append(profile_values[random_idx])
+
                     ex["profile_keys"] = '|'.join(profile_keys_list) 
                     ex["profile_values"] = '|'.join(profile_values_list) 
                 else:
