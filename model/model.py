@@ -49,7 +49,7 @@ class Model(LightningModule, abc.ABC):
 
         self.profile_embedding_dim = 768
         self.document_embed = torch.nn.Sequential(
-            # torch.nn.Dropout(p=0.1),
+            torch.nn.Dropout(p=0.1),
             torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
