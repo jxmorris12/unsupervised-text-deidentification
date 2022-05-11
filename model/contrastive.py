@@ -42,6 +42,10 @@ class ContrastiveModel(Model):
             document_to_profile_sim, diagonal_idxs
         )
         self.log(f"{metrics_key}/loss", loss)
+
+        # Also track a boolean mask for which things were correct.
+        is_correct = (document_to_profile_sim.argmax(dim=1) == diagonal_idxs)
+
         # Log top-k accuracies.
         for k in [1, 5, 10, 50, 100, 500, 1000]:
             if k >= batch_size: # can't compute top-k accuracy here.
@@ -55,7 +59,7 @@ class ContrastiveModel(Model):
                     .mean()
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-        return document_to_profile_sim, loss
+        return document_to_profile_sim, is_correct, loss
     
     def compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
         document_embeddings = self.forward_document(
@@ -75,7 +79,7 @@ class ContrastiveModel(Model):
             profile_embeddings = torch.cat(
                 (profile_embeddings, extra_profile_embeddings), dim=0
             )
-            document_to_profile_sim, loss = self._compute_loss_infonce(
+            document_to_profile_sim, is_correct, loss = self._compute_loss_infonce(
                 document_embeddings=document_embeddings,
                 profile_embeddings=profile_embeddings,
                 metrics_key='train'
@@ -85,7 +89,7 @@ class ContrastiveModel(Model):
             # TODO:: somehow update nearest-neighbors here to take top-K of document2profilesim along axis 1.
             # self.trainer.datamodule.compute_new_nearest_neighbors(document_to_profile_sim, idxs)
         else:
-            _, loss = self._compute_loss_infonce(
+            _, is_correct, loss = self._compute_loss_infonce(
                 document_embeddings=document_embeddings,
                 profile_embeddings=profile_embeddings,
                 metrics_key='train'
@@ -94,6 +98,7 @@ class ContrastiveModel(Model):
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
             "profile_embeddings": profile_embeddings.detach().cpu(),
+            "is_correct": is_correct.cpu(),
             "text_key_id": batch['text_key_id'].cpu()
         }
 

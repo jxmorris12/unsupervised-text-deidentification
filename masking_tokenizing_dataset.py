@@ -74,12 +74,18 @@ class MaskingTokenizingDataset(Dataset):
         else:
             self.masking_span_sampler = None
 
-    def process_grad(self, input_ids: torch.Tensor, emb_grad: torch.Tensor, text_key_id: torch.Tensor) -> None:
+    def process_grad(self,
+            input_ids: torch.Tensor,
+            emb_grad: torch.Tensor,
+            is_correct: torch.Tensor,
+            text_key_id: torch.Tensor
+        ) -> None:
         """Called from model on a training step.
         
         Args:
             input_ids: int torch.Tensor of shape (batch_size, max_seq_length)
             emb_grad: float torch.Tensor of shape (vocab_size,)
+            is_correct: bool torch.Tensor of shape (batch_size,)
             text_key_id: int torch.Tensor of shape (batch_size,)
         """
         if not self.adversarial_masking: 
@@ -92,6 +98,7 @@ class MaskingTokenizingDataset(Dataset):
         batch_size = input_ids.shape[0]
         assert input_ids.shape == (batch_size, self.max_seq_length)
         assert emb_grad.shape == (self.document_tokenizer.vocab_size,)
+        assert is_correct.shape == (batch_size,)
         assert text_key_id.shape == (batch_size,)
 
         # Get word with maximum gradient from each training example.
@@ -115,7 +122,7 @@ class MaskingTokenizingDataset(Dataset):
         token_to_word_map = (
             (~self.subword_map[input_ids]).cumsum(dim=1) - 1
         ).to(emb_grad.device)
-        # example:
+        # example result:
         #        tensor(
         #           [[ 0,  1,  2,  3,  3,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
         #            16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
@@ -135,12 +142,17 @@ class MaskingTokenizingDataset(Dataset):
 
         # Store each word so it'll be masked next time.
         for i in range(batch_size):
-            all_word_ids = max_grad_word_ids.cpu()[i]
             ex_index = text_key_id[i].item()
-            subword_ids = all_word_ids[all_word_ids > 0].tolist()
-            assert len(subword_ids) > 0
-            full_word = self.document_tokenizer.decode(subword_ids)
-            self.adv_word_mask_map[ex_index].append(full_word)
+            if is_correct[i].item():
+                # If we got it right, make it harder.
+                all_word_ids = max_grad_word_ids.cpu()[i]
+                subword_ids = all_word_ids[all_word_ids > 0].tolist()
+                assert len(subword_ids) > 0
+                full_word = self.document_tokenizer.decode(subword_ids)
+                self.adv_word_mask_map[ex_index].append(full_word)
+            else:
+                # If we got it wrong, make it easier.
+                self.adv_word_mask_map[ex_index] = self.adv_word_mask_map[ex_index][:-1]
     
     def __len__(self) -> int:
         return len(self.dataset)

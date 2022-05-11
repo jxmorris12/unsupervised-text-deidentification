@@ -146,6 +146,10 @@ class Model(LightningModule, abc.ABC):
             document_to_profile_sim, document_idxs
         )
         self.log(f"{metrics_key}/loss", loss)
+
+        # Also track a boolean mask for which things were correct.
+        is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs)
+
         # Log top-k accuracies.
         for k in [1, 5, 10, 50, 100, 500, 1000]:
             if k >= batch_size: # can't compute top-k accuracy here.
@@ -159,7 +163,7 @@ class Model(LightningModule, abc.ABC):
                     .mean()
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-        return loss
+        return is_correct, loss
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
@@ -221,13 +225,17 @@ class Model(LightningModule, abc.ABC):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
         optimizer.step()
 
-        # We call process_grad() on the train dataset because the
-        # train dataset may use this gradient to perform masking.
-        self.trainer.train_dataloader.loaders.dataset.process_grad(
-          input_ids=batch['document__input_ids'],
-          emb_grad=self.document_model.embeddings.word_embeddings.weight.grad.norm(p=2, dim=1),
-          text_key_id=batch['text_key_id']
-        )
+        emb_grad = self.document_model.embeddings.word_embeddings.weight.grad
+
+        if not (emb_grad is None):
+            # We call process_grad() on the train dataset because the
+            # train dataset may use this gradient to perform masking.
+            self.trainer.train_dataloader.loaders.dataset.process_grad(
+                input_ids=batch['document__input_ids'],
+                emb_grad=emb_grad.norm(p=2, dim=1),
+                is_correct=results["is_correct"],
+                text_key_id=batch['text_key_id']
+            )
         return results
     
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
@@ -315,15 +323,15 @@ class Model(LightningModule, abc.ABC):
         scheduler = self.get_scheduler()
 
         # Compute losses on regular documents.
-        doc_loss = self._compute_loss_exact(
+        _, doc_loss = self._compute_loss_exact(
             document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document'
         )
-        doc_redact_ner_loss = self._compute_loss_exact(
+        _, doc_redact_ner_loss = self._compute_loss_exact(
             document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_ner'
         )
-        doc_redact_lexical_loss = self._compute_loss_exact(
+        _, doc_redact_lexical_loss = self._compute_loss_exact(
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_lexical'
         )

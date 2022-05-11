@@ -20,7 +20,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus =  0# len(os.sched_getaffinity(0))
+num_cpus = len(os.sched_getaffinity(0))
 
 
 def get_args() -> argparse.Namespace:
@@ -129,9 +129,9 @@ def main(args: argparse.Namespace):
     model_cls = model_cls_dict[args.loss_function]
 
     # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
-    # checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt"
+    checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt"
 
-    checkpoint_path = None
+    # checkpoint_path = None
 
     if checkpoint_path:
         model = model_cls.load_from_checkpoint(checkpoint_path)

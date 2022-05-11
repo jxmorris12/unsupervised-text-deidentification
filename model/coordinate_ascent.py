@@ -107,12 +107,13 @@ class CoordinateAscentModel(Model):
             batch=batch, document_type='document', return_inputs=True
         )
 
-        loss = self._compute_loss_exact(
+        is_correct, loss = self._compute_loss_exact(
             document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
             metrics_key='train'
         )
 
         return {
+            "is_correct": is_correct,
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
@@ -122,12 +123,13 @@ class CoordinateAscentModel(Model):
         """One step of training where training is supposed to update  `self.profile_model`."""
         profile_embeddings = self.forward_profile(batch=batch)
 
-        loss = self._compute_loss_exact(
+        is_correct, loss = self._compute_loss_exact(
             profile_embeddings, self.train_document_embeddings, batch['text_key_id'],
             metrics_key='train'
         )
 
         return {
+            "is_correct": is_correct,
             "loss": loss,
             "profile_embeddings": profile_embeddings.detach().cpu(),
             "text_key_id": batch['text_key_id'].cpu()
