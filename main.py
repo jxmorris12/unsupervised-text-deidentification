@@ -71,8 +71,9 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--sample_spans', action='store_true',
         default=False, help='sample spans from the document randomly during training')
-    parser.add_argument('--adversarial_mask_k_tokens', '--adv_k', 
-        type=int, default=0, help='number of tokens to adversarially mask')
+    parser.add_argument('--adversarial_masking', '--adv_k', 
+        default=False, action='store_true', help='whether to do adversarial masking'
+    )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
@@ -112,6 +113,7 @@ def main(args: argparse.Namespace):
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
         profile_row_dropout_perc=args.profile_row_dropout_perc,
+        adversarial_masking=args.adversarial_masking,
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -141,7 +143,6 @@ def main(args: argparse.Namespace):
             pretrained_profile_encoder=args.pretrained_profile_encoder,
             lr_scheduler_factor=args.lr_scheduler_factor,
             lr_scheduler_patience=args.lr_scheduler_patience,
-            adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
             gradient_clip_val=args.grad_norm_clip,
@@ -158,8 +159,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__{args.profile_model_name}'
     if args.sample_spans:
         exp_name += f'__sample_spans'
-    if args.adversarial_mask_k_tokens:
-        exp_name += f'__adv_{args.adversarial_mask_k_tokens}'
+    if args.adversarial_masking:
+        exp_name += f'__adv_{args.adversarial_masking}'
     if args.num_nearest_neighbors:
         exp_name += f'__n_{args.num_nearest_neighbors}'
     if args.word_dropout_ratio or args.profile_row_dropout_perc:
