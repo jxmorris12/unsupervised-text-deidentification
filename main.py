@@ -125,8 +125,8 @@ def main(args: argparse.Namespace):
         'contrastive': ContrastiveModel,
     }
     model_cls = model_cls_dict[args.loss_function]
-    # model = model_cls(
-    model = model_cls.load_from_checkpoint(
+    model = model_cls(
+    # model = model_cls.load_from_checkpoint(
         # distilbert-distilbert model
         #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
         # roberta-distilbert model
@@ -136,7 +136,7 @@ def main(args: argparse.Namespace):
         # roberta-tapas trained on 0/0 dropout for 52epochs/12 hours:
         # "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/11ov6e6v_320/checkpoints/epoch=38-step=17555.ckpt",
         # --> then on 0.5/0.5/0.5 for 40epochs/10 hours:
-        "saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2s20h88f_323/checkpoints/epoch=39-step=18239.ckpt",
+        # "saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2s20h88f_323/checkpoints/epoch=39-step=18239.ckpt",
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         learning_rate=args.learning_rate,

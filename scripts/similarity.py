@@ -10,11 +10,6 @@ import tqdm
 from nltk.corpus import stopwords
 from rank_bm25 import BM25Okapi
 
-def create_index_our_model():
-    split = 'train[:10%]'
-    train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
-    train_data = train_data.map(make_table_str)
-
 
 eng_stopwords = stopwords.words('english')
 
