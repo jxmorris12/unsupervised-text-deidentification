@@ -62,7 +62,6 @@ class MaskingTokenizingDataset(Dataset):
         else:
             self.subword_map = None
 
-
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
         if self.is_train_dataset:
@@ -83,7 +82,9 @@ class MaskingTokenizingDataset(Dataset):
             emb_grad: float torch.Tensor of shape (vocab_size,)
             text_key_id: int torch.Tensor of shape (batch_size,)
         """
-        # if not self.adversarial_masking: return
+        if not self.adversarial_masking: 
+            return
+        
         # TODO: pass bool tensor indicating which input got it right (add a word) or got it wrong (subtract a word)
         assert len(input_ids.shape) == 2
         assert len(emb_grad.shape) == len(text_key_id.shape) == 1

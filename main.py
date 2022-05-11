@@ -20,7 +20,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = len(os.sched_getaffinity(0))
+num_cpus =  0# len(os.sched_getaffinity(0))
 
 
 def get_args() -> argparse.Namespace:
@@ -215,7 +215,7 @@ def main(args: argparse.Namespace):
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
-        limit_val_batches=1.0,
+        limit_val_batches=2,
         gpus=torch.cuda.device_count(),
         logger=loggers,
     )
