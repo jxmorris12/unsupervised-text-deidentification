@@ -68,9 +68,10 @@ def get_top_matches_adv_data_bm25():
 
     # adv_csv_filename = 'adv_csvs/model_1/results_1_1000.csv' # 0.670 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_1/results_10_1000.csv' # 0.397 (prof corpus, removed stopwords)
-    adv_csv_filename = 'adv_csvs/model_1/results_100_1000.csv' # 0.397 (prof corpus, removed stopwords)
+    # adv_csv_filename = 'adv_csvs/model_1/results_100_1000.csv' # 0.397 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_2/results_1_1000.csv' # 0.469 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_2/results_10_1000.csv' # 0.284 (prof corpus, removed stopwords)
+    adv_csv_filename = 'adv_csvs/model_2/results_100_1000.csv' # 0.?? (prof corpus, removed stopwords)
 
     print(f"loading adversarial data from {adv_csv_filename}")
     

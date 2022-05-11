@@ -82,7 +82,6 @@ class ContrastiveModel(Model):
             )
             # idxs = torch.cat(
             #     (batch['text_key_id'], batch['profile_neighbor_idxs']), dim=0)
-            # breakpoint()
             # TODO:: somehow update nearest-neighbors here to take top-K of document2profilesim along axis 1.
             # self.trainer.datamodule.compute_new_nearest_neighbors(document_to_profile_sim, idxs)
         else:

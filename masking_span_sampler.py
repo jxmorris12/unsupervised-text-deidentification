@@ -73,6 +73,7 @@ class MaskingSpanSampler:
                         (r'\b{}\b').format(w),
                         self.mask_token, text, count=0
                     )
+            breakpoint()
         return text
     
     def random_redact_str(self, text: str) -> str:

@@ -94,7 +94,6 @@ class Model(LightningModule, abc.ABC):
 
         train_dataset = self.trainer.train_dataloader.loaders.dataset
         if train_dataset.adversarial_masking:
-            run = 
             rows = []
             for idx in range(20):
                 doc = train_dataset.dataset[idx]

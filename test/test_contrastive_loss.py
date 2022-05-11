@@ -51,6 +51,7 @@ class TestContrastiveLoss:
             callbacks=[],
             max_epochs=5,
             log_every_n_steps=min(len(dm.train_dataloader()), 50),
+            limit_train_batches=5,
             limit_val_batches=0.0,
             gpus=torch.cuda.device_count(),
             logger=[],
