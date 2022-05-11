@@ -1,17 +1,21 @@
 from typing import Dict, List
 
-import torch
-import transformers
-
 import re
 import random
 
+from nltk.corpus import stopwords
+import torch
+import transformers
+
 from utils import words_from_text, word_start_and_end_idxs_from_text
+
+eng_stopwords = set(stopwords.words('english'))
 
 class MaskingSpanSampler:
     word_dropout_ratio: float     # Percentage of the time to do word dropout
     word_dropout_perc: float      # Percentage of words to replace with mask token
-    sample_spans: True            # Whether or not to sample spans.
+    sample_spans: bool            # Whether or not to sample spans.
+    dropout_stopwords: bool
     mask_token: str
     min_num_words: int
 
@@ -21,10 +25,12 @@ class MaskingSpanSampler:
             word_dropout_perc: float, 
             mask_token: str,
             sample_spans: bool,
-            min_num_words: int = 8
+            min_num_words: int = 8,
+            dropout_stopwords: bool = False
         ):
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
+        self.dropout_stopwords = dropout_stopwords
         self.sample_spans = sample_spans
         self.mask_token = mask_token
         self.min_num_words = min_num_words
@@ -58,7 +64,10 @@ class MaskingSpanSampler:
         """Randomly mask some words."""
         if random.random() < self.word_dropout_ratio:
             # Don't do dropout this % of the time
-            for w in set(words_from_text(text)):
+            words = set(words_from_text(text))
+            if not self.dropout_stopwords:
+                words = words - eng_stopwords
+            for w in words:
                 if random.random() < self.word_dropout_perc:
                     text = re.sub(
                         (r'\b{}\b').format(w),
