@@ -15,8 +15,6 @@ class Model(LightningModule, abc.ABC):
     to create 'hard negatives' to get similarity.
     """
     profile_embedding_dim: int
-    
-    adversarial_mask_k_tokens: int
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
 
@@ -37,7 +35,6 @@ class Model(LightningModule, abc.ABC):
         grad_norm_clip: float = 5.0,
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
-        adversarial_mask_k_tokens: int = 0,
         train_batch_size: int = 32,
         pretrained_profile_encoder: bool = False,
         **kwargs,
@@ -56,7 +53,6 @@ class Model(LightningModule, abc.ABC):
             torch.tensor(3.5, dtype=torch.float32), requires_grad=True
         )
         
-        self.adversarial_mask_k_tokens = adversarial_mask_k_tokens
         self.pretrained_profile_encoder = pretrained_profile_encoder
 
         print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
@@ -85,6 +81,34 @@ class Model(LightningModule, abc.ABC):
 
     def on_train_epoch_start(self):
         return
+
+    def _log_adv_masking_table(self):
+        # If we're doing adversarial masking, log a table to W&B.
+        from main import USE_WANDB
+        if not USE_WANDB:
+            return
+        
+        import wandb
+        if not wandb.run:
+            return
+
+        train_dataset = self.trainer.train_dataloader.loaders.dataset
+        if train_dataset.adversarial_masking:
+            run = 
+            rows = []
+            for idx in range(20):
+                doc = train_dataset.dataset[idx]
+                masked_words = train_dataset.adv_word_mask_map[idx]
+                rows.append((doc, masked_words))
+                my_table = wandb.Table(
+                    columns=["document", "masked words"],
+                    data=rows
+                )
+                wandb.run.log({"adversarial_mask_table": my_table})
+
+    def on_train_epoch_end(self):
+        self._log_adv_masking_table()
+
     
     def _get_inputs_from_prefix(self, batch: Dict[str, torch.Tensor], prefix: str) -> Dict[str, torch.Tensor]:
         prefix += '__'
@@ -198,6 +222,13 @@ class Model(LightningModule, abc.ABC):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
         optimizer.step()
 
+        # We call process_grad() on the train dataset because the
+        # train dataset may use this gradient to perform masking.
+        self.trainer.train_dataloader.loaders.dataset.process_grad(
+          input_ids=batch['document__input_ids'],
+          emb_grad=self.document_model.embeddings.word_embeddings.weight.grad.norm(p=2, dim=1),
+          text_key_id=batch['text_key_id']
+        )
         return results
     
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
@@ -211,8 +242,6 @@ class Model(LightningModule, abc.ABC):
             batch=batch, document_type='document_redact_lexical'
         )
         profile_embeddings = self.forward_profile(batch=batch)
-
-
         return {
             "document_embeddings": document_embeddings,
             "document_redact_ner_embeddings": document_redact_ner_embeddings,

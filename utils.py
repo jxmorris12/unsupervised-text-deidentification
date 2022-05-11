@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple
 
 import collections
+import itertools
 import re
 
 import pandas as pd
@@ -98,3 +99,6 @@ def try_encode_table_tapas(df: pd.DataFrame, tokenizer: transformers.AutoTokeniz
         )
     except ValueError:
         return try_encode_table_tapas(df=df, tokenizer=tokenizer, max_length=max_length, query=query, num_cols=num_cols-1)
+
+def dict_union(*dicts):
+    return dict(itertools.chain.from_iterable(dct.items() for dct in dicts))

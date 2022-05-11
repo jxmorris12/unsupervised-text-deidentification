@@ -75,7 +75,8 @@ class MaskingSpanSampler:
                     )
         return text
     
-    def redact_str(self, text: str) -> str:
+    def random_redact_str(self, text: str) -> str:
+        """Applies word dropout to a string."""
         assert isinstance(text, str)
         assert len(text) > 0
         assert isinstance(text, str)
@@ -84,36 +85,12 @@ class MaskingSpanSampler:
         if self.word_dropout_ratio > 0:
             text = self._word_dropout(text=text)
         return text
-
-    def redact_table_str(self, text: str) -> str:
-        assert isinstance(text, str)
-        assert len(text) > 0
-
-        # TODO: redact able
-
-        return text
-
     
-    # def redact_and_tokenize_ids_from_grad(self, 
-    #     input_ids: torch.Tensor, model: transformers.PreTrainedModel, k: int, mask_token_id: int) -> torch.Tensor:
-    #     """Masks tokens in `input_ids` proportional to gradient."""
-    #     assert hasattr(model, 'embeddings.word_embeddings')
-    #     assert isinstance(model.embeddings.word_embeddings, torch.nn.Embedding)
-    #     topk_tokens = (
-    #         model.embeddings.word_embeddings.weight.grad.norm(p=2, dim=1).argsort()
-    #     )
-    #     special_tokens_mask = (
-    #         (topk_tokens == 0) | (topk_tokens == 100) | (topk_tokens == 101) | (topk_tokens == 102) | (topk_tokens == 103)
-    #     )
-    #     topk_tokens = topk_tokens[~special_tokens_mask][-k:]
-    #     topk_mask = (
-    #         input_ids[..., None].to(topk_tokens.device) == topk_tokens[None, :]).any(dim=-1)
-    #     # print('topk_tokens:', self.tokenizer.decode(topk_tokens))
-
-    #     return (
-    #         topk_tokens, torch.where(
-    #             topk_mask,
-    #             torch.tensor(mask_token_id)[None, None].to(topk_tokens.device),
-    #             input_ids.to(topk_tokens.device)
-    #         )
-    #     )
+    def fixed_redact_str(
+        self, text: str, words_to_mask: List[str]) -> str:
+        for w in words_to_mask:
+            text = re.sub(
+                (r'\b{}\b').format(w),
+                self.mask_token, text, count=0
+            )
+        return text

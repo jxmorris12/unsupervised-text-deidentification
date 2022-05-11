@@ -42,6 +42,7 @@ class WikipediaDataModule(LightningDataModule):
     word_dropout_ratio: float
     profile_row_dropout_perc: float
     sample_spans: bool
+    adversarial_masking: bool
 
     train_batch_size: int
     eval_batch_size: int
@@ -73,6 +74,7 @@ class WikipediaDataModule(LightningDataModule):
         word_dropout_ratio: float = 0.0,
         word_dropout_perc: float = 0.0,
         profile_row_dropout_perc: float = 0.0,
+        adversarial_masking: bool = False,
         num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
         **kwargs,
@@ -90,6 +92,7 @@ class WikipediaDataModule(LightningDataModule):
         self.word_dropout_perc = word_dropout_perc
         self.profile_row_dropout_perc = profile_row_dropout_perc
         self.sample_spans = sample_spans
+        self.adversarial_masking = adversarial_masking
         self.num_nearest_neighbors = num_nearest_neighbors
 
         self.dataset_name = dataset_name
@@ -100,6 +103,9 @@ class WikipediaDataModule(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
+
+        if adversarial_masking and (word_dropout_ratio > 0):
+            assert "must choose one or the other, either adversarial masking or random masking in document"
 
         if torch.cuda.is_available() and self.num_workers < 4:
             print(f'Warning: set num_workers to {self.num_workers}, expect dataloader bottleneck')
@@ -223,6 +229,7 @@ class WikipediaDataModule(LightningDataModule):
             word_dropout_perc=self.word_dropout_perc,
             profile_row_dropout_perc=self.profile_row_dropout_perc,
             sample_spans=self.sample_spans,
+            adversarial_masking=self.adversarial_masking,
             num_nearest_neighbors=self.num_nearest_neighbors,
             document_types=["document"],
             is_train_dataset=True
