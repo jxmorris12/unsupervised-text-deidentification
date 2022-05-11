@@ -70,10 +70,9 @@ class MaskingSpanSampler:
             for w in words:
                 if random.random() < self.word_dropout_perc:
                     text = re.sub(
-                        (r'\b{}\b').format(w),
+                    (r'\b{}\b').format(w),
                         self.mask_token, text, count=0
                     )
-            breakpoint()
         return text
     
     def random_redact_str(self, text: str) -> str:

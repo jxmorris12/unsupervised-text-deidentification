@@ -65,8 +65,8 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
     # transform table to str
     table_info = ex['input_text']['table']
     table_column_header, table_content = table_info['column_header'], table_info['content']
-    profile_keys = map(lambda s: s.strip().replace('|', ''), table_column_header)
-    profile_values = map(lambda s: s.strip().replace('|', ''), table_content)
+    profile_keys = list(map(lambda s: s.strip().replace('|', ''), table_column_header))
+    profile_values = list(map(lambda s: s.strip().replace('|', ''), table_content))
     table_rows = list(zip(profile_keys, profile_values))
     table_text = '\n'.join([' || '.join(row) for row in table_rows])
     # table_text_without_name = (
