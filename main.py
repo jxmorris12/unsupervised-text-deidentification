@@ -125,31 +125,27 @@ def main(args: argparse.Namespace):
         'contrastive': ContrastiveModel,
     }
     model_cls = model_cls_dict[args.loss_function]
-    # model = model_cls(
-    model = model_cls.load_from_checkpoint(
-        # distilbert-distilbert model
-        #    '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1irhznnp_130/checkpoints/epoch=25-step=118376.ckpt',
-        # roberta-distilbert model
-        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert-base-uncased__dropout_0.8_0.8/deid-wikibio_default/1f7mlhxn_162/checkpoints/epoch=16-step=309551.ckpt',
-        # roberta-distilbert trained on .8.8 dropout for 10hrs:
-        # '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/6hnj6w3w_257/checkpoints/epoch=20-step=93335.ckpt',
-        # roberta-tapas trained on 0/0 dropout for 52epochs/12 hours:
-        # "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/11ov6e6v_320/checkpoints/epoch=38-step=17555.ckpt",
-        # --> then on 0.5/0.5/0.5 for 40epochs/10 hours:
-        # "saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2s20h88f_323/checkpoints/epoch=39-step=18239.ckpt",
-        # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
-        "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt",
-        document_model_name_or_path=document_model,
-        profile_model_name_or_path=profile_model,
-        learning_rate=args.learning_rate,
-        pretrained_profile_encoder=args.pretrained_profile_encoder,
-        lr_scheduler_factor=args.lr_scheduler_factor,
-        lr_scheduler_patience=args.lr_scheduler_patience,
-        adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
-        train_batch_size=args.batch_size,
-        num_workers=min(8, num_cpus),
-        gradient_clip_val=args.grad_norm_clip,
-    )
+
+    # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
+    # checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt"
+
+    checkpoint_path = None
+
+    if checkpoint_path:
+        model = model_cls.load_from_checkpoint(checkpoint_path)
+    else:
+        model = model_cls(
+            document_model_name_or_path=document_model,
+            profile_model_name_or_path=profile_model,
+            learning_rate=args.learning_rate,
+            pretrained_profile_encoder=args.pretrained_profile_encoder,
+            lr_scheduler_factor=args.lr_scheduler_factor,
+            lr_scheduler_patience=args.lr_scheduler_patience,
+            adversarial_mask_k_tokens=args.adversarial_mask_k_tokens,
+            train_batch_size=args.batch_size,
+            num_workers=min(8, num_cpus),
+            gradient_clip_val=args.grad_norm_clip,
+        )
 
     loggers = []
 
@@ -220,9 +216,9 @@ def main(args: argparse.Namespace):
         limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
         limit_val_batches=1.0,
         gpus=torch.cuda.device_count(),
-        logger=loggers
+        logger=loggers,
     )
-    trainer.fit(model, dm)
+    trainer.fit(model=model, datamodule=dm, ckpt_path=checkpoint_path)
 
 if __name__ == '__main__':
     main(get_args())
