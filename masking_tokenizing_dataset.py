@@ -25,7 +25,6 @@ class MaskingTokenizingDataset(Dataset):
     adversarial_masking: bool
     num_nearest_neighbors: int
     adv_word_mask_map: collections.defaultdict
-    subword_map: Union[torch.Tensor, None]
 
     def __init__(
             self,
@@ -53,14 +52,6 @@ class MaskingTokenizingDataset(Dataset):
         self.adversarial_masking = adversarial_masking
 
         self.adv_word_mask_map = collections.defaultdict(list)
-        if self.adversarial_masking:
-            # Build subword index.
-            is_subword_dict = {v: k.startswith('##') for k,v in self.document_tokenizer.vocab.items()}
-            self.subword_map = torch.tensor(
-                [is_subword_dict[idx] for idx in range(self.document_tokenizer.vocab_size)], dtype=bool
-            )
-        else:
-            self.subword_map = None
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
@@ -76,6 +67,7 @@ class MaskingTokenizingDataset(Dataset):
 
     def process_grad(self,
             input_ids: torch.Tensor,
+            word_ids: torch.Tensor,
             emb_grad: torch.Tensor,
             is_correct: torch.Tensor,
             text_key_id: torch.Tensor
@@ -84,6 +76,9 @@ class MaskingTokenizingDataset(Dataset):
         
         Args:
             input_ids: int torch.Tensor of shape (batch_size, max_seq_length)
+            word_ids: int torch.Tensor of shape (batch_size, max_seq_length)
+                Will have 0 for special tokens and start with word 1 otherwise. So a single
+                row might look like: [0, 1, 1, 2, 3, 3, 3, 4, 4, 5, 0, 0, 0, 0, 0]
             emb_grad: float torch.Tensor of shape (vocab_size,)
             is_correct: bool torch.Tensor of shape (batch_size,)
             text_key_id: int torch.Tensor of shape (batch_size,)
@@ -92,11 +87,12 @@ class MaskingTokenizingDataset(Dataset):
             return
         
         # TODO: pass bool tensor indicating which input got it right (add a word) or got it wrong (subtract a word)
-        assert len(input_ids.shape) == 2
+        assert len(input_ids.shape) == len(word_ids.shape) == 2
         assert len(emb_grad.shape) == len(text_key_id.shape) == 1
         
         batch_size = input_ids.shape[0]
         assert input_ids.shape == (batch_size, self.max_seq_length)
+        assert word_ids.shape == (batch_size, self.max_seq_length)
         assert emb_grad.shape == (self.document_tokenizer.vocab_size,)
         assert is_correct.shape == (batch_size,)
         assert text_key_id.shape == (batch_size,)
@@ -110,7 +106,8 @@ class MaskingTokenizingDataset(Dataset):
             ).any(dim=2)
         )
         emb_grad_per_token = torch.where(
-            input_ids_mask, torch.zeros_like(input_ids).float().to(input_ids.device), emb_grad[input_ids]
+            input_ids_mask, torch.zeros_like(input_ids).float().to(input_ids.device),
+            emb_grad[input_ids]
         )
         token_num_occurrences = (input_ids[..., None] == input_ids.flatten()).sum(dim=-1)
 
@@ -119,36 +116,27 @@ class MaskingTokenizingDataset(Dataset):
         emb_grad_per_token = emb_grad_per_token / token_num_occurrences
 
         # Sum emb_grad_per_token among subwords.
-        token_to_word_map = (
-            (~self.subword_map[input_ids]).cumsum(dim=1) - 1
-        ).to(emb_grad.device)
-        # example result:
-        #        tensor(
-        #           [[ 0,  1,  2,  3,  3,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-        #            16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-        #                 ...
-        #           [ 0,  1,  1,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-        #           16, 17, 18, 19, 20, 21, 22, 23, 23, 23, 24, 25, 25, 26]])
         emb_grad_per_word = torch.einsum('bij,bi->bj',
-            torch.eye(self.max_seq_length)[token_to_word_map].to(emb_grad_per_token.device), emb_grad_per_token
+            torch.eye(self.max_seq_length)[word_ids].to(emb_grad_per_token.device), emb_grad_per_token
         )
         # This gives the index of each *word* from each input with the maximum gradient.
         max_grad_word = emb_grad_per_word.argmax(dim=1)
         # And this gives a tensor with the indices of subword tokens and zeros elsewhere.
         max_grad_word_ids = torch.where(
-            token_to_word_map.cuda() == max_grad_word[:, None], 
+            word_ids.to(max_grad_word.device) == max_grad_word[:, None], 
             input_ids, torch.zeros_like(input_ids).to(input_ids.device)
         )
 
         # Store each word so it'll be masked next time.
         for i in range(batch_size):
             ex_index = text_key_id[i].item()
-            if is_correct[i].item():
+            if is_correct[i].item() or True:
                 # If we got it right, make it harder.
                 all_word_ids = max_grad_word_ids.cpu()[i]
                 subword_ids = all_word_ids[all_word_ids > 0].tolist()
+                # if len(subword_ids) <= 0: breakpoint()
                 assert len(subword_ids) > 0
-                full_word = self.document_tokenizer.decode(subword_ids)
+                full_word = self.document_tokenizer.decode(subword_ids).trim()
                 self.adv_word_mask_map[ex_index].append(full_word)
             else:
                 # If we got it wrong, make it easier.
@@ -196,13 +184,19 @@ class MaskingTokenizingDataset(Dataset):
     
     def _tokenize_document(self, ex: Dict[str, str], doc_type: str) -> Dict[str, torch.Tensor]:
         """Tokenizes a document."""
-        return self.document_tokenizer.encode_plus(
+        encoding = self.document_tokenizer.encode_plus(
             ex[doc_type],
             max_length=self.max_seq_length,
             padding='max_length',
             truncation=True,
             return_tensors='pt',
         )
+        encoding_dict = {k: v for k,v in encoding.items()}
+        # Get IDs of individual words, but special tokens have None, so replace those with 0, so
+        # as not to get confused with word 0.
+        encoding_dict["word_ids"] = torch.tensor([
+            [_id+1 if (_id is not None) else 0 for _id in encoding.word_ids()]], dtype=torch.int64)
+        return encoding_dict
     
     def _get_nearest_neighbors(self, ex: Dict[str, str]) -> torch.Tensor:
         """Gets the nearest-neighbors of an example. Used for contrastive learning."""

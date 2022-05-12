@@ -34,12 +34,6 @@ class MaskingSpanSampler:
         self.sample_spans = sample_spans
         self.mask_token = mask_token
         self.min_num_words = min_num_words
-        
-        print('[***] Masking hyperparameters:', 
-            'ratio:', word_dropout_ratio, '/',
-            'percentage:', word_dropout_perc, '/',
-            '\t sample_spans:', sample_spans,
-        )
 
     def _sample_spans(self, text: str) -> str:
         """Sample spans of some words from `text`."""
@@ -70,7 +64,7 @@ class MaskingSpanSampler:
             for w in words:
                 if random.random() < self.word_dropout_perc:
                     text = re.sub(
-                    (r'\b{}\b').format(w),
+                    (r'\b{}\b').format(re.escape(w)),
                         self.mask_token, text, count=0
                     )
         return text
@@ -90,7 +84,7 @@ class MaskingSpanSampler:
         self, text: str, words_to_mask: List[str]) -> str:
         for w in words_to_mask:
             text = re.sub(
-                (r'\b{}\b').format(w),
+                (r'\b{}\b').format(re.escape(w)),
                 self.mask_token, text, count=0
             )
         return text
