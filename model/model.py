@@ -93,17 +93,19 @@ class Model(LightningModule, abc.ABC):
             return
 
         train_dataset = self.trainer.train_dataloader.loaders.dataset
+
         if train_dataset.adversarial_masking:
             rows = []
-            for idx in range(20):
-                doc = train_dataset.dataset[idx]
+            for idx in range(8):
+                doc_name = train_dataset.dataset[idx]["name"]
+                doc_text = train_dataset.dataset[idx]["document"]
                 masked_words = train_dataset.adv_word_mask_map[idx]
-                rows.append((doc, masked_words))
-                my_table = wandb.Table(
-                    columns=["document", "masked words"],
-                    data=rows
-                )
-                wandb.run.log({"adversarial_mask_table": my_table})
+                rows.append((doc_name, doc_text, masked_words))
+            my_table = wandb.Table(
+                columns=["name", "document", "masked words"],
+                data=rows
+            )
+            wandb.run.log({"adversarial_mask_table": my_table})
 
     def on_train_epoch_end(self):
         self._log_adv_masking_table()
@@ -166,6 +168,11 @@ class Model(LightningModule, abc.ABC):
         return is_correct, loss
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        # We track the word IDs for documents in case we need them to do
+        # subword pooling or anything like that. But the document doesn't take
+        # word_ids as input to the forward pass.
+        if "word_ids" in inputs: del inputs["word_ids"]
+
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
         document_outputs = self.document_model(**inputs)                        # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
         document_embeddings = document_outputs['last_hidden_state'][:, 0, :]    # (batch, document_emb_dim)
@@ -208,30 +215,28 @@ class Model(LightningModule, abc.ABC):
         raise NotImplementedError()
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        """
-        dict_keys(['document', 'profile', 'document_redact_lexical', 'document_redact_ner', 'text_key_id'])
-        """
         # Alternate between training phases per epoch.
         assert self.document_model.training
         assert self.document_embed.training
         assert self.profile_model.training
 
         optimizer = self.get_optimizer()
+        optimizer.zero_grad()
         results = self.compute_loss(batch=batch, batch_idx=batch_idx)
         self.log("temperature", self.temperature.exp())
 
-        optimizer.zero_grad()
         self.manual_backward(results["loss"])
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
         optimizer.step()
 
         emb_grad = self.document_model.embeddings.word_embeddings.weight.grad
 
-        if not (emb_grad is None):
+        if not (emb_grad is None) and (emb_grad.sum() > 0):
             # We call process_grad() on the train dataset because the
             # train dataset may use this gradient to perform masking.
             self.trainer.train_dataloader.loaders.dataset.process_grad(
                 input_ids=batch['document__input_ids'],
+                word_ids=batch['document__word_ids'],
                 emb_grad=emb_grad.norm(p=2, dim=1),
                 is_correct=results["is_correct"],
                 text_key_id=batch['text_key_id']

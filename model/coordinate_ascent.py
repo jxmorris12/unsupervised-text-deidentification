@@ -18,7 +18,8 @@ class CoordinateAscentModel(Model):
     
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
-        self.profile_model.eval()
+        # self.profile_model.eval()
+        self.profile_model.train()
         print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):
@@ -30,7 +31,8 @@ class CoordinateAscentModel(Model):
     
     def _precompute_document_embeddings(self):
         self.document_model.cuda()
-        self.document_model.eval()
+        # self.document_model.eval()
+        self.document_model.train()
         print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
         self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):

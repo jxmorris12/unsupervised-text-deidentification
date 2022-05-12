@@ -20,7 +20,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = len(os.sched_getaffinity(0))
+num_cpus = 0#len(os.sched_getaffinity(0))
 
 
 def get_args() -> argparse.Namespace:
@@ -29,11 +29,16 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    parser.add_argument('--checkpoint_path', type=str, default='')
+
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
         choices=['coordinate_ascent', 'contrastive'],
         default='coordinate_ascent',
         help='loss function to use for training'
     )
+
+    parser.add_argument('--limit_val_batches', type=float, default=1.0,
+        help='\% of validation to use. ONLY reduce this for debugging.')
 
     parser.add_argument('--num_validations_per_epoch', type=int, default=1,
         help='number of times to validate per epoch')
@@ -129,9 +134,8 @@ def main(args: argparse.Namespace):
     model_cls = model_cls_dict[args.loss_function]
 
     # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
-    checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt"
-
-    # checkpoint_path = None
+    # checkpoint_path = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_0.5_0.5/deid-wikibio-2_default/2ai8js2r_328/checkpoints/epoch=110-step=50615.ckpt"
+    checkpoint_path = args.checkpoint_path
 
     if checkpoint_path:
         model = model_cls.load_from_checkpoint(checkpoint_path)
@@ -160,7 +164,7 @@ def main(args: argparse.Namespace):
     if args.sample_spans:
         exp_name += f'__sample_spans'
     if args.adversarial_masking:
-        exp_name += f'__adv_{args.adversarial_masking}'
+        exp_name += f'__adv'
     if args.num_nearest_neighbors:
         exp_name += f'__n_{args.num_nearest_neighbors}'
     if args.word_dropout_ratio or args.profile_row_dropout_perc:
@@ -184,7 +188,7 @@ def main(args: argparse.Namespace):
             job_type='train',
             entity='jack-morris',
         )
-        wandb_logger.watch(model)
+        wandb_logger.watch(model, log_graph=True)
         loggers.append(
             wandb_logger
         )
@@ -214,8 +218,8 @@ def main(args: argparse.Namespace):
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
-        limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
-        limit_val_batches=2,
+        # limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
+        limit_val_batches=args.limit_val_batches,
         gpus=torch.cuda.device_count(),
         logger=loggers,
     )
