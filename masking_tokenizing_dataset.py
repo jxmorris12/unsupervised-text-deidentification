@@ -130,17 +130,21 @@ class MaskingTokenizingDataset(Dataset):
         # Store each word so it'll be masked next time.
         for i in range(batch_size):
             ex_index = text_key_id[i].item()
-            if is_correct[i].item() or True:
+            # TODO: replace is_correct condition with threshold on the loss???
+            if is_correct[i].item():
                 # If we got it right, make it harder.
                 all_word_ids = max_grad_word_ids.cpu()[i]
                 subword_ids = all_word_ids[all_word_ids > 0].tolist()
                 # if len(subword_ids) <= 0: breakpoint()
                 assert len(subword_ids) > 0
-                full_word = self.document_tokenizer.decode(subword_ids).trim()
+                full_word = self.document_tokenizer.decode(subword_ids).strip()
                 self.adv_word_mask_map[ex_index].append(full_word)
             else:
                 # If we got it wrong, make it easier.
-                self.adv_word_mask_map[ex_index] = self.adv_word_mask_map[ex_index][:-1]
+                if len(self.adv_word_mask_map[ex_index]):
+                    rand_removal_idx = random.randrange(
+                        len(self.adv_word_mask_map[ex_index]))
+                    self.adv_word_mask_map.pop(rand_removal_idx)
     
     def __len__(self) -> int:
         return len(self.dataset)
