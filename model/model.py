@@ -230,8 +230,13 @@ class Model(LightningModule, abc.ABC):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
         optimizer.step()
 
-        emb_grad = self.document_model.embeddings.word_embeddings.weight.grad
+        # Log number of masks in training inputs.
+        mask_token = self.trainer.train_dataloader.loaders.dataset.document_tokenizer.mask_token_id
+        avg_num_masks = (batch['document__input_ids'] == mask_token).float().sum(dim=1).mean()
+        self.log("num_masks", avg_num_masks)
 
+        # Use document model embedding gradient for adversarial masking (if enabled).
+        emb_grad = self.document_model.embeddings.word_embeddings.weight.grad
         if not (emb_grad is None) and (emb_grad.sum() > 0):
             # We call process_grad() on the train dataset because the
             # train dataset may use this gradient to perform masking.

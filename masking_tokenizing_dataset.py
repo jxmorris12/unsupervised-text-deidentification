@@ -102,14 +102,14 @@ class MaskingTokenizingDataset(Dataset):
 
         # Get word with maximum gradient from each training example.
         # This mask is True for special tokens like PAD, etc. and False otherwise.
-        input_ids_mask = (
+        special_tokens_mask = (
             (
                 input_ids[..., None] == torch.tensor(
                     self.document_tokenizer.all_special_ids).to(input_ids.device)
             ).any(dim=2)
         )
         emb_grad_per_token = torch.where(
-            input_ids_mask, torch.zeros_like(input_ids).float().to(input_ids.device),
+            special_tokens_mask, torch.zeros_like(input_ids).float().to(input_ids.device),
             emb_grad[input_ids]
         )
         token_num_occurrences = (input_ids[..., None] == input_ids.flatten()).sum(dim=-1)
@@ -136,8 +136,9 @@ class MaskingTokenizingDataset(Dataset):
                 num_words_to_mask = self.adv_word_mask_num[ex_index]
                 assert num_words_to_mask > 0
                 words_to_mask_ids = words_ordered_by_grad_norm[i][:num_words_to_mask]
-                subwords_to_mask_ids = (
-                    word_ids[i][:, None] == words_to_mask_ids[None]).any(dim=1)
+                subwords_to_mask_ids = input_ids[i][
+                    (word_ids[i][:, None] == words_to_mask_ids[None]).any(dim=1)
+                ]
                 assert len(subwords_to_mask_ids) > 0
                 # Convert these to words.
                 list_of_words_to_mask = (

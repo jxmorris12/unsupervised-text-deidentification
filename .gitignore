@@ -8,4 +8,5 @@ deid-wikibio/
 lightning_logs/
 logs/
 nearest_neighbors/
+saves/
 wandb/
