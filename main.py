@@ -85,7 +85,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     args = parser.parse_args()
-    args.dataset_val_split = 'val[:20%]'
+    args.dataset_val_split = 'val[:200]'
     return args
 
 def transformers_name_from_name(name: str) -> str:
@@ -203,8 +203,8 @@ def main(args: argparse.Namespace):
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
     # val_metric = "val/document_redact_ner/loss"
-    val_metric = "val/document_redact_adversarial_1/loss"
-    # val_metric = "train/loss"
+    # val_metric = "val/document_redact_adversarial_1/loss"
+    val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
@@ -224,7 +224,11 @@ def main(args: argparse.Namespace):
         gpus=torch.cuda.device_count(),
         logger=loggers,
     )
-    trainer.fit(model=model, datamodule=dm, ckpt_path=checkpoint_path)
+    trainer.fit(
+        model=model,
+        datamodule=dm,
+        # ckpt_path=checkpoint_path
+    )
 
 if __name__ == '__main__':
     main(get_args())
