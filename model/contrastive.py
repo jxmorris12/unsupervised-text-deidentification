@@ -6,8 +6,6 @@ import numpy as np
 import torch
 import tqdm
 
-from transformers import AdamW
-
 from .model import Model
 
 class ContrastiveModel(Model):
@@ -104,7 +102,7 @@ class ContrastiveModel(Model):
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
-        optimizer = AdamW(
+        optimizer = torch.optim.AdamW(
             (
                 list(self.document_model.parameters()) + 
                 list(self.document_embed.parameters()) + 

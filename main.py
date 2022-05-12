@@ -20,7 +20,7 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = 0#len(os.sched_getaffinity(0))
+num_cpus = len(os.sched_getaffinity(0))
 
 
 def get_args() -> argparse.Namespace:
@@ -202,8 +202,9 @@ def main(args: argparse.Namespace):
     # TODO: argparse for val_metric
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
-    val_metric = "val/document_redact_ner/loss"
-    # val_metric = "val/document_redact_adversarial_1/loss"
+    # val_metric = "val/document_redact_ner/loss"
+    val_metric = "val/document_redact_adversarial_1/loss"
+    # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),

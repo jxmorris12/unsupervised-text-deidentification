@@ -52,6 +52,9 @@ class MaskingTokenizingDataset(Dataset):
         self.adversarial_masking = adversarial_masking
 
         self.adv_word_mask_map = collections.defaultdict(list)
+        # TODO: make command-line flag
+        adv_mask_k = 8
+        self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
@@ -120,12 +123,8 @@ class MaskingTokenizingDataset(Dataset):
             torch.eye(self.max_seq_length)[word_ids].to(emb_grad_per_token.device), emb_grad_per_token
         )
         # This gives the index of each *word* from each input with the maximum gradient.
-        max_grad_word = emb_grad_per_word.argmax(dim=1)
-        # And this gives a tensor with the indices of subword tokens and zeros elsewhere.
-        max_grad_word_ids = torch.where(
-            word_ids.to(max_grad_word.device) == max_grad_word[:, None], 
-            input_ids, torch.zeros_like(input_ids).to(input_ids.device)
-        )
+        words_ordered_by_grad_norm = (-emb_grad_per_word).argsort(dim=1)
+        assert words_ordered_by_grad_norm.shape == (batch_size, self.max_seq_length)
 
         # Store each word so it'll be masked next time.
         for i in range(batch_size):
@@ -133,18 +132,28 @@ class MaskingTokenizingDataset(Dataset):
             # TODO: replace is_correct condition with threshold on the loss???
             if is_correct[i].item():
                 # If we got it right, make it harder.
-                all_word_ids = max_grad_word_ids.cpu()[i]
-                subword_ids = all_word_ids[all_word_ids > 0].tolist()
-                # if len(subword_ids) <= 0: breakpoint()
-                assert len(subword_ids) > 0
-                full_word = self.document_tokenizer.decode(subword_ids).strip()
-                self.adv_word_mask_map[ex_index].append(full_word)
+                # Get IDs of subword tokens to mask.
+                num_words_to_mask = self.adv_word_mask_num[ex_index]
+                assert num_words_to_mask > 0
+                words_to_mask_ids = words_ordered_by_grad_norm[i][:num_words_to_mask]
+                subwords_to_mask_ids = (
+                    word_ids[i][:, None] == words_to_mask_ids[None]).any(dim=1)
+                assert len(subwords_to_mask_ids) > 0
+                # Convert these to words.
+                list_of_words_to_mask = (
+                    self.document_tokenizer.decode(subwords_to_mask_ids).strip().split()
+                )
+                self.adv_word_mask_map[ex_index].extend(list_of_words_to_mask)
             else:
                 # If we got it wrong, make it easier.
                 if len(self.adv_word_mask_map[ex_index]):
                     rand_removal_idx = random.randrange(
                         len(self.adv_word_mask_map[ex_index]))
-                    self.adv_word_mask_map.pop(rand_removal_idx)
+                    self.adv_word_mask_map[ex_index].pop(rand_removal_idx)
+                    # Decrement the number of words to remove before next time.
+                    self.adv_word_mask_num[ex_index] = max(
+                        self.adv_word_mask_num[ex_index]-1, 1
+                    )
     
     def __len__(self) -> int:
         return len(self.dataset)
