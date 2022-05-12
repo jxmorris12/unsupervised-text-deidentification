@@ -6,8 +6,6 @@ import numpy as np
 import torch
 import tqdm
 
-from transformers import AdamW
-
 from .model import Model
 
 class CoordinateAscentModel(Model):
@@ -20,7 +18,7 @@ class CoordinateAscentModel(Model):
         self.profile_model.cuda()
         # self.profile_model.eval()
         self.profile_model.train()
-        print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
+        # print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
         self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
@@ -33,7 +31,7 @@ class CoordinateAscentModel(Model):
         self.document_model.cuda()
         # self.document_model.eval()
         self.document_model.train()
-        print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
+        # print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
         self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
         for train_batch in tqdm.tqdm(self.trainer.datamodule.train_dataloader(), desc="Precomputing train embeddings", colour="magenta", leave=False):
             with torch.no_grad():
@@ -151,7 +149,7 @@ class CoordinateAscentModel(Model):
 
     def configure_optimizers(self):
         """Prepare optimizer and schedule (linear warmup and decay)"""
-        document_optimizer = AdamW(
+        document_optimizer = torch.optim.AdamW(
             list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature], lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
         )
         document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -167,7 +165,7 @@ class CoordinateAscentModel(Model):
             "name": "document_learning_rate",
         }
 
-        profile_optimizer = AdamW(
+        profile_optimizer = torch.optim.AdamW(
             list(self.profile_model.parameters()) + [self.temperature], lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon
         )
         profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

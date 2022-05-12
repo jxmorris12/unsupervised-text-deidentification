@@ -55,7 +55,7 @@ class Model(LightningModule, abc.ABC):
         
         self.pretrained_profile_encoder = pretrained_profile_encoder
 
-        print(f'Initialized DocumentProfileMatchingTransformer with learning_rate = {learning_rate}')
+        print(f'Initialized model with learning_rate = {learning_rate}')
 
         self.document_learning_rate = learning_rate
         self.profile_learning_rate = learning_rate
@@ -96,13 +96,14 @@ class Model(LightningModule, abc.ABC):
 
         if train_dataset.adversarial_masking:
             rows = []
-            for idx in range(8):
+            for idx in range(16):
                 doc_name = train_dataset.dataset[idx]["name"]
                 doc_text = train_dataset.dataset[idx]["document"]
                 masked_words = train_dataset.adv_word_mask_map[idx]
-                rows.append((doc_name, doc_text, masked_words))
+                num_words_to_mask_next = train_dataset.adv_word_mask_num[idx]
+                rows.append((doc_name, doc_text, masked_words, num_words_to_mask_next))
             my_table = wandb.Table(
-                columns=["name", "document", "masked words"],
+                columns=["name", "document", "masked words", "num_words_to_mask_next"],
                 data=rows
             )
             wandb.run.log({"adversarial_mask_table": my_table})
@@ -341,8 +342,10 @@ class Model(LightningModule, abc.ABC):
             metrics_key='val/document_redact_lexical'
         )
         scheduler = self.get_scheduler()
+        # scheduler.step(self.trainer.logged_metrics['train/loss'])
+        scheduler.step(self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 0.0))
         # scheduler.step(doc_loss)
-        scheduler.step(doc_redact_ner_loss)
+        # scheduler.step(doc_redact_ner_loss)
         # scheduler.step(doc_redact_lexical_loss)
         return doc_loss
 
