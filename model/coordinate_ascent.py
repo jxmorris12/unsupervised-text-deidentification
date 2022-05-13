@@ -16,6 +16,7 @@ class CoordinateAscentModel(Model):
     
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
+        # In my experiments, train mode here seems to work as well or better.
         # self.profile_model.eval()
         self.profile_model.train()
         # print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
@@ -29,6 +30,7 @@ class CoordinateAscentModel(Model):
     
     def _precompute_document_embeddings(self):
         self.document_model.cuda()
+        # In my experiments, train mode here seems to work as well or better.
         # self.document_model.eval()
         self.document_model.train()
         # print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
