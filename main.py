@@ -71,7 +71,7 @@ def get_args() -> argparse.Namespace:
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
-    parser.add_argument('--lr_scheduler_patience', type=int, default=3,
+    parser.add_argument('--lr_scheduler_patience', type=int, default=8,
         help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--sample_spans', action='store_true',
@@ -85,7 +85,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     args = parser.parse_args()
-    args.dataset_val_split = 'val[:200]'
+    args.dataset_val_split = 'val[:20%]'
     return args
 
 def transformers_name_from_name(name: str) -> str:
@@ -202,9 +202,9 @@ def main(args: argparse.Namespace):
     # TODO: argparse for val_metric
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
-    # val_metric = "val/document_redact_ner/loss"
+    val_metric = "val/document_redact_ner/loss"
     # val_metric = "val/document_redact_adversarial_1/loss"
-    val_metric = "train/loss"
+    # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),

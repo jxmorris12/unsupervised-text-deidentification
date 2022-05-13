@@ -96,10 +96,10 @@ class Model(LightningModule, abc.ABC):
 
         if train_dataset.adversarial_masking:
             rows = []
-            for idx in range(16):
+            for idx in range(32):
                 doc_name = train_dataset.dataset[idx]["name"]
                 doc_text = train_dataset.dataset[idx]["document"]
-                masked_words = train_dataset.adv_word_mask_map[idx]
+                masked_words = list(train_dataset.adv_word_mask_map[idx])
                 num_words_to_mask_next = train_dataset.adv_word_mask_num[idx]
                 rows.append((doc_name, doc_text, masked_words, num_words_to_mask_next))
             my_table = wandb.Table(
@@ -348,9 +348,9 @@ class Model(LightningModule, abc.ABC):
         )
         scheduler = self.get_scheduler()
         # scheduler.step(self.trainer.logged_metrics['train/loss'])
-        scheduler.step(self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 0.0))
+        scheduler.step(self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 100.0))
         # scheduler.step(doc_loss)
-        # scheduler.step(doc_redact_ner_loss)
+        scheduler.step(doc_redact_ner_loss)
         # scheduler.step(doc_redact_lexical_loss)
         return doc_loss
 
