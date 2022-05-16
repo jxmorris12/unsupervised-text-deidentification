@@ -50,18 +50,18 @@ class Model(LightningModule, abc.ABC):
             torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(3.5, dtype=torch.float32), requires_grad=True
+            torch.tensor(3.0, dtype=torch.float32), requires_grad=True
         )
         
         self.pretrained_profile_encoder = pretrained_profile_encoder
-
-        print(f'Initialized model with learning_rate = {learning_rate}')
 
         self.document_learning_rate = learning_rate
         self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
 
+        print(f'Initialized model with learning_rate = {learning_rate} and patience {self.lr_scheduler_patience}')
+        
         self.grad_norm_clip = grad_norm_clip
 
         # Important: This property activates manual optimization,
@@ -206,10 +206,6 @@ class Model(LightningModule, abc.ABC):
     @abc.abstractmethod
     def get_optimizer(self) -> torch.optim.Optimizer:
         raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_scheduler(self):
-        raise NotImplementedError()
     
     @abc.abstractmethod
     def compute_loss(self) -> Dict[str, torch.Tensor]:
@@ -331,8 +327,6 @@ class Model(LightningModule, abc.ABC):
                 metrics_key=f'val/document_redact_adversarial_{k}'
             )
 
-        scheduler = self.get_scheduler()
-
         # Compute losses on regular documents.
         _, doc_loss = self._compute_loss_exact(
             document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
@@ -346,12 +340,19 @@ class Model(LightningModule, abc.ABC):
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_lexical'
         )
-        scheduler = self.get_scheduler()
-        # scheduler.step(self.trainer.logged_metrics['train/loss'])
-        scheduler.step(self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 100.0))
-        # scheduler.step(doc_loss)
-        scheduler.step(doc_redact_ner_loss)
-        # scheduler.step(doc_redact_lexical_loss)
+
+        # If there are multiple LR schedulers, call step() on all of them.
+        lr_schedulers = self.lr_schedulers()
+        if not isinstance(lr_schedulers, list):
+            lr_schedulers = [lr_schedulers]
+
+        for scheduler in lr_schedulers:
+            # scheduler.step(doc_loss)
+            # scheduler.step(doc_redact_ner_loss)
+            # scheduler.step(doc_redact_lexical_loss)
+            scheduler.step(
+                self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 100.0)
+            )
         return doc_loss
 
     def setup(self, stage=None) -> None:

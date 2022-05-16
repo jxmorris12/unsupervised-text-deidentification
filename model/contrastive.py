@@ -11,9 +11,6 @@ from .model import Model
 class ContrastiveModel(Model):
     def get_optimizer(self) -> torch.optim.Optimizer:
         return self.optimizers()
-    
-    def get_scheduler(self):
-        return self.lr_schedulers()
         
     def _compute_loss_infonce(
             self,
@@ -115,6 +112,7 @@ class ContrastiveModel(Model):
             optimizer, mode='min',
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
+            verbose=True,
             min_lr=1e-10
         )
         scheduler = {

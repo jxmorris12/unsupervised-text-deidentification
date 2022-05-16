@@ -52,7 +52,7 @@ class MaskingTokenizingDataset(Dataset):
         self.adversarial_masking = adversarial_masking
 
         self.adv_word_mask_map = collections.defaultdict(set)
-        # TODO: make command-line flag
+        # TODO: make this a command-line flag
         adv_mask_k = 8
         self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
 
@@ -155,16 +155,18 @@ class MaskingTokenizingDataset(Dataset):
                     #       --> perhaps adv_word_mask_map should map to a set.
                     self.adv_word_mask_map[ex_index].add(word_to_mask)
             else:
-                # If we got it wrong, make it easier.
-                num_words_to_unmask = self.adv_word_mask_num[ex_index]
-                # Decrement the number of words to remove before next time.
-                self.adv_word_mask_num[ex_index] = max(num_words_to_mask-1, 1)
-                for _ in range(num_words_to_unmask):
-                    if not len(self.adv_word_mask_map[ex_index]):
-                        break
-                    # Remove a random element from masked stuff.
-                    random_el = random.sample(self.adv_word_mask_map[ex_index], 1)[0]
-                    self.adv_word_mask_map[ex_index].remove(random_el)
+                # If we got it wrong, make it easier by removing half of the masked words.
+                num_words_to_unmask = round(len(self.adv_word_mask_map[ex_index]) / 2.0)
+                if num_words_to_unmask > 0:
+                    words_to_unmask = random.sample(
+                        list(self.adv_word_mask_map[ex_index]),
+                        num_words_to_unmask
+                    )
+                    self.adv_word_mask_map[ex_index] = (
+                        self.adv_word_mask_map[ex_index] - set(words_to_unmask)
+                    )
+                    # Decrement the number of words to remove before next time.
+                    self.adv_word_mask_num[ex_index] = max(num_words_to_unmask-1, 1)
                     
     
     def __len__(self) -> int:

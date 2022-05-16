@@ -61,7 +61,7 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
     {'table': {'column_header': ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 'row_number': [1, 1, 1, 1, 1], 'content': ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']}, 'context': 'walter extra\n'}
     """
     # replace weird textual artifacts: -lrb- with ( and -rrb- with )
-    fixed_target_text = ex['target_text'].replace(' -rrb-', ')').replace('-lrb- ', '(')
+    fixed_target_text = ex['target_text'].replace('-rrb-', ')').replace('-lrb-', '(')
     # transform table to str
     table_info = ex['input_text']['table']
     table_column_header, table_content = table_info['column_header'], table_info['content']

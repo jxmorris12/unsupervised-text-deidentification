@@ -71,7 +71,7 @@ def get_args() -> argparse.Namespace:
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
-    parser.add_argument('--lr_scheduler_patience', type=int, default=8,
+    parser.add_argument('--lr_scheduler_patience', type=int, default=6,
         help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--sample_spans', action='store_true',
@@ -138,7 +138,17 @@ def main(args: argparse.Namespace):
     checkpoint_path = args.checkpoint_path
 
     if checkpoint_path:
-        model = model_cls.load_from_checkpoint(checkpoint_path)
+        model = model_cls.load_from_checkpoint(
+            checkpoint_path,
+            document_model_name_or_path=document_model,
+            profile_model_name_or_path=profile_model,
+            learning_rate=args.learning_rate,
+            pretrained_profile_encoder=args.pretrained_profile_encoder,
+            lr_scheduler_factor=args.lr_scheduler_factor,
+            lr_scheduler_patience=args.lr_scheduler_patience,
+            train_batch_size=args.batch_size,
+            num_workers=min(8, num_cpus),
+            gradient_clip_val=args.grad_norm_clip,)
     else:
         model = model_cls(
             document_model_name_or_path=document_model,
@@ -202,8 +212,8 @@ def main(args: argparse.Namespace):
     # TODO: argparse for val_metric
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
-    val_metric = "val/document_redact_ner/loss"
-    # val_metric = "val/document_redact_adversarial_1/loss"
+    # val_metric = "val/document_redact_ner/loss"
+    val_metric = "val/document_redact_adversarial_1/loss"
     # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
