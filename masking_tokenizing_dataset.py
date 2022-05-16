@@ -53,7 +53,7 @@ class MaskingTokenizingDataset(Dataset):
 
         self.adv_word_mask_map = collections.defaultdict(set)
         # TODO: make this a command-line flag
-        adv_mask_k = 8
+        adv_mask_k = 16
         self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
@@ -158,6 +158,7 @@ class MaskingTokenizingDataset(Dataset):
                 # If we got it wrong, make it easier by removing half of the masked words.
                 num_words_to_unmask = round(len(self.adv_word_mask_map[ex_index]) / 2.0)
                 if num_words_to_unmask > 0:
+                    # Randomly unmask 50% of the masked words.
                     words_to_unmask = random.sample(
                         list(self.adv_word_mask_map[ex_index]),
                         num_words_to_unmask
@@ -165,8 +166,10 @@ class MaskingTokenizingDataset(Dataset):
                     self.adv_word_mask_map[ex_index] = (
                         self.adv_word_mask_map[ex_index] - set(words_to_unmask)
                     )
-                    # Decrement the number of words to remove before next time.
-                    self.adv_word_mask_num[ex_index] = max(num_words_to_unmask-1, 1)
+                    # Decrement the number of words to re-mask before next time.
+                    self.adv_word_mask_num[ex_index] = max(
+                        int(self.adv_word_mask_num[ex_index]/2), 1
+                    )
                     
     
     def __len__(self) -> int:
@@ -312,7 +315,4 @@ class MaskingTokenizingDataset(Dataset):
             # This block of code is how neighbors are provided to our contrastive
             # learning algorithm.
             if self.num_nearest_neighbors > 0:
-                out_ex = dict_union(out_ex, self._get_nearest_neighbors(ex))
-
-        return out_ex
-
+                out_ex = dict_union(out_ex
