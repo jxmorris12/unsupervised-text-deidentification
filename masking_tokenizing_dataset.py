@@ -315,4 +315,7 @@ class MaskingTokenizingDataset(Dataset):
             # This block of code is how neighbors are provided to our contrastive
             # learning algorithm.
             if self.num_nearest_neighbors > 0:
-                out_ex = dict_union(out_ex
+                out_ex = dict_union(out_ex, self._get_nearest_neighbors(ex))
+
+        return out_ex
+
