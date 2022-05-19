@@ -26,8 +26,8 @@ def combine_dicts(a: Dict[str, int], b: Dict[str, int]) -> Dict[str, int]:
     return {k: a.get(k, 0) + b.get(k, 0) for k in all_keys}
 
 def get_top_matches_adv_data_bm25():
-    split = 'val[:20%]'
-    train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
+    split = 'val[:100%]'
+    prof_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
     k = 256
 
     def make_table_str(ex):
@@ -36,14 +36,14 @@ def get_top_matches_adv_data_bm25():
         )
         return ex
 
-    train_data = train_data.map(make_table_str)
-    profile_corpus = train_data['table_str']
-    document_corpus = train_data['target_text']
+    prof_data = prof_data.map(make_table_str)
+    profile_corpus = prof_data['table_str']
+    # document_corpus = prof_data['target_text']
 
     print("tokenizing corpii")
-    tokenized_document_corpus = [
-        get_words_from_doc(doc) for doc in document_corpus
-    ]
+    # tokenized_document_corpus = [
+    #     get_words_from_doc(doc) for doc in document_corpus
+    # ]
     tokenized_profile_corpus = [
         get_words_from_doc(prof) for prof in profile_corpus
     ]
@@ -69,15 +69,25 @@ def get_top_matches_adv_data_bm25():
     # adv_csv_filename = 'adv_csvs/model_1/results_1_1000.csv' # 0.670 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_1/results_10_1000.csv' # 0.397 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_1/results_100_1000.csv' # 0.397 (prof corpus, removed stopwords)
+
     # adv_csv_filename = 'adv_csvs/model_2/results_1_1000.csv' # 0.469 (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_2/results_10_1000.csv' # 0.284 (prof corpus, removed stopwords)
-    adv_csv_filename = 'adv_csvs/model_2/results_100_1000.csv' # 0.?? (prof corpus, removed stopwords)
+    # adv_csv_filename = 'adv_csvs/model_2/results_100_1000.csv' # 0.?? (prof corpus, removed stopwords)
+
+    # adv_csv_filename = 'adv_csvs/model_3/results_1_100.csv' # 0.44? (prof corpus, removed stopwords)
+    # adv_csv_filename = 'adv_csvs/model_5/results_1_100.csv' # 0.? (prof corpus, removed stopwords)
+    adv_csv_filename = 'adv_csvs/model_5/results_1_100.csv' # 0.? (prof corpus, removed stopwords)
 
     print(f"loading adversarial data from {adv_csv_filename}")
     
     adv_df = pd.read_csv(adv_csv_filename)
-    adv_df["adv_idx"] = pickle.load(open('nearest_neighbors/nn__idxs.p', 'rb'))
+
+    #######################################################################
+    adv_df["adv_idx"] = list(range(len(adv_df)))
+    # UNCOMMENT NEXT LINE IF USED AN ATTACK THAT FILTERED OUT THINGS WITH >20 WORDS. (this is just model_1 and model_2 csvs)
+    # adv_df["adv_idx"] = pickle.load(open('nearest_neighbors/nn__idxs.p', 'rb'))[:len(adv_df)]
     adv_df = adv_df[adv_df["result_type"] == "Successful"]
+    #######################################################################
 
     # ######################################################################
     # idx = 14
@@ -92,6 +102,7 @@ def get_top_matches_adv_data_bm25():
     def get_top_k(ex):
         query = ex["perturbed_text"].split()
         top_k = bm25.get_scores(query).argsort()[::-1]
+        # breakpoint()
         ex["correct_idx"] = top_k.tolist().index(ex["adv_idx"])
         ex["is_correct"] = 1 if top_k[0] == ex["adv_idx"] else 0
         return ex

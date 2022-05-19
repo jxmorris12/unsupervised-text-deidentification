@@ -148,7 +148,8 @@ def main(args: argparse.Namespace):
             lr_scheduler_patience=args.lr_scheduler_patience,
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
-            gradient_clip_val=args.grad_norm_clip,)
+            gradient_clip_val=args.grad_norm_clip
+        )
     else:
         model = model_cls(
             document_model_name_or_path=document_model,

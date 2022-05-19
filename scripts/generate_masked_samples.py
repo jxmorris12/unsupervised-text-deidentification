@@ -23,10 +23,12 @@ from textattack import Attack
 from textattack import Attacker
 from textattack import AttackArgs
 from textattack.attack_results import SuccessfulAttackResult
-from textattack.constraints.pre_transformation import RepeatModification
+from textattack.constraints.pre_transformation import RepeatModification, MaxWordIndexModification
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 from tqdm import tqdm
+
+from model_cfg import model_paths_dict
 
 
 num_cpus = len(os.sched_getaffinity(0))
@@ -134,7 +136,7 @@ class WikiDataset(textattack.datasets.Dataset):
     def __init__(self, dm: WikipediaDataModule):
         self.shuffled = True
         # filter out super long examples
-        self.dataset = [ex for ex in dm.val_dataset if ex['document'].count(' ') < 100]
+        self.dataset = [ex for ex in dm.val_dataset]
         self.label_names = list(dm.val_dataset['name'])
     
     def __len__(self) -> int:
@@ -178,7 +180,7 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
 
         with torch.no_grad():
             document_embeddings = self.model.forward_document(batch=batch, document_type='document')
-            document_to_profile_logits = document_embeddings @ self.profile_embeddings.T.to(model_device) * (1/10.)
+            document_to_profile_logits = document_embeddings @ self.profile_embeddings.T.to(model_device)
             document_to_profile_probs = torch.nn.functional.softmax(
                 document_to_profile_logits, dim=-1
             )
@@ -192,14 +194,10 @@ def precompute_profile_embeddings(
     ):
     model.profile_model.cuda()
     model.profile_model.eval()
-    print('Precomputing profile embeddings before first epoch...')
-    # no need to compute train embeddings in this setting
-    # - we only use val embeddings.
-    model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.profile_embedding_dim))
-    model.train_profile_embeddings = torch.tensor(model.train_profile_embeddings, dtype=torch.float32)
+    model.train_profile_embeddings = None
 
     model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader()[0], desc="[2/2] Precomputing val embeddings", colour="green", leave=False):
+    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="green", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=val_batch)
         model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
@@ -207,19 +205,14 @@ def precompute_profile_embeddings(
     model.profile_model.train()
 
 
-def main(k: int, n: int):
-    # one of the best models I have that's roberta-distilbert, from here:
-    #   wandb.ai/jack-morris/deid-wikibio-2/runs/xjybn01j/logs?workspace=user-jxmorris12
-    model_key, checkpoint_path = (
-        "model_2",
-        "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/roberta__distilbert__dropout_0.8_0.8/deid-wikibio-2_default/xjybn01j_273/checkpoints/epoch=20-step=93335.ckpt"
-    )
-
+def main(k: int, n: int, model_key: str):
+    checkpoint_path = model_paths_dict[model_key]
+    print(f"running attack on {model_key} loaded from {checkpoint_path}")
     model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path,
         document_model_name_or_path="roberta-base",
-        profile_model_name_or_path="distilbert-base-uncased",
-        train_batch_size=64,
+        profile_model_name_or_path="google/tapas-base",
+        train_batch_size=1,
         pretrained_profile_encoder=False,
         redaction_strategy="",
         dataset_name='wiki_bio',
@@ -229,12 +222,12 @@ def main(k: int, n: int):
 
     dm = WikipediaDataModule(
         document_model_name_or_path="roberta-base",
-        profile_model_name_or_path="distilbert-base-uncased",
+        profile_model_name_or_path="google/tapas-base",
         dataset_name='wiki_bio',
-        dataset_train_split='train[:10%]', # this model was trained with 40% of training data
+        dataset_train_split='train[:1024]',
         dataset_val_split='val[:20%]',
         dataset_version='1.2.0',
-        num_workers=1,
+        num_workers=num_cpus,
         train_batch_size=64,
         eval_batch_size=64,
         max_seq_length=128,
@@ -252,7 +245,10 @@ def main(k: int, n: int):
     )
     model_wrapper.to('cuda')
 
-    constraints = [RepeatModification()]
+    constraints = [
+        RepeatModification(),
+        MaxWordIndexModification(max_length=dm.max_seq_length),
+    ]
     transformation = WordSwapSingleWord(single_word=dm.document_tokenizer.mask_token)
     # search_method = textattack.search_methods.GreedyWordSwapWIR()
     search_method = textattack.search_methods.BeamSearch(beam_width=4)
@@ -272,6 +268,7 @@ def main(k: int, n: int):
     for result in results_iterable:
         logger.log_attack_result(result)
     
+    os.makedirs(f'adv_csvs/{model_key}', exist_ok=True)
     logger.df.to_csv(f'adv_csvs/{model_key}/results_{k}_{n}.csv')
     
 
@@ -284,6 +281,10 @@ def get_args() -> argparse.Namespace:
         help='top-K classes for adversarial goal function')
     parser.add_argument('--n', type=int, default=1000,
         help='number of examples to run on')
+    parser.add_argument('--model', type=str, default='model_5',
+        help='model str name (see model_cfg for more info)',
+        choices=model_paths_dict.keys()
+    )
 
     args = parser.parse_args()
     return args
@@ -291,4 +292,4 @@ def get_args() -> argparse.Namespace:
 
 if __name__ == '__main__':
     args = get_args()
-    main(k=args.k, n=args.n)
+    main(k=args.k, n=args.n, model_key=args.model)
