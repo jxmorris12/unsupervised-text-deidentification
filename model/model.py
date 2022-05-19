@@ -50,7 +50,7 @@ class Model(LightningModule, abc.ABC):
             torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(1.5, dtype=torch.float32), requires_grad=True
+            torch.tensor(1.0, dtype=torch.float32), requires_grad=True
         )
         
         self.pretrained_profile_encoder = pretrained_profile_encoder

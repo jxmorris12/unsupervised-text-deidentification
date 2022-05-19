@@ -108,10 +108,7 @@ class MaskingTokenizingDataset(Dataset):
                     self.document_tokenizer.all_special_ids).to(input_ids.device)
             ).any(dim=2)
         )
-        emb_grad_per_token = torch.where(
-            special_tokens_mask, torch.zeros_like(input_ids).float().to(input_ids.device),
-            emb_grad[input_ids]
-        )
+        emb_grad_per_token = torch.where(special_tokens_mask, 0.0, emb_grad[input_ids])
         token_num_occurrences = (input_ids[..., None] == input_ids.flatten()).sum(dim=-1)
 
         # Normalize by number of occurrences, so high-frequency tokens can't contribute too much to

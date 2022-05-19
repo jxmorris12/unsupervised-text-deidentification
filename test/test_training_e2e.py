@@ -14,7 +14,9 @@ class TestEnd2End:
     def setup(self):
         seed_everything(88)
     
-    def _get_dm_and_model(self, loss_fn: str, document_model: str, profile_model: str, max_seq_length: 32) -> Tuple[WikipediaDataModule, CoordinateAscentModel]:
+    def _get_dm_and_model(self,
+        loss_fn: str, document_model: str, profile_model: str, max_seq_length: 32,
+        adversarial_masking: bool = False) -> Tuple[WikipediaDataModule, CoordinateAscentModel]:
         dm = WikipediaDataModule(
             document_model_name_or_path=document_model,
             profile_model_name_or_path=profile_model,
@@ -30,6 +32,7 @@ class TestEnd2End:
             train_batch_size=16,
             eval_batch_size=3,
             num_workers=4,
+            adversarial_masking=adversarial_masking,
         )
         dm.setup("fit")
         
@@ -58,12 +61,14 @@ class TestEnd2End:
             profile_model: str, 
             max_seq_length: int = 32,
             precision: int = 32,
+            adversarial_masking: bool = False,
         ):
         dm, model = self._get_dm_and_model(
             loss_fn=loss_fn,
             document_model=document_model,
             profile_model=profile_model,
-            max_seq_length=max_seq_length
+            max_seq_length=max_seq_length,
+            adversarial_masking=adversarial_masking,
         )
         trainer = Trainer(
             default_root_dir=tmpdir,
@@ -112,3 +117,7 @@ class TestEnd2End:
         val_doc_outputs = model.forward_document(batch=val_batch, document_type='document')
         assert not (train_doc_outputs.isnan().any())
         assert not (val_doc_outputs.isnan().any())
+
+
+    def test_coordinate_ascent_tapas_adv(self, tmpdir: str):
+        self._run_e2e_test(tmpdir, "coordinate_ascent", 'distilbert-base-uncased',  'google/tapas-base', 32, adversarial_masking=True)
