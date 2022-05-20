@@ -26,7 +26,8 @@ def combine_dicts(a: Dict[str, int], b: Dict[str, int]) -> Dict[str, int]:
     return {k: a.get(k, 0) + b.get(k, 0) for k in all_keys}
 
 def get_top_matches_adv_data_bm25():
-    split = 'val[:100%]'
+    # split = 'val[:100%]'
+    split = 'train[:100%]'
     prof_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
     k = 256
 
@@ -40,7 +41,7 @@ def get_top_matches_adv_data_bm25():
     profile_corpus = prof_data['table_str']
     # document_corpus = prof_data['target_text']
 
-    print("tokenizing corpii")
+    print("tokenizing corpi")
     # tokenized_document_corpus = [
     #     get_words_from_doc(doc) for doc in document_corpus
     # ]
@@ -77,6 +78,7 @@ def get_top_matches_adv_data_bm25():
     # adv_csv_filename = 'adv_csvs/model_3/results_1_100.csv' # 0.44? (prof corpus, removed stopwords)
     # adv_csv_filename = 'adv_csvs/model_5/results_1_100.csv' # 0.? (prof corpus, removed stopwords)
     adv_csv_filename = 'adv_csvs/model_5/results_1_100.csv' # 0.? (prof corpus, removed stopwords)
+    # adv_csv_filename = 'adv_csvs/train/model_5/results_1_50.csv' # 0.489 (prof corpus, removed stopwords)
 
     print(f"loading adversarial data from {adv_csv_filename}")
     
