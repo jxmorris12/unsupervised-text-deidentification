@@ -1,7 +1,7 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from dataloader import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
@@ -131,13 +131,14 @@ class CustomCSVLogger(CSVLogger):
         self._flushed = False
 
 class WikiDataset(textattack.datasets.Dataset):
-    dataset: datasets.Dataset
+    dataset: List[Dict[str, str]]
+    label_names: List[str]
     
-    def __init__(self, dm: WikipediaDataModule):
+    def __init__(self, dataset: datasets.Dataset):
         self.shuffled = True
         # filter out super long examples
-        self.dataset = [ex for ex in dm.val_dataset]
-        self.label_names = list(dm.val_dataset['name'])
+        self.dataset = [ex for ex in dataset]
+        self.label_names = list(dataset['name'])
     
     def __len__(self) -> int:
         return len(self.dataset)
@@ -154,11 +155,19 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
     profile_embeddings: torch.Tensor
     max_seq_length: int
     
-    def __init__(self, model: AbstractModel, document_tokenizer: transformers.AutoTokenizer, max_seq_length: int = 128):
+    def __init__(self,
+            model: AbstractModel,
+            document_tokenizer: transformers.AutoTokenizer,
+            max_seq_length: int = 128,
+            train: bool = False
+        ):
         self.model = model
         self.model.eval()
         self.document_tokenizer = document_tokenizer
-        self.profile_embeddings = model.val_profile_embeddings.clone().detach()
+        if train:
+            self.profile_embeddings = model.train_profile_embeddings.clone().detach()
+        else:
+            self.profile_embeddings = model.val_profile_embeddings.clone().detach()
         self.max_seq_length = max_seq_length
                  
     def to(self, device):
@@ -190,22 +199,30 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
 
 def precompute_profile_embeddings(
         model: AbstractModel,
-        dm: WikipediaDataModule
+        dm: WikipediaDataModule,
+        train: bool = False
     ):
     model.profile_model.cuda()
     model.profile_model.eval()
-    model.train_profile_embeddings = None
 
-    model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="green", leave=False):
-        with torch.no_grad():
-            profile_embeddings = model.forward_profile(batch=val_batch)
-        model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
-    model.val_profile_embeddings = torch.tensor(model.val_profile_embeddings, dtype=torch.float32)
+    if train:
+        model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.profile_embedding_dim))
+        for val_batch in tqdm(dm.train_dataloader(), desc="Precomputing train embeddings", colour="blue", leave=False):
+            with torch.no_grad():
+                profile_embeddings = model.forward_profile(batch=val_batch)
+            model.train_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
+        model.train_profile_embeddings = torch.tensor(model.train_profile_embeddings, dtype=torch.float32)
+    else:
+        model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
+        for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="green", leave=False):
+            with torch.no_grad():
+                profile_embeddings = model.forward_profile(batch=val_batch)
+            model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
+        model.val_profile_embeddings = torch.tensor(model.val_profile_embeddings, dtype=torch.float32)
     model.profile_model.train()
 
 
-def main(k: int, n: int, model_key: str):
+def main(k: int, n: int, model_key: str, train: bool=False):
     checkpoint_path = model_paths_dict[model_key]
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
     model = CoordinateAscentModel.load_from_checkpoint(
@@ -224,8 +241,8 @@ def main(k: int, n: int, model_key: str):
         document_model_name_or_path="roberta-base",
         profile_model_name_or_path="google/tapas-base",
         dataset_name='wiki_bio',
-        dataset_train_split='train[:1024]',
-        dataset_val_split='val[:20%]',
+        dataset_train_split=('train[:100%]' if train else 'train[:1024]'),
+        dataset_val_split=('val[:1024]' if train else 'val[:20%]'),
         dataset_version='1.2.0',
         num_workers=num_cpus,
         train_batch_size=64,
@@ -235,13 +252,14 @@ def main(k: int, n: int, model_key: str):
     )
     dm.setup("fit")
 
-    dataset = WikiDataset(dm)
+    dataset = WikiDataset(dataset=(dm.train_dataset if train else dm.val_dataset))
 
-    precompute_profile_embeddings(model, dm)
+    precompute_profile_embeddings(model, dm, train=train)
     model_wrapper = MyModelWrapper(
         model=model,
         document_tokenizer=dm.document_tokenizer,
-        max_seq_length=dm.max_seq_length
+        max_seq_length=dm.max_seq_length,
+        train=train
     )
     model_wrapper.to('cuda')
 
@@ -267,9 +285,13 @@ def main(k: int, n: int, model_key: str):
 
     for result in results_iterable:
         logger.log_attack_result(result)
-    
-    os.makedirs(f'adv_csvs/{model_key}', exist_ok=True)
-    logger.df.to_csv(f'adv_csvs/{model_key}/results_{k}_{n}.csv')
+
+    if train:
+        folder_path = os.path.join('adv_csvs', 'train', model_key)
+    else:
+        folder_path = os.path.join('adv_csvs', model_key)
+    os.makedirs(folder_path, exist_ok=True)
+    logger.df.to_csv(os.path.join(folder_path, f'results_{k}_{n}.csv'))
     
 
 def get_args() -> argparse.Namespace:
@@ -278,12 +300,17 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('--k', type=int, default=8,
-        help='top-K classes for adversarial goal function')
+        help='top-K classes for adversarial goal function'
+    )
     parser.add_argument('--n', type=int, default=1000,
-        help='number of examples to run on')
+        help='number of examples to run on'
+    )
     parser.add_argument('--model', type=str, default='model_5',
         help='model str name (see model_cfg for more info)',
         choices=model_paths_dict.keys()
+    )
+    parser.add_argument('--train', action='store_true',
+        default=False, help='test on train data'
     )
 
     args = parser.parse_args()
@@ -292,4 +319,4 @@ def get_args() -> argparse.Namespace:
 
 if __name__ == '__main__':
     args = get_args()
-    main(k=args.k, n=args.n, model_key=args.model)
+    main(k=args.k, n=args.n, model_key=args.model, train=args.train)
