@@ -4,14 +4,13 @@ import collections
 import random
 
 import datasets
-import pandas as pd
 import torch
 import transformers
 
 from torch.utils.data import Dataset
 
 from masking_span_sampler import MaskingSpanSampler
-from utils import dict_union, try_encode_table_tapas
+from utils import dict_union, tokenize_profile
 
 class MaskingTokenizingDataset(Dataset):
     """A PyTorch Dataset that tokenizes strings and, optionally, samples spans of text, and
@@ -53,7 +52,7 @@ class MaskingTokenizingDataset(Dataset):
 
         self.adv_word_mask_map = collections.defaultdict(set)
         # TODO: make this a command-line flag
-        adv_mask_k = 16
+        adv_mask_k = 32
         self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
@@ -108,7 +107,11 @@ class MaskingTokenizingDataset(Dataset):
                     self.document_tokenizer.all_special_ids).to(input_ids.device)
             ).any(dim=2)
         )
-        emb_grad_per_token = torch.where(special_tokens_mask, 0.0, emb_grad[input_ids])
+        emb_grad_per_token = torch.where(
+            special_tokens_mask,
+            torch.zeros_like(emb_grad[input_ids]),
+            emb_grad[input_ids]
+        )
         token_num_occurrences = (input_ids[..., None] == input_ids.flatten()).sum(dim=-1)
 
         # Normalize by number of occurrences, so high-frequency tokens can't contribute too much to
@@ -172,42 +175,13 @@ class MaskingTokenizingDataset(Dataset):
     def __len__(self) -> int:
         return len(self.dataset)
     
-    def _get_profile_df(self, keys: List[str], values: List[str]) -> pd.DataFrame:
-        """Creates a dataframe from a list of keys and list of values. Used for TAPAS and
-        other table-based models.
-        """
-        assert isinstance(keys, list) and len(keys) and isinstance(keys[0], str)
-        assert isinstance(values, list) and len(values) and isinstance(values[0], str)
-        return pd.DataFrame(columns=keys, data=[values])
-    
     def _tokenize_profile(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
         """Tokenizes a profile, either with Tapas (dataframe-based) or as a single string."""
-        if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
-            prof_keys = ex["profile_keys"].split("||")
-            prof_values = ex["profile_values"].split("||")
-            if not len(prof_keys):
-                raise ValueError("empty profile_keys")
-            if not len(prof_values):
-                raise ValueError("empty prof_values")
-            df = self._get_profile_df(
-                keys=prof_keys, values=prof_values
-            )
-            profile_tokenized = try_encode_table_tapas(
-                df=df,
-                tokenizer=self.profile_tokenizer,
-                max_length=self.max_seq_length,
-                query="Who is this?",
-                num_cols=64
-            )
-        else:
-            profile_tokenized = self.profile_tokenizer.encode_plus(
-                ex["profile"],
-                max_length=self.max_seq_length,
-                padding='max_length',
-                truncation=True,
-                return_tensors='pt',
-            )
-        return profile_tokenized
+        return tokenize_profile(
+            tokenizer=self.profile_tokenizer,
+            ex=ex,
+            max_seq_length=self.max_seq_length
+        )
     
     def _tokenize_document(self, ex: Dict[str, str], doc_type: str) -> Dict[str, torch.Tensor]:
         """Tokenizes a document."""
@@ -277,36 +251,43 @@ class MaskingTokenizingDataset(Dataset):
         # 
         # TODO: Consider permitting separate max_seq_length for profile.
         if self.profile_tokenizer is not None:
-            # TODO: finish profile row-sampling.
-            if self.is_train_dataset:
-                if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
-                    # TODO redact profile_keys and profile_values
-                    profile_keys = ex["profile_keys"].split('||')
-                    profile_values = ex["profile_values"].split('||')
+            # profile_row_dropout_perc > 0 indicates we want to use random-row dropout on profiles.
+            # 'profile__input_ids' not present in ex indicates we haven't pre-tokenized the profiles.
+            if (self.profile_row_dropout_perc > 0) or ("profile__input_ids" not in ex):
+                # Re-tokenize profile on-the-fly (this is very slow especially for Tapas!)
+                if self.is_train_dataset:
+                    if isinstance(self.profile_tokenizer, transformers.TapasTokenizer):
+                        # TODO redact profile_keys and profile_values
+                        profile_keys = ex["profile_keys"].split('||')
+                        profile_values = ex["profile_values"].split('||')
 
-                    profile_keys_list, profile_values_list = [], []
-                    for k, v in zip(profile_keys, profile_values):
-                        if random.random() >= self.profile_row_dropout_perc:
-                            profile_keys_list.append(k)
-                            profile_values_list.append(v)
-                    if not len(profile_keys_list):
-                        random_idx = random.choice(range(len(profile_keys)))
-                        profile_keys_list.append(profile_keys[random_idx])
-                        profile_values_list.append(profile_values[random_idx])
+                        profile_keys_list, profile_values_list = [], []
+                        for k, v in zip(profile_keys, profile_values):
+                            if random.random() >= self.profile_row_dropout_perc:
+                                profile_keys_list.append(k)
+                                profile_values_list.append(v)
+                        if not len(profile_keys_list):
+                            random_idx = random.choice(range(len(profile_keys)))
+                            profile_keys_list.append(profile_keys[random_idx])
+                            profile_values_list.append(profile_values[random_idx])
 
-                    ex["profile_keys"] = '||'.join(profile_keys_list) 
-                    ex["profile_values"] = '||'.join(profile_values_list) 
-                else:
-                    ex["profile"] = ' || '.join(
-                        (
-                            r for r in ex["profile"].split(' || ')
-                            if random.random() >= self.profile_row_dropout_perc
-                         )
-                    )
-
-            profile_tokenized = self._tokenize_profile(ex=ex)
-            for _k, _v in profile_tokenized.items():
-                out_ex[f"profile__{_k}"] = _v[0]
+                        ex["profile_keys"] = '||'.join(profile_keys_list) 
+                        ex["profile_values"] = '||'.join(profile_values_list) 
+                    else:
+                        ex["profile"] = ' || '.join(
+                            (
+                                r for r in ex["profile"].split(' || ')
+                                if random.random() >= self.profile_row_dropout_perc
+                            )
+                        )
+                profile_tokenized = self._tokenize_profile(ex=ex)
+                for _k, _v in profile_tokenized.items():
+                    out_ex[f"profile__{_k}"] = _v[0]
+            else:
+                # Use pre-tokenized profile
+                for _k, _v in ex.items():
+                    if _k.startswith('profile__'):
+                        out_ex[_k] = torch.tensor(_v)
             
             # Also tokenize profiles of nearest-neighbors, if specified.
             # This block of code is how neighbors are provided to our contrastive

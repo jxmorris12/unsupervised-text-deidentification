@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+import functools
 import re
 import random
 
@@ -10,6 +11,10 @@ import transformers
 from utils import words_from_text, word_start_and_end_idxs_from_text
 
 eng_stopwords = set(stopwords.words('english'))
+
+@functools.cache
+def _cached_words_from_text(s: str) -> List[str]:
+    return words_from_text(s)
 
 class MaskingSpanSampler:
     word_dropout_ratio: float     # Percentage of the time to do word dropout
