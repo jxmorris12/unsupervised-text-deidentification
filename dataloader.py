@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
 from redact import remove_named_entities_spacy_batch, remove_overlapping_words
-from utils import create_document_and_profile_from_wikibio
+from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile
 
 # 
 # TODO: filter data to have > 10 words or something? And maybe a certain
@@ -126,6 +126,18 @@ class WikipediaDataModule(LightningDataModule):
 
         self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio)
         self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio)
+
+        # Pre-tokenize profiles
+        def tokenize_profile_ex(ex: Dict) -> Dict:
+            tokenized_profile = tokenize_profile(
+                tokenizer=self.profile_tokenizer,
+                ex=ex,
+                max_seq_length=self.max_seq_length
+            )
+            return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
+
+        self.train_dataset = self.train_dataset.map(tokenize_profile_ex)
+        self.val_dataset = self.val_dataset.map(tokenize_profile_ex)
         
         def redact_example(redact_func: Callable, example: Dict, suffix: str):
             # redact 'text1' field

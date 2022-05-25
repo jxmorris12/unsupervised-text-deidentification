@@ -76,13 +76,18 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
     # return example: transformed table + first paragraph
     return {
         'name': name_from_table_rows(table_rows),
-        'document': fixed_target_text,                        # First paragraph of biography
-        'profile': table_text,                                # Table re-printed as a string
+        'document': fixed_target_text,                          # First paragraph of biography
+        'profile': table_text,                                  # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,      # Table with name removed
-        'profile_keys': '||'.join(profile_keys),              # Keys in profile box
-        'profile_values': '||'.join(profile_values),          # Values in profile box
-        'text_key': ex['target_text'] + ' ' + table_text,     # (document, profile) str key
+        'profile_keys': '||'.join(profile_keys),                # Keys in profile box
+        'profile_values': '||'.join(profile_values),            # Values in profile box
+        'text_key': ex['target_text'] + ' ' + table_text,       # (document, profile) str key
     }
+
+
+def dict_union(*dicts):
+    """Combines N dictionaries (with different keys) together."""
+    return dict(itertools.chain.from_iterable(dct.items() for dct in dicts))
 
 
 def try_encode_table_tapas(df: pd.DataFrame, tokenizer: transformers.AutoTokenizer, max_length: int, query: str, num_cols: int = 50) -> Dict[str, torch.Tensor]:
@@ -100,6 +105,43 @@ def try_encode_table_tapas(df: pd.DataFrame, tokenizer: transformers.AutoTokeniz
     except ValueError:
         return try_encode_table_tapas(df=df, tokenizer=tokenizer, max_length=max_length, query=query, num_cols=num_cols-1)
 
-def dict_union(*dicts):
-    """Combines N dictionaries (with different keys) together."""
-    return dict(itertools.chain.from_iterable(dct.items() for dct in dicts))
+
+def get_profile_df(keys: List[str], values: List[str]) -> pd.DataFrame:
+    """Creates a dataframe from a list of keys and list of values. Used for TAPAS and
+    other table-based models.
+    """
+    assert isinstance(keys, list) and len(keys) and isinstance(keys[0], str)
+    assert isinstance(values, list) and len(values) and isinstance(values[0], str)
+    return pd.DataFrame(columns=keys, data=[values])
+
+def tokenize_profile(
+        tokenizer: transformers.PreTrainedTokenizer,
+        ex: Dict[str, str],
+        max_seq_length: int
+    ) -> Dict[str, torch.Tensor]:
+    if isinstance(tokenizer, transformers.TapasTokenizer):
+        prof_keys = ex["profile_keys"].split("||")
+        prof_values = ex["profile_values"].split("||")
+        if not len(prof_keys):
+            raise ValueError("empty profile_keys")
+        if not len(prof_values):
+            raise ValueError("empty prof_values")
+        df = get_profile_df(
+            keys=prof_keys, values=prof_values
+        )
+        profile_tokenized = try_encode_table_tapas(
+            df=df,
+            tokenizer=tokenizer,
+            max_length=max_seq_length,
+            query="Who is this?",
+            num_cols=64
+        )
+    else:
+        profile_tokenized = tokenizer.encode_plus(
+            ex["profile"],
+            max_length=max_seq_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt',
+        )
+    return profile_tokenized
