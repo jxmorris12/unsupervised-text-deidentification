@@ -52,7 +52,7 @@ class MaskingTokenizingDataset(Dataset):
 
         self.adv_word_mask_map = collections.defaultdict(set)
         # TODO: make this a command-line flag
-        adv_mask_k = 32
+        adv_mask_k = 16
         self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
@@ -70,7 +70,7 @@ class MaskingTokenizingDataset(Dataset):
     def process_grad(self,
             input_ids: torch.Tensor,
             word_ids: torch.Tensor,
-            emb_grad: torch.Tensor,
+            word_importance: torch.Tensor,
             is_correct: torch.Tensor,
             text_key_id: torch.Tensor
         ) -> None:
@@ -81,7 +81,7 @@ class MaskingTokenizingDataset(Dataset):
             word_ids: int torch.Tensor of shape (batch_size, max_seq_length)
                 Will have 0 for special tokens and start with word 1 otherwise. So a single
                 row might look like: [0, 1, 1, 2, 3, 3, 3, 4, 4, 5, 0, 0, 0, 0, 0]
-            emb_grad: float torch.Tensor of shape (vocab_size,)
+            word_importance: float torch.Tensor of shape (vocab_size,)
             is_correct: bool torch.Tensor of shape (batch_size,)
             text_key_id: int torch.Tensor of shape (batch_size,)
         """
@@ -90,12 +90,12 @@ class MaskingTokenizingDataset(Dataset):
         
         # TODO: pass bool tensor indicating which input got it right (add a word) or got it wrong (subtract a word)
         assert len(input_ids.shape) == len(word_ids.shape) == 2
-        assert len(emb_grad.shape) == len(text_key_id.shape) == 1
+        assert len(word_importance.shape) == len(text_key_id.shape) == 1
         
         batch_size = input_ids.shape[0]
         assert input_ids.shape == (batch_size, self.max_seq_length)
         assert word_ids.shape == (batch_size, self.max_seq_length)
-        assert emb_grad.shape == (self.document_tokenizer.vocab_size,)
+        assert word_importance.shape == (self.document_tokenizer.vocab_size,)
         assert is_correct.shape == (batch_size,)
         assert text_key_id.shape == (batch_size,)
 
@@ -107,24 +107,24 @@ class MaskingTokenizingDataset(Dataset):
                     self.document_tokenizer.all_special_ids).to(input_ids.device)
             ).any(dim=2)
         )
-        emb_grad_per_token = torch.where(
+        word_importance_per_token = torch.where(
             special_tokens_mask,
-            torch.zeros_like(emb_grad[input_ids]),
-            emb_grad[input_ids]
+            torch.zeros_like(word_importance[input_ids]),
+            word_importance[input_ids]
         )
         token_num_occurrences = (input_ids[..., None] == input_ids.flatten()).sum(dim=-1)
 
         # Normalize by number of occurrences, so high-frequency tokens can't contribute too much to
         # the total.
-        emb_grad_per_token = emb_grad_per_token / token_num_occurrences
+        # word_importance_per_token = word_importance_per_token / token_num_occurrences
 
-        # Sum emb_grad_per_token among subwords.
-        emb_grad_per_word = torch.einsum('bij,bi->bj',
-            torch.eye(self.max_seq_length)[word_ids].to(emb_grad_per_token.device),
-            emb_grad_per_token
+        # Sum word_importance_per_token among subwords.
+        word_importance_per_word = torch.einsum('bij,bi->bj',
+            torch.eye(self.max_seq_length)[word_ids].to(word_importance_per_token.device),
+            word_importance_per_token
         )
         # This gives the index of each *word* from each input with the maximum gradient.
-        words_ordered_by_grad_norm = (-emb_grad_per_word).argsort(dim=1)
+        words_ordered_by_grad_norm = (-word_importance_per_word).argsort(dim=1)
         assert words_ordered_by_grad_norm.shape == (batch_size, self.max_seq_length)
 
         # Store each word so it'll be masked next time.
@@ -158,18 +158,21 @@ class MaskingTokenizingDataset(Dataset):
                 # If we got it wrong, make it easier by removing half of the masked words.
                 num_words_to_unmask = round(len(self.adv_word_mask_map[ex_index]) / 2.0)
                 if num_words_to_unmask > 0:
-                    # Randomly unmask 50% of the masked words.
-                    words_to_unmask = random.sample(
-                        list(self.adv_word_mask_map[ex_index]),
-                        num_words_to_unmask
-                    )
-                    self.adv_word_mask_map[ex_index] = (
-                        self.adv_word_mask_map[ex_index] - set(words_to_unmask)
-                    )
-                    # Decrement the number of words to re-mask before next time.
-                    self.adv_word_mask_num[ex_index] = max(
-                        int(self.adv_word_mask_num[ex_index]/2), 1
-                    )
+                    # Unmask all the words.
+                    self.adv_word_mask_map[ex_index] = set()
+
+                    # # Randomly unmask 50% of the masked words.
+                    # words_to_unmask = random.sample(
+                    #     list(self.adv_word_mask_map[ex_index]),
+                    #     num_words_to_unmask
+                    # )
+                    # self.adv_word_mask_map[ex_index] = (
+                    #     self.adv_word_mask_map[ex_index] - set(words_to_unmask)
+                    # )
+                    # # Decrement the number of words to re-mask before next time.
+                    # self.adv_word_mask_num[ex_index] = max(
+                    #     int(self.adv_word_mask_num[ex_index]/2), 1
+                    # )
                     
     
     def __len__(self) -> int:

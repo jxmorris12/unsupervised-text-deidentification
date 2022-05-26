@@ -234,12 +234,21 @@ class Model(LightningModule, abc.ABC):
         # Use document model embedding gradient for adversarial masking (if enabled).
         emb_grad = self.document_model.embeddings.word_embeddings.weight.grad
         if not (emb_grad is None) and (emb_grad.sum() > 0):
+            # "For each word in the sentence, we calculate the dot product of 
+            # its word embedding and the gradient of the output with respect
+            # to the embedding."
+            # (from "Pathologies of Neural Models Make Interpretations Difficult")
+            with torch.no_grad():
+                word_importance = (
+                    self.document_model.embeddings.word_embeddings.weight * emb_grad
+                ).sum(1)
+
             # We call process_grad() on the train dataset because the
             # train dataset may use this gradient to perform masking.
             self.trainer.train_dataloader.loaders.dataset.process_grad(
                 input_ids=batch['document__input_ids'],
                 word_ids=batch['document__word_ids'],
-                emb_grad=emb_grad.norm(p=2, dim=1),
+                word_importance=word_importance,
                 is_correct=results["is_correct"],
                 text_key_id=batch['text_key_id']
             )
