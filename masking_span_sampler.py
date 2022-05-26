@@ -17,9 +17,9 @@ def _cached_words_from_text(s: str) -> List[str]:
     return words_from_text(s)
 
 class MaskingSpanSampler:
-    word_dropout_ratio: float     # Percentage of the time to do word dropout
-    word_dropout_perc: float      # Percentage of words to replace with mask token
-    sample_spans: bool            # Whether or not to sample spans.
+    _word_dropout_ratio: float     # Percentage of the time to do word dropout
+    _word_dropout_perc: float      # Percentage of words to replace with mask token
+    sample_spans: bool             # Whether or not to sample spans.
     dropout_stopwords: bool
     mask_token: str
     min_num_words: int
@@ -31,10 +31,10 @@ class MaskingSpanSampler:
             mask_token: str,
             sample_spans: bool,
             min_num_words: int = 8,
-            dropout_stopwords: bool = False
+            dropout_stopwords: bool = True
         ):
-        self.word_dropout_ratio = word_dropout_ratio
-        self.word_dropout_perc = word_dropout_perc
+        self._word_dropout_ratio = word_dropout_ratio
+        self._word_dropout_perc = word_dropout_perc
         self.dropout_stopwords = dropout_stopwords
         self.sample_spans = sample_spans
         self.mask_token = mask_token
@@ -59,15 +59,26 @@ class MaskingSpanSampler:
             text = text[start_idx : end_idx]
         return text
     
+    def word_dropout_perc(self) -> int:
+        """Allows for sampling at a fixed rate or from U(0,1) if
+        self._word_dropout_perc == -1.
+        """
+        if self._word_dropout_perc == -1:
+            return random.uniform(0, 1)
+        else:
+            return self._word_dropout_perc
+    
     def _word_dropout(self, text: str) -> str:
         """Randomly mask some words."""
-        if random.random() < self.word_dropout_ratio:
+        if random.uniform(0, 1) < self._word_dropout_ratio:
             # Don't do dropout this % of the time
             words = set(words_from_text(text))
             if not self.dropout_stopwords:
                 words = words - eng_stopwords
+            
+            dropout_perc = self.word_dropout_perc()
             for w in words:
-                if random.random() < self.word_dropout_perc:
+                if random.uniform(0, 1) < dropout_perc:
                     text = re.sub(
                     (r'\b{}\b').format(re.escape(w)),
                         self.mask_token, text, count=0
@@ -81,7 +92,7 @@ class MaskingSpanSampler:
         assert isinstance(text, str)
         if self.sample_spans:
             text = self._sample_spans(text=text)
-        if self.word_dropout_ratio > 0:
+        if self._word_dropout_ratio > 0:
             text = self._word_dropout(text=text)
         return text
     
