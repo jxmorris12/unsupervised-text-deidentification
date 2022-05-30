@@ -25,3 +25,7 @@ model_paths_dict["model_5"] = '/home/jxm3/research/deidentification/unsupervised
 # as performance on masked data started to get worse.
 #   wandb.ai/jack-morris/deid-wikibio-2/runs/3ge40631
 model_paths_dict["model_6"] = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas/deid-wikibio-2_default/3ge40631_445/checkpoints/epoch=3-step=18211.ckpt"
+
+# model_7 is roberta-tapas with word dropout (no prof dropout) UNIFORM SAMPLING MASKING RATE for
+# about two days. trained here.   wandb.ai/jack-morris/deid-wikibio-2/runs/26w4n18i
+model_paths_dict["model_7"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_-1.0_1.0_0.0/deid-wikibio-2_default/26w4n18i_461/checkpoints/epoch=8-step=18974.ckpt'

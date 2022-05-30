@@ -124,8 +124,10 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
 
-        self.train_dataset = self.train_dataset.map(create_document_and_profile_from_wikibio)
-        self.val_dataset = self.val_dataset.map(create_document_and_profile_from_wikibio)
+        self.train_dataset = self.train_dataset.map(
+            create_document_and_profile_from_wikibio, num_proc=max(1, self.num_workers))
+        self.val_dataset = self.val_dataset.map(
+            create_document_and_profile_from_wikibio, num_proc=max(1, self.num_workers))
 
         # Pre-tokenize profiles
         def tokenize_profile_ex(ex: Dict) -> Dict:
@@ -136,8 +138,8 @@ class WikipediaDataModule(LightningDataModule):
             )
             return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
 
-        self.train_dataset = self.train_dataset.map(tokenize_profile_ex)
-        self.val_dataset = self.val_dataset.map(tokenize_profile_ex)
+        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
+        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
         
         def redact_example(redact_func: Callable, example: Dict, suffix: str):
             # redact 'text1' field
@@ -146,20 +148,18 @@ class WikipediaDataModule(LightningDataModule):
 
         lexical_redact_func = functools.partial(
             remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
-        # self.train_dataset = self.train_dataset.map(
-        #     lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
         self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'))
+            lambda ex: redact_example(
+                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'),
+                num_proc=max(1, self.num_workers)
+        )
 
         ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
-        # self.train_dataset = self.train_dataset.map(
-        #     lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
-        #     batched=True)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
-            batched=True)
+            batched=True, num_proc=max(1, self.num_workers))
 
         # Add index column to dataset, so that we can track which profiles match to which
         # documents from precomputed embeddings.

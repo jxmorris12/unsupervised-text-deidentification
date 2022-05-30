@@ -122,7 +122,7 @@ def main(args: argparse.Namespace):
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        num_workers=min(16, num_cpus),
+        num_workers=num_cpus,
         num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
@@ -199,7 +199,7 @@ def main(args: argparse.Namespace):
             job_type='train',
             entity='jack-morris',
         )
-        wandb_logger.watch(model, log_graph=True)
+        wandb_logger.watch(model, log_graph=False)
         loggers.append(
             wandb_logger
         )
