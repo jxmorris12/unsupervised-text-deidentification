@@ -8,6 +8,8 @@ import spacy
 
 from nltk.corpus import stopwords
 
+from utils import words_from_text
+
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -31,7 +33,7 @@ def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
     new_tokens = [t.text_with_ws if not t.ent_type_ else (mask_token + t.whitespace_) for t in doc]
     return "".join(new_tokens)
 
-def remove_named_entities_spacy_batch(x_list: List[str], _ignore_arg: Any, mask_token: str = "[MASK]") -> str:
+def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> str:
     """
     Replaces named entities in each `x` from `x_list` with `mask_token`.
         Utilizes batching from spacy library via `nlp.pipe()`.
@@ -78,9 +80,9 @@ def fixed_redact_str(text: str, words_to_mask: List[str], mask_token: str) -> st
     return text
 
 def redact(document: str, p: float, idf: Dict[str, float], mask_token: str):
-    words = list(set(words_from_text(sample_doc)))
+    words = list(set(words_from_text(document)))
     words.sort(key=lambda w: (-idf.get(w, 0.0)))
-    n = round(len(sample_doc_words) * p)
+    n = round(len(words) * p)
     return fixed_redact_str(text=document, words_to_mask=words[:n], mask_token=mask_token)
 
 val_idf = None

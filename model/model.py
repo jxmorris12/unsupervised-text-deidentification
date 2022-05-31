@@ -255,23 +255,24 @@ class Model(LightningModule, abc.ABC):
         return results
     
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        document_embeddings = self.forward_document(
+        out = {}
+        out["document_embeddings"] = self.forward_document(
             batch=batch, document_type='document'
         )
-        document_redact_ner_embeddings = self.forward_document(
+        out["document_redact_ner_embeddings"] = self.forward_document(
             batch=batch, document_type='document_redact_ner'
         )
-        document_redact_lexical_embeddings = self.forward_document(
+        out["document_redact_lexical_embeddings"] = self.forward_document(
             batch=batch, document_type='document_redact_lexical'
         )
-        profile_embeddings = self.forward_profile(batch=batch)
-        return {
-            "document_embeddings": document_embeddings,
-            "document_redact_ner_embeddings": document_redact_ner_embeddings,
-            "document_redact_lexical_embeddings": document_redact_lexical_embeddings,
-            "profile_embeddings": profile_embeddings,
-            "text_key_id": batch['text_key_id']
-        }
+        out["profile_embeddings"] = self.forward_profile(batch=batch)
+        out["text_key_id"] = batch['text_key_id']
+        
+        for n in [20, 40, 60, 80]:
+            out[f"document_redact_idf_{n}_embeddings"] = self.forward_document(
+                batch=batch, document_type=f'document_redact_idf_{n}'
+            )
+        return out
 
     def _process_adv_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         # Document embeddings (redacted document - adversarial)
@@ -307,17 +308,8 @@ class Model(LightningModule, abc.ABC):
         val_outputs, adv_val_outputs = output_list
         text_key_id = torch.cat(
             [o['text_key_id'] for o in val_outputs], axis=0)
-        
-        # Get embeddings.
-        document_embeddings = torch.cat(
-            [o['document_embeddings'] for o in val_outputs], axis=0)
-        document_redact_ner_embeddings = torch.cat(
-            [o['document_redact_ner_embeddings'] for o in val_outputs], axis=0)
-        document_redact_lexical_embeddings = torch.cat(
-            [o['document_redact_lexical_embeddings'] for o in val_outputs], axis=0)
         profile_embeddings = torch.cat(
             [o['profile_embeddings'] for o in val_outputs], axis=0)
-
         # Compute loss on adversarial documents.
         for k in [1, 10, 100, 1000]:
             document_redact_adversarial_embeddings = torch.cat(
@@ -336,19 +328,35 @@ class Model(LightningModule, abc.ABC):
                 metrics_key=f'val/document_redact_adversarial_{k}'
             )
 
-        # Compute losses on regular documents.
+        # Compute losses on regular + redacted documents.
+        document_embeddings = torch.cat(
+            [o['document_embeddings'] for o in val_outputs], axis=0)
         _, doc_loss = self._compute_loss_exact(
             document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document'
         )
+
+        document_redact_ner_embeddings = torch.cat(
+            [o['document_redact_ner_embeddings'] for o in val_outputs], axis=0)
         _, doc_redact_ner_loss = self._compute_loss_exact(
             document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_ner'
         )
+
+        document_redact_lexical_embeddings = torch.cat(
+            [o['document_redact_lexical_embeddings'] for o in val_outputs], axis=0)
         _, doc_redact_lexical_loss = self._compute_loss_exact(
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_lexical'
         )
+
+        for n in [20, 40, 60, 80]:
+            document_redact_idf_embeddings = torch.cat(
+                [o[f'document_redact_idf_{n}_embeddings'] for o in val_outputs], axis=0)
+            _, doc_redact_idf_loss = self._compute_loss_exact(
+                document_redact_idf_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
+                metrics_key=f'val/document_redact_idf_{n}'
+            )
 
         # If there are multiple LR schedulers, call step() on all of them.
         lr_schedulers = self.lr_schedulers()

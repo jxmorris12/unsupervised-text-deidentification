@@ -59,15 +59,12 @@ class MaskingTokenizingDataset(Dataset):
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
         if self.is_train_dataset:
-            idf = {}
-            if idf_masking:
-                idf = get_bm25_idf(dataset)
             self.masking_span_sampler = MaskingSpanSampler(
                 word_dropout_ratio=word_dropout_ratio,
                 word_dropout_perc=word_dropout_perc,
                 sample_spans=sample_spans,
-                mask_token=document_tokenizer.mask_token
-                idf=idf
+                mask_token=document_tokenizer.mask_token,
+                idf_masking=idf_masking
             )
         else:
             self.masking_span_sampler = None
