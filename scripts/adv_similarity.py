@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 tqdm.pandas()
 
 
-def get_words_from_doc(s: List[str]) -> List[str]:
+def get_words_from_doc(s: str) -> List[str]:
     words = s.split()
     return [w for w in words if not w in eng_stopwords]
 
@@ -42,9 +42,9 @@ def get_top_matches_adv_data_bm25():
     # document_corpus = prof_data['target_text']
 
     print("tokenizing corpi")
-    # tokenized_document_corpus = [
-    #     get_words_from_doc(doc) for doc in document_corpus
-    # ]
+    tokenized_document_corpus = [
+        get_words_from_doc(doc) for doc in document_corpus
+    ]
     tokenized_profile_corpus = [
         get_words_from_doc(prof) for prof in profile_corpus
     ]

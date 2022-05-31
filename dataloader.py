@@ -14,7 +14,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
-from redact import remove_named_entities_spacy_batch, remove_overlapping_words
+from redact import remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
 from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile
 
 # 
@@ -75,6 +75,7 @@ class WikipediaDataModule(LightningDataModule):
         word_dropout_perc: float = 0.0,
         profile_row_dropout_perc: float = 0.0,
         adversarial_masking: bool = False,
+        idf_masking: bool = False,
         num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
         **kwargs,
@@ -92,6 +93,7 @@ class WikipediaDataModule(LightningDataModule):
         self.word_dropout_perc = word_dropout_perc
         self.profile_row_dropout_perc = profile_row_dropout_perc
         self.sample_spans = sample_spans
+        self.idf_masking = idf_masking
         self.adversarial_masking = adversarial_masking
         self.num_nearest_neighbors = num_nearest_neighbors
 
@@ -103,6 +105,9 @@ class WikipediaDataModule(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
+
+        if idf_masking and (word_dropout_ratio == 0 or word_dropout_perc == 0):
+            assert "can only do idf_masking with word_dropout_ratio > 0"
 
         if adversarial_masking and (word_dropout_ratio > 0):
             assert "must choose one or the other, either adversarial masking or random masking in document"
@@ -146,6 +151,7 @@ class WikipediaDataModule(LightningDataModule):
             example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
             return example
 
+        # Lexical (word overlap) redaction
         lexical_redact_func = functools.partial(
             remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
         self.val_dataset = self.val_dataset.map(
@@ -154,12 +160,38 @@ class WikipediaDataModule(LightningDataModule):
                 num_proc=max(1, self.num_workers)
         )
 
+        #  NER redaction
         ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
             batched=True, num_proc=max(1, self.num_workers))
+
+        # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
+        bm25_redact_func = lambda p: functools.partial(
+            remove_words_val_idf, p=p, mask_token=self.mask_token)
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(
+                redact_func=bm25_redact_func(0.2), example=ex, suffix='redact_bm25_20_'),
+                num_proc=max(1, self.num_workers)
+        )
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(
+                redact_func=bm25_redact_func(0.4), example=ex, suffix='redact_bm25_40_'),
+                num_proc=max(1, self.num_workers)
+        )
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(
+                redact_func=bm25_redact_func(0.6), example=ex, suffix='redact_bm25_60_'),
+                num_proc=max(1, self.num_workers)
+        )
+        self.val_dataset = self.val_dataset.map(
+            lambda ex: redact_example(
+                redact_func=bm25_redact_func(0.8), example=ex, suffix='redact_bm25_80_'),
+                num_proc=max(1, self.num_workers)
+        )
+        
 
         # Add index column to dataset, so that we can track which profiles match to which
         # documents from precomputed embeddings.
@@ -242,6 +274,7 @@ class WikipediaDataModule(LightningDataModule):
             profile_row_dropout_perc=self.profile_row_dropout_perc,
             sample_spans=self.sample_spans,
             adversarial_masking=self.adversarial_masking,
+            idf_masking=self.idf_masking,
             num_nearest_neighbors=self.num_nearest_neighbors,
             document_types=["document"],
             is_train_dataset=True
@@ -263,6 +296,8 @@ class WikipediaDataModule(LightningDataModule):
             word_dropout_perc=0.0,
             profile_row_dropout_perc=0.0,
             sample_spans=False,
+            adversarial_masking=False,
+            idf_masking=False,
             document_types=["document", "document_redact_ner", "document_redact_lexical"],
             is_train_dataset=False
         )
@@ -275,6 +310,8 @@ class WikipediaDataModule(LightningDataModule):
             word_dropout_perc=0.0,
             profile_row_dropout_perc=0.0,
             sample_spans=False,
+            adversarial_masking=False,
+            idf_masking=False,
             document_types=["adv_document_1", "adv_document_10", "adv_document_100", "adv_document_1000"],
             is_train_dataset=False
         )

@@ -79,6 +79,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--adversarial_masking', '--adv_k', 
         default=False, action='store_true', help='whether to do adversarial masking'
     )
+    parser.add_argument('--idf_masking', 
+        default=False, action='store_true', help='whether to do idf-based masking (via bm25)'
+    )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
@@ -119,6 +122,7 @@ def main(args: argparse.Namespace):
         word_dropout_perc=args.word_dropout_perc,
         profile_row_dropout_perc=args.profile_row_dropout_perc,
         adversarial_masking=args.adversarial_masking,
+        idf_masking=args.idf_masking,
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,

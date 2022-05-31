@@ -1,7 +1,9 @@
-from typing import Any, List
+from typing import Any, Dict, List
 
 import os
+import pickle
 import re
+
 import spacy
 
 from nltk.corpus import stopwords
@@ -66,6 +68,28 @@ def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", case_
             re_replace = re.compile(re.escape(word.lower()), re.IGNORECASE)
             t1 = re_replace.sub(mask_token, t1)
     return t1
+
+def fixed_redact_str(text: str, words_to_mask: List[str], mask_token: str) -> str:
+    for w in words_to_mask:
+        text = re.sub(
+            (r'\b{}\b').format(re.escape(w)),
+            mask_token, text, count=0
+        )
+    return text
+
+def redact(document: str, p: float, idf: Dict[str, float], mask_token: str):
+    words = list(set(words_from_text(sample_doc)))
+    words.sort(key=lambda w: (-idf.get(w, 0.0)))
+    n = round(len(sample_doc_words) * p)
+    return fixed_redact_str(text=document, words_to_mask=words[:n], mask_token=mask_token)
+
+val_idf = None
+def remove_words_val_idf(document: str, p: float, mask_token: str) -> str:
+    global val_idf
+    if val_idf is None:
+        val_idf = pickle.load(open('val_100_idf.p', 'rb'))
+    return redact(document=document, p=p, idf=val_idf, mask_token=mask_token)
+    
 
 if __name__ == '__main__':
     # print(remove_named_entities_spacy("Apple is looking. And looking. And looking at buying U.K. startup for $1 billion!"))
