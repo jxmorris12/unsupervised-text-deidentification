@@ -58,6 +58,8 @@ class MaskingTokenizingDataset(Dataset):
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
+        self._cache = {}
+
         if self.is_train_dataset:
             self.masking_span_sampler = MaskingSpanSampler(
                 word_dropout_ratio=word_dropout_ratio,
@@ -224,7 +226,7 @@ class MaskingTokenizingDataset(Dataset):
         out_ex["profile_neighbor_idxs"] = torch.tensor(neighbor_idxs)
         return out_ex
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def _getitem_uncached(self, idx: int) -> Dict[str, torch.Tensor]:
         """Gets an item from the dataset."""
         ex = self.dataset[idx]
 
@@ -302,3 +304,12 @@ class MaskingTokenizingDataset(Dataset):
 
         return out_ex
 
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        if self.is_train_dataset:
+            # Don't cache training data. We want to re-generate random stuff
+            # every time. (Also it's probably too slow.)
+            return self._getitem_uncached(idx=idx)
+        else:
+            if idx not in self._cache:
+                self._cache[idx] = self._getitem_uncached(idx=idx)
+            return self._cache[idx]

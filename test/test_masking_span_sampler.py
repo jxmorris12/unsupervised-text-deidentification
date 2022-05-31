@@ -15,7 +15,7 @@ class TestMaskingSpanSampler:
         y = mt.random_redact_str(x)
         assert x == y
 
-    def test_word_dropout(self):
+    def test_word_dropout_50(self):
         """Word dropout 50% should work at least a little."""
         mask_token = "<mask>"
         num_words = 10
@@ -32,6 +32,65 @@ class TestMaskingSpanSampler:
         assert outputs.count(mask_token) > 0
         # Make sure they are not all masks
         assert outputs.count(mask_token) < num_words
+
+    def test_word_dropout_uniform(self):
+        """Word dropout with uniformly sampled p should work at least a little."""
+        mask_token = "<mask>"
+        num_words = 10
+        mt = MaskingSpanSampler(
+            word_dropout_ratio=1.0,
+            word_dropout_perc=-1.0,
+            sample_spans=False,
+            mask_token=mask_token
+        )
+        outputs = mt.random_redact_str(
+            "Silly seller Sally sells scaly seashells by the southern seashore"
+        )
+        # Make sure there are some masks (maybe)
+        assert outputs.count(mask_token) >= 0
+        # Make sure they are not all masks (or they are, in this case...)
+        assert outputs.count(mask_token) <= num_words
+
+    def test_word_dropout_uniform_idf_sally(self):
+        """Word dropout with uniformly sampled p and TF-IDF weighting should work at least a little."""
+        mask_token = "<mask>"
+        num_words = 10
+        mt = MaskingSpanSampler(
+            word_dropout_ratio=1.0,
+            word_dropout_perc=-1.0,
+            sample_spans=False,
+            mask_token=mask_token,
+            idf_masking=True
+        )
+        outputs = mt.random_redact_str(
+            "Silly seller Sally sells scaly seashells by the southern seashore"
+        )
+        # Make sure there are some masks
+        assert outputs.count(mask_token) > 0
+        # Make sure they are not all masks (or they are, in this case...)
+        assert outputs.count(mask_token) <= num_words
+
+
+    def test_word_dropout_uniform_idf_christiane_soeder(self):
+        """Word dropout with uniformly sampled p and TF-IDF weighting should work at least a little."""
+        mask_token = "<mask>"
+        mt = MaskingSpanSampler(
+            word_dropout_ratio=1.0,
+            word_dropout_perc=-1.0,
+            sample_spans=False,
+            mask_token=mask_token,
+            idf_masking=True
+        )
+        s = "christiane soeder -lrb- born january 15 , 1975 in remscheid , north rhine-westphalia -rrb- is a german-born austrian road racing cyclist and former duathlete who now lives in vienna .she finished fourth in the 2008 olympic road race with a time of 3h 32 ′ 28 .she rides professionally for .	"
+        max_num_words = len(s.split())
+        outputs = mt.random_redact_str(
+            s
+        )
+        # Make sure there are some masks
+        assert outputs.count(mask_token) > 0
+        # Make sure they are not all masks (or they are, in this case...)
+        assert outputs.count(mask_token) <= max_num_words
+
     
     def test_sample_spans_str(self):
         """Sample-spans set to true should work, and not mask anything."""
