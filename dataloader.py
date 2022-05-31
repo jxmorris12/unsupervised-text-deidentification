@@ -146,9 +146,16 @@ class WikipediaDataModule(LightningDataModule):
         self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
         self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
         
-        def redact_example(redact_func: Callable, example: Dict, suffix: str):
-            # redact 'text1' field
-            example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
+        def redact_example(
+                redact_func: Callable,
+                example: Dict,
+                suffix: str,
+                include_profile: bool = True
+            ):
+            if include_profile:
+                example[f'document_{suffix}'] = redact_func(example['document'], example['profile'])
+            else:
+                example[f'document_{suffix}'] = redact_func(example['document'])
             return example
 
         # Lexical (word overlap) redaction
@@ -156,7 +163,7 @@ class WikipediaDataModule(LightningDataModule):
             remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical'),
+                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
                 num_proc=max(1, self.num_workers)
         )
 
@@ -165,7 +172,7 @@ class WikipediaDataModule(LightningDataModule):
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
         self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner'),
+            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
             batched=True, num_proc=max(1, self.num_workers))
 
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
@@ -173,22 +180,22 @@ class WikipediaDataModule(LightningDataModule):
             remove_words_val_idf, p=p, mask_token=self.mask_token)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.2), example=ex, suffix='redact_bm25_20_'),
+                redact_func=bm25_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.4), example=ex, suffix='redact_bm25_40_'),
+                redact_func=bm25_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.6), example=ex, suffix='redact_bm25_60_'),
+                redact_func=bm25_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.8), example=ex, suffix='redact_bm25_80_'),
+                redact_func=bm25_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         
@@ -298,7 +305,11 @@ class WikipediaDataModule(LightningDataModule):
             sample_spans=False,
             adversarial_masking=False,
             idf_masking=False,
-            document_types=["document", "document_redact_ner", "document_redact_lexical"],
+            document_types=[
+                "document", "document_redact_ner", "document_redact_lexical", 
+                "document_redact_idf_20",  "document_redact_idf_40",
+                "document_redact_idf_60",  "document_redact_idf_80"
+            ],
             is_train_dataset=False
         )
         adv_val_tokenizing_dataset = MaskingTokenizingDataset(

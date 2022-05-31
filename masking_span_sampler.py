@@ -21,8 +21,10 @@ class MaskingSpanSampler:
     _word_dropout_perc: float      # Percentage of words to replace with mask token
     sample_spans: bool             # Whether or not to sample spans.
     dropout_stopwords: bool
+    idf_masking: bool              # Whether to do masking in order of word IDF.
     mask_token: str
     min_num_words: int
+    idf: Dict[str, float]
 
     def __init__(
             self,
@@ -31,7 +33,8 @@ class MaskingSpanSampler:
             mask_token: str,
             sample_spans: bool,
             min_num_words: int = 8,
-            dropout_stopwords: bool = True
+            dropout_stopwords: bool = True,
+            idf_masking: bool = False,
         ):
         self._word_dropout_ratio = word_dropout_ratio
         self._word_dropout_perc = word_dropout_perc
@@ -39,6 +42,12 @@ class MaskingSpanSampler:
         self.sample_spans = sample_spans
         self.mask_token = mask_token
         self.min_num_words = min_num_words
+        self.idf_masking = idf_masking
+
+        if self.idf_masking:
+            self.idf = pickle.load(open('./train_100_idf.p', 'wb'))
+        else:
+            self.idf = {}
 
     def _sample_spans(self, text: str) -> str:
         """Sample spans of some words from `text`."""
@@ -77,6 +86,7 @@ class MaskingSpanSampler:
                 words = words - eng_stopwords
             
             dropout_perc = self.word_dropout_perc()
+            # TODO idf-weighted dropout
             for w in words:
                 if random.uniform(0, 1) < dropout_perc:
                     text = re.sub(
