@@ -1,6 +1,8 @@
 from typing import Dict, List
 
 import functools
+import pickle
+import numpy as np
 import re
 import random
 
@@ -45,15 +47,12 @@ class MaskingSpanSampler:
         self.idf_masking = idf_masking
 
         if self.idf_masking:
-            self.idf = pickle.load(open('./train_100_idf.p', 'wb'))
+            self.idf = pickle.load(open('./train_100_idf.p', 'rb'))
         else:
             self.idf = {}
 
     def _sample_spans(self, text: str) -> str:
         """Sample spans of some words from `text`."""
-        #
-        # [1/2] Sample spans of words.
-        #
         start_and_end_idxs = word_start_and_end_idxs_from_text(text)
         num_words = len(start_and_end_idxs)
 
@@ -85,14 +84,28 @@ class MaskingSpanSampler:
             if not self.dropout_stopwords:
                 words = words - eng_stopwords
             
-            dropout_perc = self.word_dropout_perc()
-            # TODO idf-weighted dropout
+            p = self.word_dropout_perc()
+            n = round(len(words) * p)
+
+            words = list(words)
+            if self.idf_masking:
+                # Sample words proportional to IDF.
+                # TODO consider temperature val here?
+                eps = 1e-9
+                temp = 1
+                p = np.array([(self.idf.get(w, 1.0) + eps) * np.exp(temp) for w in words])
+                p /= p.sum()
+                words = np.random.choice(words, size=n, replace=False, p=p).tolist()
+                assert len(words) == n
+            else:
+                random.shuffle(words)
+                words = words[:n]
+
             for w in words:
-                if random.uniform(0, 1) < dropout_perc:
-                    text = re.sub(
-                    (r'\b{}\b').format(re.escape(w)),
-                        self.mask_token, text, count=0
-                    )
+                text = re.sub(
+                (r'\b{}\b').format(re.escape(w)),
+                    self.mask_token, text, count=0
+                )
         return text
     
     def random_redact_str(self, text: str) -> str:

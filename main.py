@@ -180,6 +180,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__sample_spans'
     if args.adversarial_masking:
         exp_name += f'__adv'
+    if args.idf_masking:
+        exp_name += f'__idf'
     if args.num_nearest_neighbors:
         exp_name += f'__n_{args.num_nearest_neighbors}'
     if args.word_dropout_ratio or args.profile_row_dropout_perc:
