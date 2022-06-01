@@ -87,6 +87,9 @@ class MaskingSpanSampler:
             p = self.word_dropout_perc()
             n = round(len(words) * p)
 
+            if (n == 0) or (len(words) == 0):
+                return text
+
             words = list(words)
             if self.idf_masking:
                 # Sample words proportional to IDF.
@@ -94,7 +97,11 @@ class MaskingSpanSampler:
                 eps = 1e-9
                 temp = 1
                 p = np.array([(self.idf.get(w, 1.0) + eps) * np.exp(temp) for w in words])
+                p = p.astype('float64')
+                # silly normalization trick, via
+                # stackoverflow.com/questions/71262481/how-to-avoid-roundoff-errors-in-numpy-random-choice
                 p /= p.sum()
+                p[-1] = 1 - np.sum(p[0:-1])
                 words = np.random.choice(words, size=n, replace=False, p=p).tolist()
                 assert len(words) == n
             else:
