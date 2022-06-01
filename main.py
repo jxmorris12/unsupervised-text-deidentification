@@ -47,7 +47,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--grad_norm_clip', type=float, default=5.0)
+    parser.add_argument('--grad_norm_clip', type=float, default=10.0)
     
     parser.add_argument('--num_nearest_neighbors', '--n',
         type=int, default=0,
@@ -55,7 +55,7 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
-        default='roberta', choices=['distilbert', 'bert', 'roberta'])
+        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
     parser.add_argument('--profile_model_name', '--profile_model', type=str,
         default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
     
@@ -100,6 +100,10 @@ def transformers_name_from_name(name: str) -> str:
         return 'bert-base-uncased'
     elif name == 'distilbert':
         return 'distilbert-base-uncased'
+    elif name == 'pmlm-r':
+        return 'jxm/u-PMLM-R'
+    elif name == 'pmlm-a':
+        return 'jxm/u-PMLM-A'
     else:
         return f'unsupported model name {name}'
 

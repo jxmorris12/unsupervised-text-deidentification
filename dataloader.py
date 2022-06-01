@@ -290,6 +290,7 @@ class WikipediaDataModule(LightningDataModule):
             train_tokenizing_dataset,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
             shuffle=True
         )
 
@@ -331,12 +332,14 @@ class WikipediaDataModule(LightningDataModule):
                 val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
+                pin_memory=True,
                 shuffle=False
             ),
             DataLoader(
                 adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
+                pin_memory=True,
                 shuffle=False
             )
         ]
