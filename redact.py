@@ -53,23 +53,19 @@ def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MAS
     ]
     return ["".join(new_tokens) for new_tokens in new_tokens_list]
 
-def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", case_sensitive=False) -> str:
+def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", ignore_stopwords=False) -> str:
     """Replaces words in `t1` that occur in `t2` with `mask_token`.
 
-    Ignores english stopwords. If case_sensitive=False, will replace without checking case.
+    Also known as "lexical redaction".
+
+    Optionally ignores english stopwords.
     
     """
-    for word in t2.split():
-        if word.lower() in eng_stopwords:
-            continue
-
-        if case_sensitive:
-            t1 = t1.replace(word, mask_token)
-        else:
-            # stackoverflow.com/questions/919056/case-insensitive-replace
-            re_replace = re.compile(re.escape(word.lower()), re.IGNORECASE)
-            t1 = re_replace.sub(mask_token, t1)
-    return t1
+    words_to_mask = set(t2.split())
+    if ignore_stopwords:
+        words_to_mask -= eng_stopwords
+    
+    return fixed_redact_str(t1, words_to_mask=words_to_mask, mask_token=mask_token)
 
 def fixed_redact_str(text: str, words_to_mask: List[str], mask_token: str) -> str:
     for w in words_to_mask:

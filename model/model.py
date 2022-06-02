@@ -24,6 +24,9 @@ class Model(LightningModule, abc.ABC):
     total_steps: int
     steps_per_epoch: int
 
+    _optim_steps: Dict[str, int]
+    warmup_epochs: float
+
     pretrained_profile_encoder: bool
 
     def __init__(
@@ -38,7 +41,7 @@ class Model(LightningModule, abc.ABC):
         warmup_steps: int = 0,
         train_batch_size: int = 32,
         shared_embedding_dim: int = 768,
-        warmup_epochs: int = 2,
+        warmup_epochs: float = 0.2,
         pretrained_profile_encoder: bool = False,
         **kwargs,
     ):
@@ -49,11 +52,11 @@ class Model(LightningModule, abc.ABC):
 
         self.shared_embedding_dim = shared_embedding_dim
         self.document_embed = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.05),
+            torch.nn.Dropout(p=0.00),
             torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.profile_embed = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.05),
+            torch.nn.Dropout(p=0.00),
             torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
