@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 import transformers
 
+from model import ContrastiveModel, ConcurrentCoordinateAscentModel, CoordinateAscentModel
+
 
 def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
     """Finds row in wikipedia infobox by a key
@@ -145,3 +147,10 @@ def tokenize_profile(
             return_tensors='pt',
         )
     return profile_tokenized
+
+
+model_cls_dict = {
+    'coordinate_ascent': CoordinateAscentModel,
+    'concurrent_coordinate_ascent': ConcurrentCoordinateAscentModel,
+    'contrastive': ContrastiveModel,
+}

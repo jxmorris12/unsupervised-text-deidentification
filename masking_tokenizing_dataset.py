@@ -203,7 +203,8 @@ class MaskingTokenizingDataset(Dataset):
         # Get IDs of individual words, but special tokens have None, so replace those with 0, so
         # as not to get confused with word 0.
         encoding_dict["word_ids"] = torch.tensor([
-            [_id+1 if (_id is not None) else 0 for _id in encoding.word_ids()]], dtype=torch.int64)
+            [_id+1 if (_id is not None) else 0 for _id in encoding.word_ids()]], dtype=torch.int64
+        )
         return encoding_dict
     
     def _get_nearest_neighbors(self, ex: Dict[str, str]) -> torch.Tensor:

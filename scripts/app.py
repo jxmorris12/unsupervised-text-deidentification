@@ -23,7 +23,7 @@ def precompute_profile_embeddings(model: DocumentProfileMatchingTransformer, dat
     model.document_embed.eval()
     print('Precomputing document embeddings before first epoch...')
 
-    model.val_document_embeddings = np.zeros((len(datamodule.val_dataset), model.profile_embedding_dim))
+    model.val_document_embeddings = np.zeros((len(datamodule.val_dataset), model.shared_embedding_dim))
     for val_batch in tqdm.tqdm(datamodule.val_dataloader(), desc="[1/2] Precomputing val embeddings - document", colour="cyan", leave=False):
         with torch.no_grad():
             document_embeddings = model.forward_document_text(text=val_batch["document"])
@@ -33,7 +33,7 @@ def precompute_profile_embeddings(model: DocumentProfileMatchingTransformer, dat
     model.profile_model.cuda()
     model.profile_model.eval()
     print('Precomputing profile embeddings before first epoch...')
-    model.val_profile_embeddings = np.zeros((len(datamodule.val_dataset), model.profile_embedding_dim))
+    model.val_profile_embeddings = np.zeros((len(datamodule.val_dataset), model.shared_embedding_dim))
     for val_batch in tqdm.tqdm(datamodule.val_dataloader(), desc="[2/2] Precomputing val embeddings - profile", colour="green", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile_text(text=val_batch["profile"])
