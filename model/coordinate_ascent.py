@@ -1,6 +1,7 @@
 from typing import Dict
 
 import abc
+import collections
 
 import numpy as np
 import torch
@@ -45,6 +46,7 @@ class CoordinateAscentModel(Model):
         self.document_model.train()
 
     def on_train_epoch_start(self):
+        document_optimizer, profile_optimizer = self.optimizers()
         # We only want to keep one model on GPU at a time during training.
         if self._document_encoder_is_training:
             self.train_document_embeddings = None
@@ -57,6 +59,8 @@ class CoordinateAscentModel(Model):
             self.document_embed.train()
             self.profile_model.cpu()
             self.profile_embed.cpu()
+            #  Reset optimizer state
+            document_optimizer.state = collections.defaultdict(dict)
         else:
             self.train_profile_embeddings = None
             self._precompute_document_embeddings()
@@ -68,6 +72,8 @@ class CoordinateAscentModel(Model):
             self.profile_model.train()
             self.profile_embed.cuda()
             self.profile_embed.train()
+            #  Reset optimizer state
+            profile_optimizer.state = collections.defaultdict(dict)
         self.log("document_encoder_is_training", float(self._document_encoder_is_training))
 
     def training_epoch_end(self, training_step_outputs: Dict):
@@ -151,6 +157,10 @@ class CoordinateAscentModel(Model):
         document_optimizer = torch.optim.AdamW(
             list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature], lr=self.document_learning_rate, eps=self.hparams.adam_epsilon
         )
+        # document_optimizer = torch.optim.SGD(
+        #     list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature],
+        #     lr=self.document_learning_rate, momentum=0.9
+        # )
         document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             document_optimizer, mode='min',
             factor=self.lr_scheduler_factor,
@@ -168,6 +178,10 @@ class CoordinateAscentModel(Model):
         profile_optimizer = torch.optim.AdamW(
             list(self.profile_model.parameters()) + list(self.profile_embed.parameters()) + [self.temperature], lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon
         )
+        # profile_optimizer = torch.optim.SGD(
+        #     list(self.document_model.parameters()) + list(self.document_embed.parameters()) + [self.temperature],
+        #     lr=self.profile_learning_rate, momentum=0.9
+        # )
         profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             profile_optimizer, mode='min',
             factor=self.lr_scheduler_factor,

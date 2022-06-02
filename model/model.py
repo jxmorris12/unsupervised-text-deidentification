@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 import abc
+import collections
 
 import numpy as np
 import torch
@@ -20,6 +21,9 @@ class Model(LightningModule, abc.ABC):
     lr_scheduler_patience: int
     grad_norm_clip: float
 
+    total_steps: int
+    steps_per_epoch: int
+
     pretrained_profile_encoder: bool
 
     def __init__(
@@ -34,6 +38,7 @@ class Model(LightningModule, abc.ABC):
         warmup_steps: int = 0,
         train_batch_size: int = 32,
         shared_embedding_dim: int = 768,
+        warmup_epochs: int = 2,
         pretrained_profile_encoder: bool = False,
         **kwargs,
     ):
@@ -44,11 +49,11 @@ class Model(LightningModule, abc.ABC):
 
         self.shared_embedding_dim = shared_embedding_dim
         self.document_embed = torch.nn.Sequential(
-            # torch.nn.Dropout(p=0.1),
+            torch.nn.Dropout(p=0.05),
             torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.profile_embed = torch.nn.Sequential(
-            # torch.nn.Dropout(p=0.1),
+            torch.nn.Dropout(p=0.05),
             torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
@@ -61,6 +66,9 @@ class Model(LightningModule, abc.ABC):
         self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
+
+        self._optim_steps = collections.defaultdict(lambda: 0)
+        self.warmup_epochs = warmup_epochs
 
         print(f'Initialized model with learning_rate = {learning_rate} and patience {self.lr_scheduler_patience}')
         
@@ -212,6 +220,25 @@ class Model(LightningModule, abc.ABC):
     @abc.abstractmethod
     def compute_loss(self) -> Dict[str, torch.Tensor]:
         raise NotImplementedError()
+    
+    def _step_optimizer_with_warmup(self, optimizer: torch.optim.Optimizer):
+        """Applies linear warmup during the first `warmup_steps`.
+        
+        Tracks warmup *for each optimizer*.
+        """
+        self._optim_steps[hash(optimizer)] += 1
+        optim_steps = self._optim_steps[hash(optimizer)]
+
+        warmup_steps = self.warmup_epochs * self.steps_per_epoch
+        if optim_steps < warmup_steps:
+            lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
+            for pg in optimizer.param_groups:
+                pg['lr'] = lr_scale * self.document_learning_rate
+
+        optimizer.step()
+        optimizer.zero_grad()
+
+        self.log("learning_rate", optimizer.param_groups[0]['lr'])
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         # Alternate between training phases per epoch.
@@ -227,7 +254,7 @@ class Model(LightningModule, abc.ABC):
 
         self.manual_backward(results["loss"])
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
-        optimizer.step()
+        self._step_optimizer_with_warmup(optimizer)
 
         # Log number of masks in training inputs.
         mask_token = self.trainer.train_dataloader.loaders.dataset.document_tokenizer.mask_token_id
@@ -392,5 +419,6 @@ class Model(LightningModule, abc.ABC):
         train_loader = self.trainer.datamodule.train_dataloader()
         # Calculate total steps
         tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
-        ab_size = self.trainer.accumulate_grad_batches * float(self.trainer.max_epochs)
-        self.total_steps = (len(train_loader.dataset) // tb_size) // ab_size
+        ab_size = self.trainer.accumulate_grad_batches
+        self.steps_per_epoch = (len(train_loader.dataset) // tb_size) // ab_size
+        self.total_steps = self.steps_per_epoch * float(self.trainer.max_epochs)
