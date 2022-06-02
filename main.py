@@ -154,7 +154,7 @@ def main(args: argparse.Namespace):
             lr_scheduler_patience=args.lr_scheduler_patience,
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
-            gradient_clip_val=args.grad_norm_clip
+            gradient_clip_val=args.grad_norm_clip,
             shared_embedding_dim=args.shared_embedding_dim,
         )
     else:
