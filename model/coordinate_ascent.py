@@ -16,12 +16,14 @@ class CoordinateAscentModel(Model):
     
     def _precompute_profile_embeddings(self):
         self.profile_model.cuda()
+        self.profile_embed.cuda()
         # In my experiments, train mode here seems to work as well or better.
         # self.profile_model.eval()
         self.profile_model.train()
+        self.profile_embed.train()
         # print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
-        self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing train embeddings", colour="magenta", leave=False):
+        self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+        for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing profile embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile(batch=train_batch)
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
@@ -34,8 +36,8 @@ class CoordinateAscentModel(Model):
         # self.document_model.eval()
         self.document_model.train()
         # print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
-        self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
-        for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing train embeddings", colour="magenta", leave=False):
+        self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+        for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing document embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 document_embeddings = self.forward_document(batch=train_batch, document_type='document')
             self.train_document_embeddings[train_batch["text_key_id"]] = document_embeddings.cpu()
@@ -43,17 +45,18 @@ class CoordinateAscentModel(Model):
         self.document_model.train()
 
     def on_train_epoch_start(self):
-        # We only want to keep one model on GPU at a time.
+        # We only want to keep one model on GPU at a time during training.
         if self._document_encoder_is_training:
             self.train_document_embeddings = None
             self._precompute_profile_embeddings()
             self.train_profile_embeddings = self.train_profile_embeddings.cuda()
             # 
             self.document_model.cuda()
-            self.document_embed.cuda()
             self.document_model.train()
+            self.document_embed.cuda()
             self.document_embed.train()
             self.profile_model.cpu()
+            self.profile_embed.cpu()
         else:
             self.train_profile_embeddings = None
             self._precompute_document_embeddings()
@@ -63,17 +66,18 @@ class CoordinateAscentModel(Model):
             self.document_embed.cpu()
             self.profile_model.cuda()
             self.profile_model.train()
+            self.profile_embed.cuda()
+            self.profile_embed.train()
         self.log("document_encoder_is_training", float(self._document_encoder_is_training))
 
     def training_epoch_end(self, training_step_outputs: Dict):
         if self._document_encoder_is_training:
-            self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
+            self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
             for output in training_step_outputs:
                 self.train_document_embeddings[output["text_key_id"]] = output["document_embeddings"]
             self.train_document_embeddings = torch.tensor(self.train_document_embeddings, requires_grad=False, dtype=torch.float32)
         else:
-            # TODO: fix this as it assumes profile and doc embeddings are the same shape.
-            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.profile_embedding_dim))
+            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
             for output in training_step_outputs:
                 self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
             self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, requires_grad=False, dtype=torch.float32)
@@ -162,7 +166,7 @@ class CoordinateAscentModel(Model):
         }
 
         profile_optimizer = torch.optim.AdamW(
-            list(self.profile_model.parameters()) + [self.temperature], lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon
+            list(self.profile_model.parameters()) + list(self.profile_embed.parameters()) + [self.temperature], lr=self.profile_learning_rate, eps=self.hparams.adam_epsilon
         )
         profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             profile_optimizer, mode='min',

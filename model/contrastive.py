@@ -104,6 +104,7 @@ class ContrastiveModel(Model):
                 list(self.document_model.parameters()) + 
                 list(self.document_embed.parameters()) + 
                 list(self.profile_model.parameters()) +
+                list(self.profile_embed.parameters()) + 
                 [self.temperature]
             ), lr=self.document_learning_rate,
             eps=self.hparams.adam_epsilon

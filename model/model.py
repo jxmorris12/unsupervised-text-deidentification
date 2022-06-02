@@ -11,10 +11,7 @@ from transformers import AutoModel
 
 
 class Model(LightningModule, abc.ABC):
-    """Encodes profiles using pre-computed encodings. Uses nearest-neighbors
-    to create 'hard negatives' to get similarity.
-    """
-    profile_embedding_dim: int
+    shared_embedding_dim: int
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
 
@@ -36,6 +33,7 @@ class Model(LightningModule, abc.ABC):
         adam_epsilon: float = 1e-8,
         warmup_steps: int = 0,
         train_batch_size: int = 32,
+        shared_embedding_dim: int = 768,
         pretrained_profile_encoder: bool = False,
         **kwargs,
     ):
@@ -44,10 +42,14 @@ class Model(LightningModule, abc.ABC):
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
-        self.profile_embedding_dim = 768
+        self.shared_embedding_dim = shared_embedding_dim
         self.document_embed = torch.nn.Sequential(
             # torch.nn.Dropout(p=0.1),
-            torch.nn.Linear(in_features=768, out_features=self.profile_embedding_dim, dtype=torch.float32),
+            torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
+        )
+        self.profile_embed = torch.nn.Sequential(
+            # torch.nn.Dropout(p=0.1),
+            torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
             torch.tensor(1.0, dtype=torch.float32), requires_grad=True
@@ -125,7 +127,6 @@ class Model(LightningModule, abc.ABC):
         ) -> torch.Tensor:
         """Computes classification loss from document embeddings to profile embeddings. 
         
-        There are typically many more profiles than documents.
         Args:
             document_embeddings (float torch.Tensor) - document embeddings for batch, of shape (batch, emb_dim)
             profile_embeddings (float torch.Tensor) - all profile embeddings in dataset, of shape (num_profiles, emb_dim)
@@ -175,9 +176,9 @@ class Model(LightningModule, abc.ABC):
         if "word_ids" in inputs: del inputs["word_ids"]
 
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
-        document_outputs = self.document_model(**inputs)                        # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
-        document_embeddings = document_outputs['last_hidden_state'][:, 0, :]    # (batch, document_emb_dim)
-        document_embeddings = self.document_embed(document_embeddings)          # (batch, document_emb_dim) -> (batch, prof_emb_dim)
+        document_outputs = self.document_model(**inputs)                           # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
+        document_embeddings = document_outputs['last_hidden_state'].mean(dim=1)    # (batch, document_emb_dim)
+        document_embeddings = self.document_embed(document_embeddings)             # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
         
     def forward_document(self, batch: List[str], document_type: str, return_inputs: bool = False) -> torch.Tensor:
@@ -201,7 +202,8 @@ class Model(LightningModule, abc.ABC):
             }
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
         output = self.profile_model(**inputs)
-        return output['last_hidden_state'][:, 0, :]
+        profile_embeddings = output['last_hidden_state'].mean(dim=1)
+        return self.profile_embed(profile_embeddings)
 
     @abc.abstractmethod
     def get_optimizer(self) -> torch.optim.Optimizer:
@@ -216,6 +218,7 @@ class Model(LightningModule, abc.ABC):
         assert self.document_model.training
         assert self.document_embed.training
         assert self.profile_model.training
+        assert self.profile_embed.training
 
         optimizer = self.get_optimizer()
         optimizer.zero_grad()
@@ -287,14 +290,23 @@ class Model(LightningModule, abc.ABC):
         return out_embeddings
     
     def on_validation_start(self):
+        # 
         self.profile_model.cuda()
+        self.profile_embed.cuda()
         self.document_model.cuda()
         self.document_embed.cuda()
+        # 
+        self.profile_model.eval()
+        self.profile_embed.eval()
+        self.document_model.eval()
+        self.document_embed.eval()
+        # 
 
     def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx: int=0) -> Dict[str, torch.Tensor]:
         assert not self.document_model.training
         assert not self.document_embed.training
         assert not self.profile_model.training
+        assert not self.profile_embed.training
 
         assert dataloader_idx in [0, 1]
         with torch.no_grad():
@@ -368,7 +380,7 @@ class Model(LightningModule, abc.ABC):
             # scheduler.step(doc_redact_ner_loss)
             # scheduler.step(doc_redact_lexical_loss)
             scheduler.step(
-                self.trainer.logged_metrics.get('val/document_redact_adversarial_1/loss', 100.0)
+                self.trainer.logged_metrics.get('val/document_redact_adversarial_100/loss', 100.0)
             )
         return doc_loss
 

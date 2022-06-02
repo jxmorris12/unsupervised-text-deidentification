@@ -8,6 +8,8 @@ from pytorch_lightning import Trainer, seed_everything
 
 from dataloader import WikipediaDataModule
 from model import ContrastiveModel, CoordinateAscentModel
+from utils import model_cls_dict
+
 
 class TestEnd2End:
     @pytest.fixture
@@ -36,10 +38,6 @@ class TestEnd2End:
         )
         dm.setup("fit")
         
-        model_cls_dict = {
-            'coordinate_ascent': CoordinateAscentModel,
-            'contrastive': ContrastiveModel,
-        }
         model = model_cls_dict[loss_fn](
             document_model_name_or_path=document_model,
             profile_model_name_or_path=profile_model,
@@ -96,11 +94,11 @@ class TestEnd2End:
             precision=precision
         )
 
-    @pytest.mark.parametrize("loss_fn", ["coordinate_ascent", "contrastive"])
+    @pytest.mark.parametrize("loss_fn", ["concurrent_coordinate_ascent", "coordinate_ascent", "contrastive"])
     def test_e2e_tapas(self, tmpdir: str, loss_fn: str):
         self._run_e2e_test(tmpdir, loss_fn, 'distilbert-base-uncased',  'google/tapas-base', 32)
     
-    @pytest.mark.parametrize("loss_fn", ["coordinate_ascent", "contrastive"])
+    @pytest.mark.parametrize("loss_fn", ["concurrent_coordinate_ascent", "coordinate_ascent", "contrastive"])
     def test_inference_roberta_distilbert(self, loss_fn):
         dm, model = self._get_dm_and_model(
             loss_fn=loss_fn,

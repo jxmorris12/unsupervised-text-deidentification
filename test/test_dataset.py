@@ -78,7 +78,7 @@ class TestWikiDataset:
             max_seq_length=max_seq_length,
             mask_token='<mask>',
             dataset_name='wiki_bio',
-            dataset_train_split='train[:10%]',
+            dataset_train_split='train[:1%]',
             dataset_val_split='val[:64]',
             dataset_version='1.2.0',
             num_workers=num_cpus,

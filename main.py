@@ -14,7 +14,7 @@ from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, Mode
 from transformers import AutoTokenizer
 
 from dataloader import WikipediaDataModule
-from model import ContrastiveModel, CoordinateAscentModel
+from utils import model_cls_dict
 
 USE_WANDB = True
 
@@ -32,7 +32,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--checkpoint_path', type=str, default='')
 
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
-        choices=['coordinate_ascent', 'contrastive'],
+        choices=['coordinate_ascent', 'concurrent_coordinate_ascent', 'contrastive'],
         default='coordinate_ascent',
         help='loss function to use for training'
     )
@@ -47,7 +47,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--grad_norm_clip', type=float, default=10.0)
+    parser.add_argument('--grad_norm_clip', type=float, default=5.0)
     
     parser.add_argument('--num_nearest_neighbors', '--n',
         type=int, default=0,
@@ -58,6 +58,9 @@ def get_args() -> argparse.Namespace:
         default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
     parser.add_argument('--profile_model_name', '--profile_model', type=str,
         default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
+
+    parser.add_argument('--shared_embedding_dim', '--e', type=int, default=768,
+        help='size of shared embeddings')
     
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
         help='percentage of the time to apply word dropout')
@@ -134,11 +137,6 @@ def main(args: argparse.Namespace):
         num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
-
-    model_cls_dict = {
-        'coordinate_ascent': CoordinateAscentModel,
-        'contrastive': ContrastiveModel,
-    }
     model_cls = model_cls_dict[args.loss_function]
 
     # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
@@ -157,6 +155,7 @@ def main(args: argparse.Namespace):
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
             gradient_clip_val=args.grad_norm_clip
+            shared_embedding_dim=args.shared_embedding_dim,
         )
     else:
         model = model_cls(
@@ -169,12 +168,14 @@ def main(args: argparse.Namespace):
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
             gradient_clip_val=args.grad_norm_clip,
+            shared_embedding_dim=args.shared_embedding_dim,
         )
 
     loggers = []
 
     lf_short = {
         'coordinate_ascent': 'ca',
+        'concurrent_coordinate_ascent': 'cca',
         'contrastive': 'co',
     }[args.loss_function]
     exp_name = lf_short + '__' + args.document_model_name
@@ -192,6 +193,8 @@ def main(args: argparse.Namespace):
         exp_name += f'__dropout_{args.word_dropout_perc}_{args.word_dropout_ratio}_{args.profile_row_dropout_perc}'
     if args.pretrained_profile_encoder:
         exp_name += '__fixprof'
+    if args.shared_embedding_dim != 768:
+        exp_name += f'__e{args.shared_embedding_dim}'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
     # exp_name += f'_{day}'
 
@@ -224,7 +227,7 @@ def main(args: argparse.Namespace):
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
     # val_metric = "val/document_redact_ner/loss"
-    val_metric = "val/document_redact_adversarial_1/loss"
+    val_metric = "val/document_redact_adversarial_100/loss"
     # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [

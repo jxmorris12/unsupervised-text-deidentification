@@ -206,14 +206,14 @@ def precompute_profile_embeddings(
     model.profile_model.eval()
 
     if train:
-        model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.profile_embedding_dim))
+        model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.shared_embedding_dim))
         for val_batch in tqdm(dm.train_dataloader(), desc="Precomputing train embeddings", colour="blue", leave=False):
             with torch.no_grad():
                 profile_embeddings = model.forward_profile(batch=val_batch)
             model.train_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
         model.train_profile_embeddings = torch.tensor(model.train_profile_embeddings, dtype=torch.float32)
     else:
-        model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
+        model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.shared_embedding_dim))
         for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="green", leave=False):
             with torch.no_grad():
                 profile_embeddings = model.forward_profile(batch=val_batch)

@@ -56,7 +56,7 @@ def main():
 
     model.profile_model.cuda()
     model.profile_model.eval()
-    model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.profile_embedding_dim))
+    model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.shared_embedding_dim))
     for val_batch in tqdm.tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="yellow", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=val_batch)
