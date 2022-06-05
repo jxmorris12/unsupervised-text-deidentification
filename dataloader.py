@@ -160,7 +160,7 @@ class WikipediaDataModule(LightningDataModule):
 
         # Lexical (word overlap) redaction
         lexical_redact_func = functools.partial(
-            remove_overlapping_words, mask_token=self.mask_token, case_sensitive=False)
+            remove_overlapping_words, mask_token=self.mask_token)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
@@ -286,8 +286,13 @@ class WikipediaDataModule(LightningDataModule):
             document_types=["document"],
             is_train_dataset=True
         )
+        sampler = torch.utils.data.RandomSampler(
+            train_tokenizing_dataset, replacement=True,
+            num_samples=len(self.train_dataset)
+        )
         return DataLoader(
             train_tokenizing_dataset,
+            # sampler=sampler,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
             pin_memory=True,

@@ -23,9 +23,12 @@ class Model(LightningModule, abc.ABC):
 
     total_steps: int
     steps_per_epoch: int
+    max_profile_encoder_training_epochs: int
 
     _optim_steps: Dict[str, int]
     warmup_epochs: float
+
+    label_smoothing: float
 
     pretrained_profile_encoder: bool
 
@@ -42,7 +45,9 @@ class Model(LightningModule, abc.ABC):
         train_batch_size: int = 32,
         shared_embedding_dim: int = 768,
         warmup_epochs: float = 0.2,
+        label_smoothing: float = 0.0,
         pretrained_profile_encoder: bool = False,
+        max_profile_encoder_training_epochs: int = 10,
         **kwargs,
     ):
         super().__init__()
@@ -50,20 +55,23 @@ class Model(LightningModule, abc.ABC):
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
+        self.bottleneck_embedding_dim = 768
         self.shared_embedding_dim = shared_embedding_dim
         self.document_embed = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.00),
-            torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
+            torch.nn.Dropout(p=0.01),
+            torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.profile_embed = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.00),
-            torch.nn.Linear(in_features=768, out_features=self.shared_embedding_dim, dtype=torch.float32),
+            torch.nn.Dropout(p=0.01),
+            torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.temperature = torch.nn.parameter.Parameter(
-            torch.tensor(1.0, dtype=torch.float32), requires_grad=True
+            torch.tensor(0.0, dtype=torch.float32), requires_grad=False
         )
+        self.label_smoothing = label_smoothing
         
         self.pretrained_profile_encoder = pretrained_profile_encoder
+        self.max_profile_encoder_training_epochs = max_profile_encoder_training_epochs
 
         self.document_learning_rate = learning_rate
         self.profile_learning_rate = learning_rate
@@ -158,7 +166,7 @@ class Model(LightningModule, abc.ABC):
         document_to_profile_sim = torch.matmul(document_embeddings, profile_embeddings.T)
         document_to_profile_sim *= self.temperature.exp()
         loss = torch.nn.functional.cross_entropy(
-            document_to_profile_sim, document_idxs
+            document_to_profile_sim, document_idxs, label_smoothing=self.label_smoothing
         )
         self.log(f"{metrics_key}/loss", loss)
 
@@ -188,7 +196,10 @@ class Model(LightningModule, abc.ABC):
 
         inputs = {k: v.to(self.document_model_device) for k,v in inputs.items()}
         document_outputs = self.document_model(**inputs)                           # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
-        document_embeddings = document_outputs['last_hidden_state'].mean(dim=1)    # (batch, document_emb_dim)
+        batch_size = document_outputs['last_hidden_state'].shape[0]
+        document_embeddings = (
+            document_outputs['last_hidden_state'].reshape((batch_size, -1, self.bottleneck_embedding_dim)).mean(dim=1)
+         ) # (batch_size, sequence_length, document_emb_dim) -> (batch_size, shared_embedding_dim)
         document_embeddings = self.document_embed(document_embeddings)             # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
         
@@ -212,8 +223,12 @@ class Model(LightningModule, abc.ABC):
                 for k,v in inputs.items()
             }
         inputs = {k: v.to(self.profile_model_device) for k,v in inputs.items()}
-        output = self.profile_model(**inputs)
-        profile_embeddings = output['last_hidden_state'].mean(dim=1)
+        profile_outputs = self.profile_model(**inputs)
+        # profile_embeddings = profile_outputs['last_hidden_state'].mean(dim=1)
+        batch_size = profile_outputs['last_hidden_state'].shape[0]
+        profile_embeddings = (
+            profile_outputs['last_hidden_state'].reshape((batch_size, self.bottleneck_embedding_dim, -1)).mean(-1)
+        ) # (batch_size, sequence_length, profile_emb_dim) -> (batch_size, shared_embedding_dim)
         return self.profile_embed(profile_embeddings)
 
     @abc.abstractmethod
@@ -235,13 +250,24 @@ class Model(LightningModule, abc.ABC):
         warmup_steps = self.warmup_epochs * self.steps_per_epoch
         if optim_steps < warmup_steps:
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
-            for pg in optimizer.param_groups:
-                pg['lr'] = lr_scale * self.document_learning_rate
+            new_lr = lr_scale * self.document_learning_rate
+        else:
+            min_lr = 2e-6
+            lr_epochs = 70 # Drop to min_lr after this many epochs
+            # total_steps = optim_steps - warmup_steps
+            total_steps = self.global_step - (len(self._optim_steps) * warmup_steps)
+            delta = (self.document_learning_rate - min_lr) / (lr_epochs * self.steps_per_epoch)
+            new_lr = max(
+                self.document_learning_rate - (delta * total_steps),
+                min_lr
+            )
+        for pg in optimizer.param_groups:
+            pg['lr'] = new_lr
 
         optimizer.step()
         optimizer.zero_grad()
 
-        self.log("learning_rate", optimizer.param_groups[0]['lr'])
+        self.log("learning_rate", new_lr)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         # Alternate between training phases per epoch.
@@ -392,6 +418,8 @@ class Model(LightningModule, abc.ABC):
             metrics_key='val/document_redact_lexical'
         )
 
+
+        doc_redact_idf_loss_total = 0.0
         for n in [20, 40, 60, 80]:
             document_redact_idf_embeddings = torch.cat(
                 [o[f'document_redact_idf_{n}_embeddings'] for o in val_outputs], axis=0)
@@ -399,19 +427,21 @@ class Model(LightningModule, abc.ABC):
                 document_redact_idf_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
                 metrics_key=f'val/document_redact_idf_{n}'
             )
+            doc_redact_idf_loss_total += doc_redact_idf_loss.item()
+        self.log('val/document_redact_idf_total/loss', doc_redact_idf_loss_total)
 
+
+        # Disabling scheduler in favor of manual scheduling (6/5)
         # If there are multiple LR schedulers, call step() on all of them.
-        lr_schedulers = self.lr_schedulers()
-        if not isinstance(lr_schedulers, list):
-            lr_schedulers = [lr_schedulers]
+        # lr_schedulers = self.lr_schedulers()
+        # if not isinstance(lr_schedulers, list):
+            # lr_schedulers = [lr_schedulers]
 
-        for scheduler in lr_schedulers:
+        # for scheduler in lr_schedulers:
             # scheduler.step(doc_loss)
             # scheduler.step(doc_redact_ner_loss)
             # scheduler.step(doc_redact_lexical_loss)
-            scheduler.step(
-                self.trainer.logged_metrics.get('val/document_redact_adversarial_100/loss', 100.0)
-            )
+            # scheduler.step(doc_redact_idf_loss_total)
         return doc_loss
 
     def setup(self, stage=None) -> None:

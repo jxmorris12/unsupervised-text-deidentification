@@ -43,11 +43,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--num_validations_per_epoch', type=int, default=1,
         help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
-    parser.add_argument('--epochs', type=int, default=8)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=256)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--grad_norm_clip', type=float, default=5.0)
+    parser.add_argument('--label_smoothing', type=float, default=0.0)
     
     parser.add_argument('--num_nearest_neighbors', '--n',
         type=int, default=0,
@@ -68,9 +69,13 @@ def get_args() -> argparse.Namespace:
         help='when word dropout is applied, percentage of words to apply it to')
     parser.add_argument('--profile_row_dropout_perc', type=float,
         default=0.0, help='\% of rows to dropout')
-    parser.add_argument('--pretrained_profile_encoder', action='store_true', default=False,
+    parser.add_argument('--pretrained_profile_encoder', '--freeze_profile_encoder',
+        action='store_true', default=False,
         help=('whether to fix profile encoder and just train document encoder. ' 
             '[if false, does coordinate ascent alternating models across epochs]'))
+    parser.add_argument('--max_profile_encoder_training_epochs', type=int, default=8,
+        help=('Number of epochs to pretrain profile encoder for. After this, will only train'
+              'the document encoder'))
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
@@ -87,7 +92,7 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
-    parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
+    parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     args = parser.parse_args()
@@ -155,6 +160,7 @@ def main(args: argparse.Namespace):
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
             gradient_clip_val=args.grad_norm_clip,
+            label_smoothing=args.label_smoothing,
             shared_embedding_dim=args.shared_embedding_dim,
         )
     else:
@@ -168,6 +174,7 @@ def main(args: argparse.Namespace):
             train_batch_size=args.batch_size,
             num_workers=min(8, num_cpus),
             gradient_clip_val=args.grad_norm_clip,
+            label_smoothing=args.label_smoothing,
             shared_embedding_dim=args.shared_embedding_dim,
         )
 
@@ -195,6 +202,8 @@ def main(args: argparse.Namespace):
         exp_name += '__fixprof'
     if args.shared_embedding_dim != 768:
         exp_name += f'__e{args.shared_embedding_dim}'
+    if args.label_smoothing:
+        exp_name += f'__ls{args.label_smoothing}'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
     # exp_name += f'_{day}'
 
@@ -207,10 +216,11 @@ def main(args: argparse.Namespace):
         from pytorch_lightning.loggers import WandbLogger
         wandb_logger = WandbLogger(
             name=exp_name,
-            project='deid-wikibio-2', 
+            project='deid-wikibio-3', 
             config=vars(args),
             job_type='train',
             entity='jack-morris',
+            # id='36tds99o', # for resuming a run
         )
         wandb_logger.watch(model, log_graph=False)
         loggers.append(
@@ -227,7 +237,8 @@ def main(args: argparse.Namespace):
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
     # val_metric = "val/document_redact_ner/loss"
-    val_metric = "val/document_redact_adversarial_100/loss"
+    # val_metric = "val/document_redact_adversarial_100/loss"
+    val_metric = "val/document_redact_idf_total/loss"
     # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
