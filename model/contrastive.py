@@ -34,7 +34,8 @@ class ContrastiveModel(Model):
         document_to_profile_sim *= self.temperature.exp()
         diagonal_idxs = torch.arange(batch_size).to(document_embeddings.device)
         loss = torch.nn.functional.cross_entropy(
-            document_to_profile_sim, diagonal_idxs
+            document_to_profile_sim, diagonal_idxs,
+            label_smoothing=self.label_smoothing
         )
         self.log(f"{metrics_key}/loss", loss)
 
