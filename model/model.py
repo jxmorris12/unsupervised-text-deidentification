@@ -55,13 +55,19 @@ class Model(LightningModule, abc.ABC):
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
-        self.bottleneck_embedding_dim = 768
+        self.bottleneck_embedding_dim = 768*2
         self.shared_embedding_dim = shared_embedding_dim
         self.document_embed = torch.nn.Sequential(
+            # torch.nn.Dropout(p=0.01),
+            # torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.bottleneck_embedding_dim, dtype=torch.float32),
+            # torch.nn.ReLU(),
             torch.nn.Dropout(p=0.01),
             torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
         self.profile_embed = torch.nn.Sequential(
+            # torch.nn.Dropout(p=0.01),
+            # torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.bottleneck_embedding_dim, dtype=torch.float32),
+            # torch.nn.ReLU(),
             torch.nn.Dropout(p=0.01),
             torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.shared_embedding_dim, dtype=torch.float32),
         )
@@ -198,7 +204,9 @@ class Model(LightningModule, abc.ABC):
         document_outputs = self.document_model(**inputs)                           # (batch,  sequence_length) -> (batch, sequence_length, document_emb_dim)
         batch_size = document_outputs['last_hidden_state'].shape[0]
         document_embeddings = (
-            document_outputs['last_hidden_state'].reshape((batch_size, -1, self.bottleneck_embedding_dim)).mean(dim=1)
+            document_outputs['last_hidden_state'].reshape(
+                (batch_size, -1, self.bottleneck_embedding_dim)
+            ).mean(dim=1)
          ) # (batch_size, sequence_length, document_emb_dim) -> (batch_size, shared_embedding_dim)
         document_embeddings = self.document_embed(document_embeddings)             # (batch, document_emb_dim) -> (batch, prof_emb_dim)
         return document_embeddings
@@ -227,7 +235,9 @@ class Model(LightningModule, abc.ABC):
         # profile_embeddings = profile_outputs['last_hidden_state'].mean(dim=1)
         batch_size = profile_outputs['last_hidden_state'].shape[0]
         profile_embeddings = (
-            profile_outputs['last_hidden_state'].reshape((batch_size, self.bottleneck_embedding_dim, -1)).mean(-1)
+            profile_outputs['last_hidden_state'].reshape(
+                (batch_size, -1, self.bottleneck_embedding_dim)
+            ).mean(dim=1)
         ) # (batch_size, sequence_length, profile_emb_dim) -> (batch_size, shared_embedding_dim)
         return self.profile_embed(profile_embeddings)
 

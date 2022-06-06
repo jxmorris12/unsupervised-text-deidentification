@@ -286,10 +286,10 @@ class WikipediaDataModule(LightningDataModule):
             document_types=["document"],
             is_train_dataset=True
         )
-        sampler = torch.utils.data.RandomSampler(
-            train_tokenizing_dataset, replacement=True,
-            num_samples=len(self.train_dataset)
-        )
+        # sampler = torch.utils.data.RandomSampler(
+        #     train_tokenizing_dataset, replacement=True,
+        #     num_samples=len(self.train_dataset)
+        # )
         return DataLoader(
             train_tokenizing_dataset,
             # sampler=sampler,
