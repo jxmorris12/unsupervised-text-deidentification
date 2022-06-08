@@ -85,7 +85,7 @@ class MaskingSpanSampler:
                 words = words - eng_stopwords
             
             p = self.word_dropout_perc()
-            n = round(len(words) * p)
+            n = round(len(words) * p * 0.8)
 
             if (n == 0) or (len(words) == 0):
                 return text
@@ -93,9 +93,8 @@ class MaskingSpanSampler:
             words = list(words)
             if self.idf_masking:
                 # Sample words proportional to IDF.
-                # TODO consider temperature val here?
                 eps = 1e-9
-                temp = 1
+                temp = 1.0
                 p = np.array([(self.idf.get(w, 1.0) + eps) * np.exp(temp) for w in words])
                 p = p.astype('float64')
                 # silly normalization trick, via

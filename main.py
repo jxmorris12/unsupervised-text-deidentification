@@ -45,13 +45,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--max_seq_length', type=int, default=256)
+    parser.add_argument('--max_seq_length', type=int, default=128)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--grad_norm_clip', type=float, default=5.0)
+    parser.add_argument('--grad_norm_clip', type=float, default=100.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
     
-    parser.add_argument('--num_nearest_neighbors', '--n',
-        type=int, default=0,
+    parser.add_argument('--num_nearest_neighbors', '--n', type=int, default=0,
         help='number of negative samples for contrastive loss'
     )
 
@@ -72,10 +71,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--pretrained_profile_encoder', '--freeze_profile_encoder',
         action='store_true', default=False,
         help=('whether to fix profile encoder and just train document encoder. ' 
-            '[if false, does coordinate ascent alternating models across epochs]'))
-    parser.add_argument('--max_profile_encoder_training_epochs', type=int, default=8,
-        help=('Number of epochs to pretrain profile encoder for. After this, will only train'
-              'the document encoder'))
+            '[if false, does coordinate ascent alternating models across epochs]')
+    )
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
@@ -87,13 +84,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--adversarial_masking', '--adv_k', 
         default=False, action='store_true', help='whether to do adversarial masking'
     )
-    parser.add_argument('--idf_masking', 
-        default=False, action='store_true', help='whether to do idf-based masking (via bm25)'
+    parser.add_argument('--idf_masking', type=bool, default=True,
+        help='whether to do idf-based masking (via bm25)'
     )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
+
+    parser.add_argument('--wandb_run_id', type=str, default=None,
+        help='run id for weights & biases')
 
     args = parser.parse_args()
     args.dataset_val_split = 'val[:20%]'
@@ -220,7 +220,7 @@ def main(args: argparse.Namespace):
             config=vars(args),
             job_type='train',
             entity='jack-morris',
-            # id='36tds99o', # for resuming a run
+            id=args.wandb_run_id # None, or set to a str for resuming a run
         )
         wandb_logger.watch(model, log_graph=False)
         loggers.append(
@@ -233,7 +233,7 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs"))
 
-    # TODO: argparse for val_metric
+    # TODO: argparse for val_metric?
     # val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
     # val_metric = "val/document_redact_ner/loss"
@@ -262,7 +262,7 @@ def main(args: argparse.Namespace):
     trainer.fit(
         model=model,
         datamodule=dm,
-        # ckpt_path=checkpoint_path
+        ckpt_path=checkpoint_path
     )
 
 if __name__ == '__main__':

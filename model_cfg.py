@@ -28,3 +28,8 @@ model_paths_dict["model_6"] = "/home/jxm3/research/deidentification/unsupervised
 # model_7 is roberta-tapas with word dropout (no prof dropout) UNIFORM SAMPLING MASKING RATE for
 # about two days. trained here.   wandb.ai/jack-morris/deid-wikibio-2/runs/26w4n18i
 model_paths_dict["model_7"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_-1.0_1.0_0.0/deid-wikibio-2_default/26w4n18i_461/checkpoints/epoch=8-step=18974.ckpt'
+
+# model_8 is roberta-tapas-idf with uniform sampling and linear lr decay 
+#       and label smoothing 0.1.
+#       but it's still training: wandb.ai/jack-morris/deid-wikibio-3/runs/1jjn2o39/
+model_paths_dict["model_8_1day"] = glob.glob("/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/1jjn2o39_649/checkpoints/epoch*.ckpt")[0]

@@ -23,7 +23,6 @@ class Model(LightningModule, abc.ABC):
 
     total_steps: int
     steps_per_epoch: int
-    max_profile_encoder_training_epochs: int
 
     _optim_steps: Dict[str, int]
     warmup_epochs: float
@@ -47,7 +46,6 @@ class Model(LightningModule, abc.ABC):
         warmup_epochs: float = 0.2,
         label_smoothing: float = 0.0,
         pretrained_profile_encoder: bool = False,
-        max_profile_encoder_training_epochs: int = 10,
         **kwargs,
     ):
         super().__init__()
@@ -57,6 +55,8 @@ class Model(LightningModule, abc.ABC):
 
         self.bottleneck_embedding_dim = 768*2
         self.shared_embedding_dim = shared_embedding_dim
+        # Experiments show that the extra layer isn't helpful for either the document embedding or the profile embedding.
+        # But it's useful to have a profile embedding (we didn't use to have one at all).
         self.document_embed = torch.nn.Sequential(
             # torch.nn.Dropout(p=0.01),
             # torch.nn.Linear(in_features=self.bottleneck_embedding_dim, out_features=self.bottleneck_embedding_dim, dtype=torch.float32),
@@ -77,14 +77,13 @@ class Model(LightningModule, abc.ABC):
         self.label_smoothing = label_smoothing
         
         self.pretrained_profile_encoder = pretrained_profile_encoder
-        self.max_profile_encoder_training_epochs = max_profile_encoder_training_epochs
 
         self.document_learning_rate = learning_rate
         self.profile_learning_rate = learning_rate
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
 
-        self._optim_steps = collections.defaultdict(lambda: 0)
+        self._optim_steps = collections.defaultdict(lambda: self.global_step / 2)
         self.warmup_epochs = warmup_epochs
 
         print(f'Initialized model with learning_rate = {learning_rate} and patience {self.lr_scheduler_patience}')
@@ -258,19 +257,38 @@ class Model(LightningModule, abc.ABC):
         optim_steps = self._optim_steps[hash(optimizer)]
 
         warmup_steps = self.warmup_epochs * self.steps_per_epoch
+
+        scheduling = 'linear'
+        # scheduling = 'exponential'
+
         if optim_steps < warmup_steps:
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
             new_lr = lr_scale * self.document_learning_rate
         else:
-            min_lr = 2e-6
+            # lr_epochs = 20
             lr_epochs = 70 # Drop to min_lr after this many epochs
-            # total_steps = optim_steps - warmup_steps
-            total_steps = self.global_step - (len(self._optim_steps) * warmup_steps)
-            delta = (self.document_learning_rate - min_lr) / (lr_epochs * self.steps_per_epoch)
-            new_lr = max(
-                self.document_learning_rate - (delta * total_steps),
-                min_lr
-            )
+            # lr_epochs = 300
+            # current_step = optim_steps - warmup_steps
+            current_step = self.global_step - (len(self._optim_steps) * warmup_steps)
+            ############################ Linear scheduling ############################
+            min_lr = 2e-6
+            if scheduling == 'linear':
+                delta = (self.document_learning_rate - min_lr) / (lr_epochs * self.steps_per_epoch)
+                new_lr = max(
+                    self.document_learning_rate - (delta * current_step),
+                    min_lr
+                )
+            ############################ Exponential scheduling ############################
+            else:
+                total_steps = (lr_epochs * self.steps_per_epoch)
+                # exp_factor = np.power(, 1.0 / total_steps)
+                new_lr = max(
+                    self.document_learning_rate * np.power(
+                        (min_lr / self.document_learning_rate), current_step / total_steps),
+                    min_lr
+                )
+
+
         for pg in optimizer.param_groups:
             pg['lr'] = new_lr
 

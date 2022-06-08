@@ -203,7 +203,9 @@ def precompute_profile_embeddings(
         train: bool = False
     ):
     model.profile_model.cuda()
+    model.profile_embed.cuda()
     model.profile_model.eval()
+    model.profile_embed.eval()
 
     if train:
         model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.shared_embedding_dim))
@@ -219,11 +221,11 @@ def precompute_profile_embeddings(
                 profile_embeddings = model.forward_profile(batch=val_batch)
             model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
         model.val_profile_embeddings = torch.tensor(model.val_profile_embeddings, dtype=torch.float32)
-    model.profile_model.train()
 
 
 def main(k: int, n: int, model_key: str, train: bool=False):
     checkpoint_path = model_paths_dict[model_key]
+    assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
     model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path,
@@ -237,6 +239,7 @@ def main(k: int, n: int, model_key: str, train: bool=False):
         word_dropout_ratio=0.0, word_dropout_perc=0.0,
     )
 
+    print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
         document_model_name_or_path="roberta-base",
         profile_model_name_or_path="google/tapas-base",
@@ -276,7 +279,7 @@ def main(k: int, n: int, model_key: str, train: bool=False):
     attack = Attack(
         goal_function, constraints, transformation, search_method
     )
-    attack_args = AttackArgs(num_examples=n, disable_stdout=True)
+    attack_args = AttackArgs(num_examples=n, disable_stdout=False)
     attacker = Attacker(attack, dataset, attack_args)
 
     results_iterable = attacker.attack_dataset()
@@ -299,13 +302,13 @@ def get_args() -> argparse.Namespace:
         description='Generate adversarially-masked examples for a model.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument('--k', type=int, default=8,
+    parser.add_argument('--k', type=int, default=1,
         help='top-K classes for adversarial goal function'
     )
     parser.add_argument('--n', type=int, default=1000,
         help='number of examples to run on'
     )
-    parser.add_argument('--model', type=str, default='model_5',
+    parser.add_argument('--model', '--model_key', type=str, default='model_5',
         help='model str name (see model_cfg for more info)',
         choices=model_paths_dict.keys()
     )
