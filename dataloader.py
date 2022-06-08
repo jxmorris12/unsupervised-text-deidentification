@@ -67,7 +67,7 @@ class WikipediaDataModule(LightningDataModule):
         dataset_name: str = "wiki_bio",
         dataset_train_split: str = "train[:10%]",
         dataset_val_split: str = "val[:20%]",
-        dataset_version: str = None,
+        dataset_version: str = "1.2.0",
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
@@ -265,10 +265,6 @@ class WikipediaDataModule(LightningDataModule):
     def setup(self, stage: str) -> None:
         self._load_train_and_val_data()
         self._load_adv_val_data()
-
-    def prepare_data(self) -> None:
-        # automatically download dataset
-        datasets.load_dataset(self.dataset_name)
 
     def train_dataloader(self) -> DataLoader:
         train_tokenizing_dataset = MaskingTokenizingDataset(
