@@ -68,13 +68,14 @@ class TestEnd2End:
             max_seq_length=max_seq_length,
             adversarial_masking=adversarial_masking,
         )
+        print("training with precision", precision)
         trainer = Trainer(
             default_root_dir=tmpdir,
             enable_checkpointing=False,
             val_check_interval=0.5,
             callbacks=[],
             max_epochs=2,
-            precision=precision,
+            precision=16,
             log_every_n_steps=min(len(dm.train_dataloader()), 50),
             limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
             limit_val_batches=1.0,
@@ -83,7 +84,7 @@ class TestEnd2End:
         )
         trainer.fit(model, dm)
 
-    @pytest.mark.parametrize("loss_fn,precision", [("coordinate_ascent", 32), ("contrastive", 32)]) #, ("contrastive", 16)
+    @pytest.mark.parametrize("loss_fn,precision", [("coordinate_ascent", 32), ("coordinate_ascent", 16), ("contrastive", 32)])
     def test_end_to_end_distilbert(self, tmpdir: str, loss_fn: str, precision: int):
         self._run_e2e_test(
             tmpdir,
