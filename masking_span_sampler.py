@@ -3,6 +3,7 @@ from typing import Dict, List
 import functools
 import pickle
 import numpy as np
+import os
 import re
 import random
 
@@ -27,6 +28,7 @@ class MaskingSpanSampler:
     mask_token: str
     min_num_words: int
     idf: Dict[str, float]
+    idf_temp: float
 
     def __init__(
             self,
@@ -47,9 +49,13 @@ class MaskingSpanSampler:
         self.idf_masking = idf_masking
 
         if self.idf_masking:
-            self.idf = pickle.load(open('./train_100_idf.p', 'rb'))
+            current_folder = os.path.dirname(os.path.abspath(__file__))
+            train_idf_file_path = os.path.join(current_folder, 'train_100_idf.p')
+            self.idf = pickle.load(open(train_idf_file_path, 'rb'))
         else:
             self.idf = {}
+        
+        self.idf_temp = 1.0
 
     def _sample_spans(self, text: str) -> str:
         """Sample spans of some words from `text`."""
@@ -93,9 +99,9 @@ class MaskingSpanSampler:
             words = list(words)
             if self.idf_masking:
                 # Sample words proportional to IDF.
-                eps = 1e-9
-                temp = 1.0
-                p = np.array([(self.idf.get(w, 1.0) + eps) * np.exp(temp) for w in words])
+                p = np.array([np.log((self.idf.get(w, 1.0)) * self.idf_temp) for w in words])
+                p = p.clip(min=0.25)
+                # print([(_w, f'{_p*n:.3f}') for _w,_p in zip(words, p)])
                 p = p.astype('float64')
                 # silly normalization trick, via
                 # stackoverflow.com/questions/71262481/how-to-avoid-roundoff-errors-in-numpy-random-choice

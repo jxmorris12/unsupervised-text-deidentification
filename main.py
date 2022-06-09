@@ -2,6 +2,7 @@
 from typing import List, Tuple, Union
 
 import argparse
+import glob
 import os
 import time
 
@@ -30,6 +31,7 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument('--checkpoint_path', type=str, default='')
+    parser.add_argument('--checkpoint_vnum', type=str, default='')
 
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
         choices=['coordinate_ascent', 'concurrent_coordinate_ascent', 'contrastive'],
@@ -97,6 +99,19 @@ def get_args() -> argparse.Namespace:
 
     args = parser.parse_args()
     args.dataset_val_split = 'val[:20%]'
+
+    if args.checkpoint_path and args.checkpoint_vnum:
+        raise ValueError('cannot provide both checkpoint_path and checkpoint_vnum')
+    
+    if args.checkpoint_vnum:
+        checkpoint_paths = glob.glob(f'saves/*/*/*_{args.checkpoint_vnum}/checkpoints/*.ckpt')
+        if not checkpoint_paths:
+            raise ValueError(f'Found no checkpoints for vnum {args.checkpoint_vnum}')
+        elif len(checkpoint_paths) > 1:
+            raise ValueError(f'Found {len(checkpoint_paths)} checkpoints for vnum {args.checkpoint_vnum}')
+        else:
+            args.checkpoint_path = checkpoint_paths[0]
+
     return args
 
 def transformers_name_from_name(name: str) -> str:

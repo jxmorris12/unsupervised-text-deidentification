@@ -82,6 +82,7 @@ class WikipediaDataModule(LightningDataModule):
     ):
         super().__init__()
         assert dataset_name == "wiki_bio"
+        assert datasets.__version__[0] == '2', "need datasets v2 for datamodule"
 
         self.document_model_name_or_path = document_model_name_or_path
         self.profile_model_name_or_path = profile_model_name_or_path
