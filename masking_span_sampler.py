@@ -101,7 +101,6 @@ class MaskingSpanSampler:
                 # Sample words proportional to IDF.
                 p = np.array([np.log((self.idf.get(w, 1.0)) * self.idf_temp) for w in words])
                 p = p.clip(min=0.25)
-                # print([(_w, f'{_p*n:.3f}') for _w,_p in zip(words, p)])
                 p = p.astype('float64')
                 # silly normalization trick, via
                 # stackoverflow.com/questions/71262481/how-to-avoid-roundoff-errors-in-numpy-random-choice
