@@ -93,8 +93,8 @@ class CoordinateAscentModel(Model):
     def _document_encoder_is_training(self) -> bool:
         """True if we're training the document encoder. If false, we are training the profile encoder.
         Should alternate during training epochs."""
-        if self.pretrained_profile_encoder:
-        # if self.pretrained_profile_encoder or not (self.current_epoch in [1, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610]):
+        # if self.pretrained_profile_encoder:
+        if self.pretrained_profile_encoder or not (self.current_epoch in [1, 3, 5, 9, 13, 21, 35, 55, 89, 145, 233, 377, 611]):
             return True
         else:
             return self.current_epoch % 2 == 0

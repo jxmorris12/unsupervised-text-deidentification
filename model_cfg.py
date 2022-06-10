@@ -32,4 +32,4 @@ model_paths_dict["model_7"] = '/home/jxm3/research/deidentification/unsupervised
 # model_8 is roberta-tapas-idf with uniform sampling and linear lr decay 
 #       and label smoothing 0.1.
 #       but it's still training: wandb.ai/jack-morris/deid-wikibio-3/runs/1jjn2o39/
-model_paths_dict["model_8_1day"] = glob.glob("/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/1jjn2o39_649/checkpoints/epoch*.ckpt")[0]
+model_paths_dict["model_8_1day"] = glob.glob("/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/*/checkpoints/last.ckpt")[0]

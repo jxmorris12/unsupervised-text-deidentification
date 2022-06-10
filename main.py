@@ -78,7 +78,7 @@ def get_args() -> argparse.Namespace:
     
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
         help='factor to decrease learning rate by on drop')
-    parser.add_argument('--lr_scheduler_patience', type=int, default=6,
+    parser.add_argument('--lr_scheduler_patience', type=int, default=60,
         help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--sample_spans', action='store_true',
@@ -107,10 +107,9 @@ def get_args() -> argparse.Namespace:
         checkpoint_paths = glob.glob(f'saves/*/*/*_{args.checkpoint_vnum}/checkpoints/*.ckpt')
         if not checkpoint_paths:
             raise ValueError(f'Found no checkpoints for vnum {args.checkpoint_vnum}')
-        elif len(checkpoint_paths) > 1:
-            raise ValueError(f'Found {len(checkpoint_paths)} checkpoints for vnum {args.checkpoint_vnum}')
         else:
-            args.checkpoint_path = checkpoint_paths[0]
+            args.checkpoint_path = checkpoint_paths[-1]
+            print("loading model from", args.checkpoint_path)
 
     return args
 
@@ -258,7 +257,11 @@ def main(args: argparse.Namespace):
     early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
-        ModelCheckpoint(monitor=val_metric),
+        # 
+        ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True),
+        ModelCheckpoint(monitor="val/document_redact_idf_total/loss", mode="min", filename="{epoch}-{step}-idf_total", save_last=True),
+        ModelCheckpoint(monitor="val/document_redact_adversarial_100/acc_top_k/1", mode="max", filename="{epoch}-{step}-adv100_acc", save_last=True),
+        # 
         EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
 
