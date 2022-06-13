@@ -80,6 +80,10 @@ def get_args() -> argparse.Namespace:
         help='factor to decrease learning rate by on drop')
     parser.add_argument('--lr_scheduler_patience', type=int, default=6,
         help='patience for lr scheduler [unit: epochs]')
+    parser.add_argument('--model_ckpt_save_top_k', type=int, default=1,
+        help=('number of models to save total for each checkpoint monitored. 1 means '
+            'every model will be overwritten and only the best one will stay. -1 means '
+            'to retain all models from all checkpoints.'))
 
     parser.add_argument('--sample_spans', action='store_true',
         default=False, help='sample spans from the document randomly during training')
@@ -230,7 +234,7 @@ def main(args: argparse.Namespace):
         from pytorch_lightning.loggers import WandbLogger
         wandb_logger = WandbLogger(
             name=exp_name,
-            project='deid-wikibio-ablations-2', 
+            project='deid-wikibio-4', 
             config=vars(args),
             job_type='train',
             entity='jack-morris',
@@ -258,9 +262,9 @@ def main(args: argparse.Namespace):
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         # 
-        ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True),
-        ModelCheckpoint(monitor="val/document_redact_idf_total/loss", mode="min", filename="{epoch}-{step}-idf_total", save_last=True),
-        ModelCheckpoint(monitor="val/document_redact_adversarial_100/acc_top_k/1", mode="max", filename="{epoch}-{step}-adv100_acc", save_last=True),
+        ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+        ModelCheckpoint(monitor="val/document_redact_idf_total/loss", mode="min", filename="{epoch}-{step}-idf_total", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+        ModelCheckpoint(monitor="val/document_redact_adversarial_100/acc_top_k/1", mode="max", filename="{epoch}-{step}-adv100_acc", save_last=True, save_top_k=args.model_ckpt_save_top_k),
         # 
         # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
@@ -276,6 +280,7 @@ def main(args: argparse.Namespace):
         limit_val_batches=args.limit_val_batches,
         gpus=torch.cuda.device_count(),
         logger=loggers,
+        num_sanity_val_steps=0,
     )
     trainer.fit(
         model=model,

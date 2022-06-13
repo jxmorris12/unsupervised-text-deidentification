@@ -177,26 +177,26 @@ class WikipediaDataModule(LightningDataModule):
             batched=True, num_proc=max(1, self.num_workers))
 
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
-        bm25_redact_func = lambda p: functools.partial(
+        idf_redact_func = lambda p: functools.partial(
             remove_words_val_idf, p=p, mask_token=self.mask_token)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False),
+                redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
+                redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False),
+                redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=bm25_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False),
+                redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False),
                 num_proc=max(1, self.num_workers)
         )
         
@@ -290,6 +290,7 @@ class WikipediaDataModule(LightningDataModule):
         return DataLoader(
             train_tokenizing_dataset,
             # sampler=sampler,
+            persistent_workers=True,
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
@@ -334,6 +335,7 @@ class WikipediaDataModule(LightningDataModule):
                 val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
+                persistent_workers=True,
                 pin_memory=True,
                 shuffle=False
             ),
@@ -341,6 +343,7 @@ class WikipediaDataModule(LightningDataModule):
                 adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
+                persistent_workers=True,
                 pin_memory=True,
                 shuffle=False
             )
