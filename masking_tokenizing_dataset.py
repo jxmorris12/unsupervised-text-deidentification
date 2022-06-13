@@ -1,6 +1,5 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Set
 
-import collections
 import random
 
 import datasets
@@ -23,13 +22,14 @@ class MaskingTokenizingDataset(Dataset):
     is_train_dataset: bool
     adversarial_masking: bool
     num_nearest_neighbors: int
-    adv_word_mask_map: collections.defaultdict
+    adv_word_mask_map: Dict[int, Set]
+    adv_word_mask_num: Dict[int, int]
 
     def __init__(
             self,
             dataset: datasets.Dataset,
             document_tokenizer: transformers.AutoTokenizer,
-            profile_tokenizer: Union[transformers.AutoTokenizer, None],
+            profile_tokenizer: Optional[transformers.AutoTokenizer],
             max_seq_length: int,
             word_dropout_ratio: float,
             word_dropout_perc: float, 
@@ -51,10 +51,8 @@ class MaskingTokenizingDataset(Dataset):
         self.profile_row_dropout_perc = profile_row_dropout_perc
         self.adversarial_masking = adversarial_masking
 
-        self.adv_word_mask_map = collections.defaultdict(set)
-        # TODO: make this a command-line flag
-        adv_mask_k = 16
-        self.adv_word_mask_num = collections.defaultdict(lambda: adv_mask_k)
+        self.adv_word_mask_map = {} 
+        self.adv_word_mask_num = {}
 
         assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
 
@@ -134,6 +132,12 @@ class MaskingTokenizingDataset(Dataset):
         # Store each word so it'll be masked next time.
         for i in range(batch_size):
             ex_index = text_key_id[i].item()
+            if ex_index not in self.adv_word_mask_map:
+                self.adv_word_mask_map[ex_index] = set()
+            if ex_index not in self.adv_word_mask_num:
+                # TODO make command-line arg
+                self.adv_word_mask_num[ex_index] = 16
+
             # TODO: replace is_correct condition with threshold on the loss?
             if is_correct[i].item():
                 # If we got it right, make it harder.

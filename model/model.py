@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Tuple
 
 import abc
-import collections
 
 import numpy as np
 import torch
@@ -87,7 +86,7 @@ class Model(LightningModule, abc.ABC):
         self.lr_scheduler_factor = lr_scheduler_factor
         self.lr_scheduler_patience = lr_scheduler_patience
 
-        self._optim_steps = collections.defaultdict(lambda: self.global_step / 2)
+        self._optim_steps = {}
         self.warmup_epochs = warmup_epochs
 
         print(f'Initialized model with learning_rate = {learning_rate} and patience {self.lr_scheduler_patience}')
@@ -257,6 +256,12 @@ class Model(LightningModule, abc.ABC):
         
         Tracks warmup *for each optimizer*.
         """
+        if hash(optimizer) not in self._optim_steps:
+            # Default value for steps for a given optimizer. This isn't 0
+            # so we can support loading from a checkpoint. We can't use
+            # collections.defaultdict() because the lambda init function isn't
+            # pickleable.
+            self._optim_steps[hash(optimizer)] = self.global_step / 2
         self._optim_steps[hash(optimizer)] += 1
         optim_steps = self._optim_steps[hash(optimizer)]
 
