@@ -131,9 +131,9 @@ class WikipediaDataModule(LightningDataModule):
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
 
         self.train_dataset = self.train_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=max(1, self.num_workers))
+            create_document_and_profile_from_wikibio, num_proc=1)
         self.val_dataset = self.val_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=max(1, self.num_workers))
+            create_document_and_profile_from_wikibio, num_proc=1)
 
         # Pre-tokenize profiles
         def tokenize_profile_ex(ex: Dict) -> Dict:
@@ -144,8 +144,8 @@ class WikipediaDataModule(LightningDataModule):
             )
             return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
 
-        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
-        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
+        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=1)
+        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=1)
         
         def redact_example(
                 redact_func: Callable,
@@ -165,7 +165,7 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
-                num_proc=max(1, self.num_workers)
+                num_proc=1
         )
 
         #  NER redaction
@@ -174,7 +174,8 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
-            batched=True, num_proc=max(1, self.num_workers))
+            batched=True, num_proc=1
+        )
 
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
         idf_redact_func = lambda p: functools.partial(
@@ -182,22 +183,22 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False),
-                num_proc=max(1, self.num_workers)
+                num_proc=1
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
-                num_proc=max(1, self.num_workers)
+                num_proc=1
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False),
-                num_proc=max(1, self.num_workers)
+                num_proc=1
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False),
-                num_proc=max(1, self.num_workers)
+                num_proc=1
         )
         
 
@@ -231,6 +232,9 @@ class WikipediaDataModule(LightningDataModule):
             self.train_dataset = self.train_dataset.add_column(
                 "nearest_neighbor_idxs", nearest_neighbors.tolist()
             )
+        
+        # Now enable parallelism
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
             
 
     def _load_adv_val_data(self):
