@@ -30,6 +30,16 @@ model_paths_dict["model_6"] = "/home/jxm3/research/deidentification/unsupervised
 model_paths_dict["model_7"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_-1.0_1.0_0.0/deid-wikibio-2_default/26w4n18i_461/checkpoints/epoch=8-step=18974.ckpt'
 
 # model_8 is roberta-tapas-idf with uniform sampling and linear lr decay 
-#       and label smoothing 0.1.
-#       but it's still training: wandb.ai/jack-morris/deid-wikibio-3/runs/1jjn2o39/
-model_paths_dict["model_8_1day"] = glob.glob("/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/*/checkpoints/last.ckpt")[0]
+#       and label smoothing {0.1, 0.01, 0.05}.
+#       wandb.ai/jack-morris/deid-wikibio-3/runs/{1jjn2o39,3u0271pj,3f738g9c}
+model_paths_dict["model_8_ls0.01"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.01/deid-wikibio-3_default/3u0271pj_704/checkpoints/epoch=69-step=159389-adv100_acc.ckpt'
+model_paths_dict["model_8_ls0.05"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.05/deid-wikibio-3_default/3f738g9c_700/checkpoints/epoch=66-step=152558-adv100_acc.ckpt'
+model_paths_dict["model_8_ls0.1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/1jjn2o39_703/checkpoints/epoch=67-step=154835-adv100_acc.ckpt'
+
+
+# model_9 is pmlm-tapas-idf with uniform sampling and linear lr decay
+#       and label smoothing {0.1, 0.01, 0.05}.
+#       wandb.ai/jack-morris/deid-wikibio-3/runs/{1vfvk4uq,3fd1ha2g,1jpaswow}
+model_paths_dict["model_9_ls0.01"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.01/deid-wikibio-3_default/1jpaswow_695/checkpoints/epoch=93-step=214037-adv100_acc.ckpt'
+model_paths_dict["model_9_ls0.05"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.05/deid-wikibio-3_default/1vfvk4uq_702/checkpoints/epoch=79-step=182159-adv100_acc.ckpt'
+model_paths_dict["model_9_ls0.1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/3fd1ha2g_699/checkpoints/epoch=96-step=220868-adv100_loss.ckpt'

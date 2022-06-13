@@ -15,6 +15,8 @@ class Model(LightningModule, abc.ABC):
     shared_embedding_dim: int
 
     base_folder: str             # base folder for precomputed_similarities/. defaults to ''.
+    document_model_name_or_path: str
+    profile_model_name_or_path: str
 
     learning_rate: float
     lr_scheduler_factor: float
@@ -50,6 +52,8 @@ class Model(LightningModule, abc.ABC):
     ):
         super().__init__()
         self.save_hyperparameters()
+        self.document_model_name_or_path = document_model_name_or_path
+        self.profile_model_name_or_path = profile_model_name_or_path
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
         self.profile_model = AutoModel.from_pretrained(profile_model_name_or_path)
 
@@ -260,13 +264,14 @@ class Model(LightningModule, abc.ABC):
 
         scheduling = 'linear'
         # scheduling = 'exponential'
+        # scheduling = None
 
         if optim_steps < warmup_steps:
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
             new_lr = lr_scale * self.document_learning_rate
-        else:
-            # lr_epochs = 20
-            lr_epochs = 70 # Drop to min_lr after this many epochs
+        elif (scheduling is not None):
+            lr_epochs = 70
+            # lr_epochs = 150 # Drop to min_lr after this many epochs
             # lr_epochs = 300
             # current_step = optim_steps - warmup_steps
             current_step = self.global_step - (len(self._optim_steps) * warmup_steps)
@@ -288,14 +293,14 @@ class Model(LightningModule, abc.ABC):
                     min_lr
                 )
 
-
-        for pg in optimizer.param_groups:
-            pg['lr'] = new_lr
+            for pg in optimizer.param_groups:
+                pg['lr'] = new_lr
+            
+            self.log("learning_rate", new_lr)
 
         optimizer.step()
         optimizer.zero_grad()
 
-        self.log("learning_rate", new_lr)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         # Alternate between training phases per epoch.
@@ -459,17 +464,18 @@ class Model(LightningModule, abc.ABC):
         self.log('val/document_redact_idf_total/loss', doc_redact_idf_loss_total)
 
 
-        # Disabling scheduler in favor of manual scheduling (6/5)
+        # Comment this part to disable scheduler in favor of manual scheduling
         # If there are multiple LR schedulers, call step() on all of them.
-        # lr_schedulers = self.lr_schedulers()
-        # if not isinstance(lr_schedulers, list):
-            # lr_schedulers = [lr_schedulers]
+        lr_schedulers = self.lr_schedulers()
+        if not isinstance(lr_schedulers, list):
+            lr_schedulers = [lr_schedulers]
 
         # for scheduler in lr_schedulers:
             # scheduler.step(doc_loss)
             # scheduler.step(doc_redact_ner_loss)
             # scheduler.step(doc_redact_lexical_loss)
             # scheduler.step(doc_redact_idf_loss_total)
+            # scheduler.step(self.trainer.logged_metrics['val/document_redact_adversarial_100/acc_top_k/1'])
         return doc_loss
 
     def setup(self, stage=None) -> None:

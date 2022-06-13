@@ -162,10 +162,11 @@ class CoordinateAscentModel(Model):
         #     lr=self.document_learning_rate, momentum=0.9
         # )
         document_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            document_optimizer, mode='min',
+            document_optimizer,
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
             verbose=True,
+            mode='min', # 'min'  for loss, 'max' for acc
             min_lr=1e-10
         )
         # see source:
@@ -183,10 +184,11 @@ class CoordinateAscentModel(Model):
         #     lr=self.profile_learning_rate, momentum=0.9
         # )
         profile_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            profile_optimizer, mode='min',
+            profile_optimizer,
             factor=self.lr_scheduler_factor,
             patience=self.lr_scheduler_patience,
             verbose=True,
+            mode='min', # 'min'  for loss, 'max' for acc
             min_lr=1e-10
         )
         profile_scheduler = {
