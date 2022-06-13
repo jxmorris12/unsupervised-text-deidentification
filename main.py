@@ -19,8 +19,6 @@ from utils import model_cls_dict
 
 USE_WANDB = True
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
 num_cpus = len(os.sched_getaffinity(0))
 
 
