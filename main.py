@@ -76,9 +76,9 @@ def get_args() -> argparse.Namespace:
             '[if false, does coordinate ascent alternating models across epochs]')
     )
     
-    parser.add_argument('--lr_scheduler_factor', type=float, default=0.5,
+    parser.add_argument('--lr_scheduler_factor', type=float, default=0.4,
         help='factor to decrease learning rate by on drop')
-    parser.add_argument('--lr_scheduler_patience', type=int, default=60,
+    parser.add_argument('--lr_scheduler_patience', type=int, default=6,
         help='patience for lr scheduler [unit: epochs]')
 
     parser.add_argument('--sample_spans', action='store_true',
@@ -86,7 +86,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--adversarial_masking', '--adv_k', 
         default=False, action='store_true', help='whether to do adversarial masking'
     )
-    parser.add_argument('--idf_masking', type=bool, default=True,
+    parser.add_argument('--idf_masking', default=False, action='store_true',
         help='whether to do idf-based masking (via bm25)'
     )
 
@@ -230,7 +230,7 @@ def main(args: argparse.Namespace):
         from pytorch_lightning.loggers import WandbLogger
         wandb_logger = WandbLogger(
             name=exp_name,
-            project='deid-wikibio-3', 
+            project='deid-wikibio-ablations-2', 
             config=vars(args),
             job_type='train',
             entity='jack-morris',
@@ -254,7 +254,7 @@ def main(args: argparse.Namespace):
     # val_metric = "val/document_redact_adversarial_100/loss"
     val_metric = "val/document_redact_idf_total/loss"
     # val_metric = "train/loss"
-    early_stopping_patience = (args.lr_scheduler_patience * 5 * args.num_validations_per_epoch)
+    early_stopping_patience = (args.lr_scheduler_patience * 50 * args.num_validations_per_epoch)
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         # 
@@ -262,7 +262,7 @@ def main(args: argparse.Namespace):
         ModelCheckpoint(monitor="val/document_redact_idf_total/loss", mode="min", filename="{epoch}-{step}-idf_total", save_last=True),
         ModelCheckpoint(monitor="val/document_redact_adversarial_100/acc_top_k/1", mode="max", filename="{epoch}-{step}-adv100_acc", save_last=True),
         # 
-        EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
+        # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
 
     print("creating Trainer")

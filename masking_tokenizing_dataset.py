@@ -238,10 +238,15 @@ class MaskingTokenizingDataset(Dataset):
         #   'text_key_id']) and possibly 'nearest_neighbor_idxs'
 
         out_ex = { "text_key_id": ex["text_key_id"] }
+        
+
         # 
         # Tokenize documents.
         # 
         if self.is_train_dataset: # Only consider redaction if this is a train dataset!
+            # Shorten documents to speed up masking.
+            ex["document"] = " ".join(ex["document"].split(" ")[:self.max_seq_length])
+
             if self.adversarial_masking:
                 ex["document"] = self.masking_span_sampler.fixed_redact_str(
                     text=ex["document"], words_to_mask=self.adv_word_mask_map[idx])

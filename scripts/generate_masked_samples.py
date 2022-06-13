@@ -229,20 +229,21 @@ def main(k: int, n: int, model_key: str, train: bool=False):
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
     model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path,
-        document_model_name_or_path="roberta-base",
-        profile_model_name_or_path="google/tapas-base",
-        train_batch_size=1,
-        pretrained_profile_encoder=False,
-        redaction_strategy="",
-        dataset_name='wiki_bio',
-        num_workers=num_cpus,
-        word_dropout_ratio=0.0, word_dropout_perc=0.0,
+        # document_model_name_or_path="roberta-base",
+        # profile_model_name_or_path="google/tapas-base",
+        # train_batch_size=1,
+        # pretrained_profile_encoder=False,
+        # redaction_strategy="",
+        # dataset_name='wiki_bio',
+        # num_workers=num_cpus,
+        # word_dropout_ratio=0.0, word_dropout_perc=0.0,
+        # shared_embedding_dim=3072,
     )
 
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
-        document_model_name_or_path="roberta-base",
-        profile_model_name_or_path="google/tapas-base",
+        document_model_name_or_path=model.document_model_name_or_path,
+        profile_model_name_or_path=model.profile_model_name_or_path,
         dataset_name='wiki_bio',
         dataset_train_split=('train[:100%]' if train else 'train[:1024]'),
         dataset_val_split=('val[:1024]' if train else 'val[:20%]'),
