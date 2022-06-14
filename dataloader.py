@@ -144,8 +144,8 @@ class WikipediaDataModule(LightningDataModule):
             )
             return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
 
-        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=1)
-        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=1)
+        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
+        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
         
         def redact_example(
                 redact_func: Callable,
