@@ -54,8 +54,6 @@ class MaskingTokenizingDataset(Dataset):
         self.adv_word_mask_map = {} 
         self.adv_word_mask_num = {}
 
-        assert ((self.num_nearest_neighbors == 0) or self.is_train_dataset), "only need nearest-neighbors when training"
-
         self._cache = {}
 
         if self.is_train_dataset:
@@ -221,7 +219,7 @@ class MaskingTokenizingDataset(Dataset):
         assert len(eligible_neighbor_idxs) >= self.num_nearest_neighbors
         neighbor_idxs = eligible_neighbor_idxs[:self.num_nearest_neighbors]
         neighbors_tokenized = [
-            self._tokenize_profile(ex=self.dataset[n_idx]) for n_idx in neighbor_idxs
+            self._tokenize_profile(ex=self.dataset[n_idx]) for n_idx in neighbor_idxs if n_idx < len(self.dataset)
         ]
         keys = neighbors_tokenized[0].keys() # probably like {'input_ids', 'attention_mask'}
         for _k in keys:

@@ -305,19 +305,21 @@ class Model(LightningModule, abc.ABC):
 
         optimizer.step()
         optimizer.zero_grad()
-
-
-    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        # Alternate between training phases per epoch.
+    
+    def assert_models_are_training(self):
         assert self.document_model.training
         assert self.document_embed.training
         assert self.profile_model.training
         assert self.profile_embed.training
 
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        # Alternate between training phases per epoch.
+        self.assert_models_are_training()
+
         optimizer = self.get_optimizer()
         optimizer.zero_grad()
         results = self.compute_loss(batch=batch, batch_idx=batch_idx)
-        self.log("temperature", self.temperature.exp())
+        if hasattr(self, "temperature"): self.log("temperature", self.temperature.exp())
 
         self.manual_backward(results["loss"])
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip)
