@@ -19,7 +19,10 @@ def get_words_from_doc(s: List[str]) -> List[str]:
 
 
 def get_top_matches_bm25():
-    split = 'train[:10%]'
+    # split = 'train[:1%]'
+    # split = 'train[:10%]'
+    split = 'val[:2%]'
+    # split = 'val[:20%]'
     train_data = datasets.load_dataset('wiki_bio', split=split, version='1.2.0')
     k = 256
 

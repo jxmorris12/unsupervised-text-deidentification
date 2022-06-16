@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 import transformers
 
-from model import ContrastiveModel, ConcurrentCoordinateAscentModel, CoordinateAscentModel
+from model import ContrastiveModel, ContrastiveCrossAttentionModel, CoordinateAscentModel
 
 
 def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
@@ -151,6 +151,6 @@ def tokenize_profile(
 
 model_cls_dict = {
     'coordinate_ascent': CoordinateAscentModel,
-    'concurrent_coordinate_ascent': ConcurrentCoordinateAscentModel,
+    'contrastive_cross_attention': ContrastiveCrossAttentionModel,
     'contrastive': ContrastiveModel,
 }

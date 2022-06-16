@@ -120,6 +120,20 @@ class WikipediaDataModule(LightningDataModule):
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
 
     def _load_train_and_val_data(self):
+        # create fingerprints for caching data
+        train_fingerprint = "_".join(
+            (
+                self.dataset_name, self.dataset_train_split, self.dataset_version,
+                self.document_model_name_or_path, self.profile_model_name_or_path, str(self.max_seq_length)
+            )
+        )
+        val_fingerprint = "_".join(
+            (
+                self.dataset_name, self.dataset_val_split, self.dataset_version,
+                self.document_model_name_or_path, self.profile_model_name_or_path, str(self.max_seq_length)
+            )
+        )
+
         # wiki_bio train size: 582,659
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
         self.train_dataset = datasets.load_dataset(
@@ -131,9 +145,9 @@ class WikipediaDataModule(LightningDataModule):
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
 
         self.train_dataset = self.train_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile_from_wikibio, num_proc=1, new_fingerprint=f"{train_fingerprint}_wiki")
         self.val_dataset = self.val_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile_from_wikibio, num_proc=1,  new_fingerprint=f"{val_fingerprint}_wiki")
 
         # Pre-tokenize profiles
         def tokenize_profile_ex(ex: Dict) -> Dict:
@@ -144,8 +158,8 @@ class WikipediaDataModule(LightningDataModule):
             )
             return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
 
-        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
-        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers))
+        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers), new_fingerprint=f"{train_fingerprint}_tokenized")
+        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers), new_fingerprint=f"{val_fingerprint}_tokenized")
         
         def redact_example(
                 redact_func: Callable,
@@ -165,7 +179,8 @@ class WikipediaDataModule(LightningDataModule):
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
-                num_proc=1
+                num_proc=1,
+                new_fingerprint=f"{val_fingerprint}_lexical_redacted"
         )
 
         #  NER redaction
@@ -174,7 +189,8 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
-            batched=True, num_proc=1
+            batched=True, num_proc=1,
+            new_fingerprint=f"{val_fingerprint}_spacy_redacted"
         )
 
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
@@ -182,58 +198,78 @@ class WikipediaDataModule(LightningDataModule):
             remove_words_val_idf, p=p, mask_token=self.mask_token)
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False),
-                num_proc=1
+                redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False
+            ),
+            num_proc=1,
+            new_fingerprint=f"{val_fingerprint}_idf20_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
-                num_proc=1
+            num_proc=1,
+            new_fingerprint=f"{val_fingerprint}_idf40_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False),
-                num_proc=1
+                redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False
+            ),
+            num_proc=1,
+            new_fingerprint=f"{val_fingerprint}_idf60_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
-                redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False),
-                num_proc=1
+                redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False
+            ),
+            num_proc=1,
+            new_fingerprint=f"{val_fingerprint}_idf80_redacted"
         )
         
 
         # Add index column to dataset, so that we can track which profiles match to which
         # documents from precomputed embeddings.
         self.train_dataset = self.train_dataset.add_column(
-            "text_key_id", 
-            list(   
-                range(
-                    len(self.train_dataset)
-                    )
-            )
+            "text_key_id", list(range(len(self.train_dataset)))
         )
         self.val_dataset = self.val_dataset.add_column(
-            "text_key_id", 
-            list(   
-                range(
-                    len(self.val_dataset)
-                    )
-            )
+            "text_key_id", list(range(len(self.val_dataset)))
         )
+
+        # Truncate length of adv_val_dataset if it's too long. We need the profiles
+        # from self.val_dataset to evaluate it.
+        val_n = len([i for i in range(len(self.adv_val_dataset)) if i < len(self.val_dataset)])
+        adv_val_dataset_dict = self.adv_val_dataset.to_dict()
+        adv_val_dataset_dict = { k: v[:val_n] for k,v in adv_val_dataset_dict.items() }
+        self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset_dict)
 
         # Load nearest-neighbors to train set, if requested.
         if self.num_nearest_neighbors > 0:
-            nn_file_path = os.path.join('nearest_neighbors', 'nn__train[:10%]__256.p')
-            assert os.path.exists(nn_file_path)
-            print("loading nearest-neighbors from:", nn_file_path)
-            nearest_neighbors = pickle.load(open(nn_file_path, 'rb'))
-            assert len(nearest_neighbors) >= len(self.train_dataset)
-            nearest_neighbors = nearest_neighbors[:len(self.train_dataset)]
+            # Load train nearest-neighbors
+            train_nn_file_path = os.path.join('nearest_neighbors', f'nn__{self.dataset_train_split}__256.p')
+            assert os.path.exists(train_nn_file_path)
+            print("Loading train nearest-neighbors from:", train_nn_file_path)
+            train_nearest_neighbors = pickle.load(open(train_nn_file_path, 'rb'))
+            assert len(train_nearest_neighbors) >= len(self.train_dataset)
+            train_nearest_neighbors = train_nearest_neighbors[:len(self.train_dataset)]
             self.train_dataset = self.train_dataset.add_column(
-                "nearest_neighbor_idxs", nearest_neighbors.tolist()
+                "nearest_neighbor_idxs", train_nearest_neighbors.tolist()
+            )
+            # Load val nearest-neighbors
+            val_nn_file_path = os.path.join('nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
+            assert os.path.exists(val_nn_file_path)
+            print("Loading val nearest-neighbors from:", val_nn_file_path)
+            val_nearest_neighbors = pickle.load(open(val_nn_file_path, 'rb'))
+            assert len(val_nearest_neighbors) >= len(self.val_dataset)
+            val_nearest_neighbors = val_nearest_neighbors[:len(self.val_dataset)]
+            self.val_dataset = self.val_dataset.add_column(
+                "nearest_neighbor_idxs", val_nearest_neighbors.tolist()
+            )
+            # Load neighbors into adv_val_dataset too
+            adv_val_nearest_neighbors = val_nearest_neighbors[:len(self.adv_val_dataset)]
+            self.adv_val_dataset = self.adv_val_dataset.add_column(
+                "nearest_neighbor_idxs", adv_val_nearest_neighbors.tolist()
             )
         
-        # Now enable parallelism
+        # Now disable parallelism
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
             
 
@@ -262,14 +298,12 @@ class WikipediaDataModule(LightningDataModule):
                 )
             )
             adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
-        
-        val_n = len([i for i in adv_idxs if i < len(self.val_dataset)])
-        adv_val_dataset = { k: v[:val_n] for k,v in adv_val_dataset.items() }
+
         self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
 
     def setup(self, stage: str) -> None:
-        self._load_train_and_val_data()
         self._load_adv_val_data()
+        self._load_train_and_val_data()
 
     def train_dataloader(self) -> DataLoader:
         train_tokenizing_dataset = MaskingTokenizingDataset(
@@ -294,7 +328,7 @@ class WikipediaDataModule(LightningDataModule):
         return DataLoader(
             train_tokenizing_dataset,
             # sampler=sampler,
-            persistent_workers=True,
+            persistent_workers=(self.num_workers > 0),
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
@@ -313,6 +347,7 @@ class WikipediaDataModule(LightningDataModule):
             sample_spans=False,
             adversarial_masking=False,
             idf_masking=False,
+            num_nearest_neighbors=self.num_nearest_neighbors,
             document_types=[
                 "document", "document_redact_ner", "document_redact_lexical", 
                 "document_redact_idf_20",  "document_redact_idf_40",
@@ -339,7 +374,7 @@ class WikipediaDataModule(LightningDataModule):
                 val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
-                persistent_workers=True,
+                persistent_workers=(self.num_workers > 0),
                 pin_memory=True,
                 shuffle=False
             ),
@@ -347,7 +382,7 @@ class WikipediaDataModule(LightningDataModule):
                 adv_val_tokenizing_dataset,
                 batch_size=self.eval_batch_size,
                 num_workers=min(self.num_workers, 8),
-                persistent_workers=True,
+                persistent_workers=(self.num_workers > 0),
                 pin_memory=True,
                 shuffle=False
             )

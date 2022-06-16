@@ -34,7 +34,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--checkpoint_vnum', type=str, default='')
 
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
-        choices=['coordinate_ascent', 'concurrent_coordinate_ascent', 'contrastive'],
+        choices=['coordinate_ascent', 'contrastive_cross_attention', 'contrastive'],
         default='coordinate_ascent',
         help='loss function to use for training'
     )
@@ -200,7 +200,7 @@ def main(args: argparse.Namespace):
 
     lf_short = {
         'coordinate_ascent': 'ca',
-        'concurrent_coordinate_ascent': 'cca',
+        'contrastive_cross_attention': 'cca',
         'contrastive': 'co',
     }[args.loss_function]
     exp_name = lf_short + '__' + args.document_model_name

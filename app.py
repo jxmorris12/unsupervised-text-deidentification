@@ -7,6 +7,7 @@ import random
 import re
 
 import datasets
+from elasticsearch import Elasticsearch
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,13 +17,26 @@ import tqdm
 from redact import remove_named_entities_spacy, remove_overlapping_words
 from utils import create_document_and_profile_from_wikibio, name_from_table_rows
 
-
 # num_cpus = 1 # Multiprocessing will break with streamlit!
 num_cpus = len(os.sched_getaffinity(0))
 
 def highlight_masked_spans_html(text: str, mask_token: str) -> str:
     text = text.replace(mask_token, '<span style="background-color: black; color: black">XXXXX</span>')
     return f'<p>{text}</p>'
+
+def get_elastic_search():
+    username = "elastic"
+    password = "FjZD_LI-=AJOtsfpq9U*"
+
+    url = f"https://{username}:{password}@rush-compute-01.tech.cornell.edu:9200"
+
+    return Elasticsearch(
+        url,
+        # use_ssl = False,
+        # ca_certs=False,
+        verify_certs=False
+    )
+
 
 def redact_example(
     redact_func: Callable,
@@ -66,9 +80,10 @@ def make_infobox_html(table: List[Tuple[str, str]]) -> str:
     s = '<table><tbody>'
     # print('table:', table)
     for rkey, rval in table:
+        rval_toshow = rval.replace('-lrb-', '(').replace('-rrb-', ')')
         s += '<tr>'
         s += f'<th><b>{rkey}</b></th>'
-        s += f'<td>{rval}</td>'
+        s += f'<td>{rval_toshow}</td>'
         s += '</tr>'
     s += '</tbody></table>'
     return s
@@ -151,40 +166,67 @@ def main():
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    names = val_dataset['name']
-
+    # 
+    #   Draw sidebar
+    # 
     with st.sidebar:
         chosen_model_name = st.selectbox(
             label='Select a model',
             options=adv_df['model_name'].unique(),
         )
+        this_adv_df = adv_df[adv_df['model_name'] == chosen_model_name]
 
-    st.header(f'Redacted document')
+        choice_idx = st.selectbox(
+            label='Profile Index',
+            options=range(len(this_adv_df)),
+            index=50,
+        )
 
-    this_adv_df = adv_df[adv_df['model_name'] == chosen_model_name]
-
-    choice_idx = random.choice(range(len(this_adv_df)))
     ex = this_adv_df.iloc[choice_idx]
     print('choice_idx:', choice_idx)
 
+    # 
+    #   Draw redacted document
+    # 
+    st.header(f'Redacted document')
+
     doc_text = ex['perturbed_text']
-    st.subheader(ex['model_name'])
+    st.subheader(f"Redaction strategy: {ex['model_name']}")
     st.write(
        f'{ex["i"]}  ' + highlight_masked_spans_html(doc_text, mask_token), unsafe_allow_html=True
     )
-    k = 20
-    topk_probs = np.arange(k)
-    topk_profiles = np.array(val_dataset['profile'])[topk_probs]
-    st.write('<hr>', unsafe_allow_html=True)
-    st.header('Matching profiles')
-    for prof_idx, prof in zip(topk_probs, topk_profiles):
-        prob = 0
-        color = '#008b00' if prof_idx == choice_idx else '#6b0000'
-        prof_table = table_from_table_rows(prof)
-        prof_name = name_from_table_rows(prof_table)
-        st.write(f'<b style="font-size:22px;color:{color}">{prob*100:.2f}% · {prof_name}</b>', unsafe_allow_html=True)
-        st.write(make_infobox_html(prof_table), unsafe_allow_html=True)
-        st.write('<br>', unsafe_allow_html=True)
+
+    # 
+    #   Search bar
+    # 
+    search_query = st.text_input(label="Search profiles", value="")
+    es = get_elastic_search()
+
+    search_results = es.search(index="val_20_profiles", q=search_query)
+    search_result_ids = np.array([
+        int(result['_id']) for result in search_results["hits"]["hits"]
+    ])
+
+    # 
+    # Matching profiles
+    # 
+    if len(search_result_ids):
+        profiles = np.array(val_dataset['profile'])[search_result_ids]
+        st.write('<hr>', unsafe_allow_html=True)
+        st.header('Matching profiles')
+        for prof_idx, prof in zip(search_result_ids, profiles):
+            prob = 0
+            color = '#008b00' if prof_idx == choice_idx else '#6b0000'
+            prof_table = table_from_table_rows(prof)
+            prof_name = name_from_table_rows(prof_table)
+            st.write(f'<b style="font-size:22px;color:{color}">{prob*100:.2f}% · {prof_name}</b>', unsafe_allow_html=True)
+            st.write(make_infobox_html(prof_table), unsafe_allow_html=True)
+            st.write('<br>', unsafe_allow_html=True)
+    else:
+        st.write(
+            '<br><b style="font-size:16px;color:gray">(no profiles found)</b>',
+            unsafe_allow_html=True
+        )
 
 
 if __name__ == '__main__': main()
