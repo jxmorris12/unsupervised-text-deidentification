@@ -5,6 +5,7 @@ import pickle
 import re
 
 import spacy
+import torch
 
 from nltk.corpus import stopwords
 from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
@@ -84,9 +85,12 @@ def remove_named_entities_bert_batch(x_list: List[str], mask_token: str = "[MASK
     if bert_ner_pipeline is None:
         tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER-uncased")
         model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER-uncased")
-        bert_ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer)
+        bert_ner_pipeline = pipeline(
+            "ner", model=model, tokenizer=tokenizer, device=(0 if torch.cuda.is_available() else -1)
+        )
     
     entities = bert_ner_pipeline(x_list)
+    redacted_docs = []
     for i in range(len(x_list)):
         doc = x_list[i]
         for entity in entities[i][::-1]:
@@ -100,8 +104,8 @@ def remove_named_entities_bert_batch(x_list: List[str], mask_token: str = "[MASK
         # collapse subwords to single-word, i.e. <mask><mask> for 'rubicon' becomes just <mask> here.
         while (mask_token + mask_token) in doc:
             doc = doc.replace(mask_token + mask_token, mask_token)
-        x_list[i] = doc # replace with redacted doc
-    return x_list
+        redacted_docs.append(doc)
+    return redacted_docs
 
 
 def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", ignore_stopwords=False) -> str:
