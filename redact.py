@@ -7,6 +7,7 @@ import re
 import spacy
 
 from nltk.corpus import stopwords
+from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 
 from utils import words_from_text
 
@@ -33,18 +34,10 @@ def remove_named_entities_spacy(x: str, mask_token: str = "[MASK]") -> str:
     new_tokens = [t.text_with_ws if not t.ent_type_ else (mask_token + t.whitespace_) for t in doc]
     return "".join(new_tokens)
 
-def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> str:
+def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MASK]") -> List[str]:
     """
     Replaces named entities in each `x` from `x_list` with `mask_token`.
         Utilizes batching from spacy library via `nlp.pipe()`.
-    
-    From spacy.io/usage/rule-based-matching/#regex-text:
-        nsubj: Nominal subject.
-        prep: Preposition.
-        pobj: Object of preposition.
-        NNP: Proper noun, singular.
-        VBD: Verb, past tense.
-        IN: Conjunction, subordinating or preposition.
     """
     docs = nlp.pipe(x_list, n_process=num_cpus)
     new_tokens_list = [
@@ -52,6 +45,64 @@ def remove_named_entities_spacy_batch(x_list: List[str], mask_token: str = "[MAS
         for doc in docs
     ]
     return ["".join(new_tokens) for new_tokens in new_tokens_list]
+
+
+bert_ner_pipeline = None
+def remove_named_entities_bert_batch(x_list: List[str], mask_token: str = "[MASK]") -> List[str]:
+    """
+    Replaces named entities in each `x` from `x_list` with `mask_token`.
+        Utilizes BERT-based NER model from HuggingFace: https://huggingface.co/dslim/bert-base-NER-uncased
+    
+        Example entities:
+            {'end': 4,
+            'entity': 'B-PER',
+            'index': 1,
+            'score': 0.96453863,
+            'start': 0,
+            'word': 'jack'}
+            {'end': 17,
+            'entity': 'B-LOC',
+            'index': 4,
+            'score': 0.7856458,
+            'start': 13,
+            'word': 'pike'}
+            {'end': 18,
+            'entity': 'I-LOC',
+            'index': 5,
+            'score': 0.9546801,
+            'start': 17,
+            'word': "'"}
+            {'end': 19,
+            'entity': 'I-LOC',
+            'index': 6,
+            'score': 0.9678726,
+            'start': 18,
+            'word': 's'}
+    """
+    global bert_ner_pipeline
+    
+    if bert_ner_pipeline is None:
+        tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER-uncased")
+        model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER-uncased")
+        bert_ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer)
+    
+    entities = bert_ner_pipeline(x_list)
+    for i in range(len(x_list)):
+        doc = x_list[i]
+        for entity in entities[i][::-1]:
+            word_to_mask = entity['word'].replace('##', '')
+            if not word_to_mask.isalnum():
+                continue
+            entity_start_idx = entity['start']
+            entity_end_idx = entity['end']
+            doc = doc[:entity_start_idx] + mask_token + doc[entity_end_idx:]
+        
+        # collapse subwords to single-word, i.e. <mask><mask> for 'rubicon' becomes just <mask> here.
+        while (mask_token + mask_token) in doc:
+            doc = doc.replace(mask_token + mask_token, mask_token)
+        x_list[i] = doc # replace with redacted doc
+    return x_list
+
 
 def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", ignore_stopwords=False) -> str:
     """Replaces words in `t1` that occur in `t2` with `mask_token`.

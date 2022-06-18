@@ -79,7 +79,7 @@ class TestWikiDataset:
             mask_token='<mask>',
             dataset_name='wiki_bio',
             dataset_train_split='train[:1%]',
-            dataset_val_split='val[:64]',
+            dataset_val_split='val[:256]',
             dataset_version='1.2.0',
             num_workers=num_cpus,
             num_nearest_neighbors=num_nearest_neighbors,

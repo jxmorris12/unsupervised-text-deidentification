@@ -184,14 +184,6 @@ class MaskingTokenizingDataset(Dataset):
     def __len__(self) -> int:
         return len(self.dataset)
     
-    def _tokenize_profile(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
-        """Tokenizes a profile, either with Tapas (dataframe-based) or as a single string."""
-        return tokenize_profile(
-            tokenizer=self.profile_tokenizer,
-            ex=ex,
-            max_seq_length=self.max_seq_length
-        )
-    
     def _tokenize_document(self, ex: Dict[str, str], doc_type: str) -> Dict[str, torch.Tensor]:
         """Tokenizes a document."""
         encoding = self.document_tokenizer.encode_plus(
@@ -209,7 +201,26 @@ class MaskingTokenizingDataset(Dataset):
         )
         return encoding_dict
     
-    def _get_nearest_neighbors(self, ex: Dict[str, str]) -> torch.Tensor:
+    def _tokenize_profile(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
+        """Tokenizes a profile, either with Tapas (dataframe-based) or as a single string."""
+        return tokenize_profile(
+            tokenizer=self.profile_tokenizer,
+            ex=ex,
+            max_seq_length=self.max_seq_length
+        )
+    
+    def _get_tokenized_profile(self, idx: int) -> Dict[str, torch.Tensor]:
+        ex = self.dataset[idx]
+        if 'profile__input_ids' in ex:
+            out_ex = {}
+            for _k, _v in ex.items():
+                if _k.startswith('profile__'):
+                    out_ex[_k.replace('profile__', '')] = torch.tensor([_v])
+            return out_ex
+        else:
+            return self._tokenize_profile(ex=self.dataset[idx])
+    
+    def _get_nearest_neighbors(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
         """Gets the nearest-neighbors of an example. Used for contrastive learning."""
         assert "nearest_neighbor_idxs" in ex
         out_ex = {}
@@ -218,8 +229,9 @@ class MaskingTokenizingDataset(Dataset):
         ]
         assert len(eligible_neighbor_idxs) >= self.num_nearest_neighbors
         neighbor_idxs = eligible_neighbor_idxs[:self.num_nearest_neighbors]
+
         neighbors_tokenized = [
-            self._tokenize_profile(ex=self.dataset[n_idx]) for n_idx in neighbor_idxs if n_idx < len(self.dataset)
+           self._get_tokenized_profile(idx=n_idx) for n_idx in neighbor_idxs if n_idx < len(self.dataset)
         ]
         keys = neighbors_tokenized[0].keys() # probably like {'input_ids', 'attention_mask'}
         for _k in keys:
@@ -238,7 +250,6 @@ class MaskingTokenizingDataset(Dataset):
         #   'input_text', 'target_text', 'name', 'document', 'profile', 'profile_keys',
         #   'profile_values', 'text_key', 'document_redact_lexical', 'document_redact_ner',
         #   'text_key_id']) and possibly 'nearest_neighbor_idxs'
-
         out_ex = { "text_key_id": ex["text_key_id"] }
         
 
@@ -250,6 +261,8 @@ class MaskingTokenizingDataset(Dataset):
             ex["document"] = " ".join(ex["document"].split(" ")[:self.max_seq_length])
 
             if self.adversarial_masking:
+                if idx not in self.adv_word_mask_map:
+                    self.adv_word_mask_map[idx] = []
                 ex["document"] = self.masking_span_sampler.fixed_redact_str(
                     text=ex["document"], words_to_mask=self.adv_word_mask_map[idx])
             else:

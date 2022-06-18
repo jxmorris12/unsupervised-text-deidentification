@@ -51,6 +51,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--grad_norm_clip', type=float, default=100.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
+    # parser.add_argument('--precision', type=int, default=32)
     
     parser.add_argument('--num_nearest_neighbors', '--n', type=int, default=0,
         help='number of negative samples for contrastive loss'
@@ -96,13 +97,13 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
+    parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
         help='run id for weights & biases')
 
     args = parser.parse_args()
-    args.dataset_val_split = 'val[:20%]'
 
     if args.checkpoint_path and args.checkpoint_vnum:
         raise ValueError('cannot provide both checkpoint_path and checkpoint_vnum')
@@ -156,7 +157,7 @@ def main(args: argparse.Namespace):
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        num_workers=num_cpus,
+        num_workers=round(num_cpus / torch.cuda.device_count()),
         num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
@@ -232,9 +233,14 @@ def main(args: argparse.Namespace):
     if USE_WANDB:
         import wandb
         from pytorch_lightning.loggers import WandbLogger
+
+        wandb_project = 'deid-wikibio-4'
+        if args.loss_function == 'contrastive_cross_attention':
+            wandb_project += '-cross-encoder'
+
         wandb_logger = WandbLogger(
             name=exp_name,
-            project='deid-wikibio-4', 
+            project=wandb_project, 
             config=vars(args),
             job_type='train',
             entity='jack-morris',
@@ -262,9 +268,23 @@ def main(args: argparse.Namespace):
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         # 
-        ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
-        ModelCheckpoint(monitor="val/document_redact_idf_total/loss", mode="min", filename="{epoch}-{step}-idf_total", save_last=True, save_top_k=args.model_ckpt_save_top_k),
-        ModelCheckpoint(monitor="val/document_redact_adversarial_100/acc_top_k/1", mode="max", filename="{epoch}-{step}-adv100_acc", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+        ModelCheckpoint(
+            monitor="val/document/loss",
+            mode="min",
+            filename="{epoch}-{step}",
+            save_last=True,
+            save_top_k=args.model_ckpt_save_top_k,
+            save_on_train_epoch_end=True,
+        ),
+        # ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+        ModelCheckpoint(
+            monitor="val/document_redact_idf_total/loss",
+            mode="min",
+            filename="{epoch}-{step}-idf_total",
+            save_last=True,
+            save_top_k=args.model_ckpt_save_top_k,
+            save_on_train_epoch_end=True
+        ),
         # 
         # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
     ]
@@ -281,6 +301,8 @@ def main(args: argparse.Namespace):
         gpus=torch.cuda.device_count(),
         logger=loggers,
         num_sanity_val_steps=0,
+        strategy=('ddp' if torch.cuda.device_count() > 0 else None),
+        # precision=args.precision
     )
     trainer.fit(
         model=model,

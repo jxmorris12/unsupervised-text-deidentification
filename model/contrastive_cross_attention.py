@@ -96,14 +96,14 @@ class ContrastiveCrossAttentionModel(Model):
             score_matrix, zero_idxs,
             label_smoothing=self.label_smoothing
         )
-        self.log(f"{metrics_key}/loss", loss)
+        self.log(f"{metrics_key}/loss", loss, sync_dist=True)
 
         # Also track a boolean mask for which things were correct.
         is_correct = (score_matrix.argmax(dim=1) == zero_idxs)
 
         # Log top-k accuracies.
         for k in [1, 5, 10, 50, 100, 500, 1000]:
-            if k >= batch_size: # can't compute top-k accuracy here.
+            if (k >= score_matrix.shape[1]): # can't compute top-k accuracy here.
                 continue
             top_k_acc = (
                 score_matrix.topk(k=k, dim=1)
@@ -113,22 +113,24 @@ class ContrastiveCrossAttentionModel(Model):
                     .float()
                     .mean()
             )
-            self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+            self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc, sync_dist=True)
         return is_correct, loss
     
     def compute_loss(
             self,
             batch: Dict[str, torch.Tensor],
             batch_idx: int,
-            document_key: str = 'document',
+            document_type: str = 'document',
             metrics_key: str = 'train',
         ) -> Dict[str, torch.Tensor]:
-        batch_size, sequence_length = batch[f'{document_key}__input_ids'].shape
+        batch_size, sequence_length = batch[f'{document_type}__input_ids'].shape
 
         # If keys that start with 'profile_neighbor' are present in the batch,
         # include those in the loss.
         assert "profile_neighbor__input_ids" in batch.keys(), f"profile neighbors not found in batch (keys: {batch.keys()})"
         prof_neighbor_inputs = self._get_inputs_from_prefix(batch=batch, prefix='profile_neighbor')
+
+        assert len(prof_neighbor_inputs['input_ids'].shape) == 3, "profile neighbors should have inputs of shape (bs, nn, sl)"
         assert prof_neighbor_inputs['input_ids'].shape[0] == batch_size
         assert prof_neighbor_inputs['input_ids'].shape[2] == sequence_length
 
@@ -144,7 +146,7 @@ class ContrastiveCrossAttentionModel(Model):
 
         # TODO: Change last token in profile to be SEP instead of END?? or is it already SEP?
 
-        doc_inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_key)
+        doc_inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
         if 'word_ids' in doc_inputs: del doc_inputs['word_ids']
         assert doc_inputs['input_ids'].shape == (batch_size, sequence_length)
 
@@ -190,22 +192,32 @@ class ContrastiveCrossAttentionModel(Model):
     
     def on_validation_start(self):
         # 
-        self.document_model.cuda()
-        self.document_embed.cuda()
+        # self.document_model.cuda()
+        # self.document_embed.cuda()
         # 
+        pass
     
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        for document_key in ['document', 'document_redact_ner', 'document_redact_lexical']:
+        for document_type in ['document', 'document_redact_ner', 'document_redact_lexical']:
             self.compute_loss(
-                batch=batch, batch_idx=batch_idx, document_key=document_key, metrics_key='val'
+                batch=batch, batch_idx=batch_idx, document_type=document_type, metrics_key=f'val/{document_type}'
             )
+        
+        idf_total_loss = 0.0
+        for idf_n in [20, 40, 60, 80]:
+            results = self.compute_loss(
+                batch=batch, batch_idx=batch_idx, document_type=f'document_redact_idf_{idf_n}', metrics_key=f'val/document_redact_idf_{idf_n}'
+            )
+            idf_total_loss += results["loss"].item()
+        self.log(f"val/document_redact_idf_total/loss", idf_total_loss, sync_dist=True)
+        
 
     def _process_adv_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         return
         # TODO: process adversarial batches. Need profiles for it though.
         for k in [1, 10, 100, 1000]:
             self.compute_loss(
-                batch=batch, batch_idx=batch_idx, document_key=f'adv_document_{k}', metrics_key='val'
+                batch=batch, batch_idx=batch_idx, document_type=f'adv_document_{k}', metrics_key=f'val/document_redact_adversarial_{k}'
             )
 
     def validation_step(self, batch: Dict, batch_idx: int, dataloader_idx: int=0) -> Dict[str, torch.Tensor]:

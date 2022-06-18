@@ -32,8 +32,7 @@ class TestMaskingTokenizingDataset:
             "wiki_bio", split=split, version="1.2.0"
         )
         train_dataset = train_dataset.map(
-            create_document_and_profile_from_wikibio,
-            n_proc=num_cpus
+            create_document_and_profile_from_wikibio
         )
         train_dataset = train_dataset.add_column(
             "text_key_id", 

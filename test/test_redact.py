@@ -5,6 +5,7 @@ from dataloader import WikipediaDataModule
 
 from redact import (
     remove_named_entities_spacy, remove_named_entities_spacy_batch,
+    remove_named_entities_bert_batch,
     remove_overlapping_words
 )
 
@@ -49,6 +50,39 @@ class TestRedact:
             '[MASK] went to [MASK][MASK] [MASK] [MASK]',
             '[MASK] [MASK] crossed the [MASK]'
         ]
+    
+    def test_redact_ner_bert(self):
+        docs = [
+            'Jack went to Pike\'s Place Market',
+            'Julius Caesar crossed the Rubicon'
+        ]
+        docs = [doc.lower() for doc in docs]
+        redacted_docs = remove_named_entities_bert_batch(docs)
+        print(redacted_docs)
+        assert redacted_docs == [
+            '[MASK] went to [MASK]\'[MASK] [MASK] [MASK]',
+            '[MASK] [MASK] crossed [MASK] [MASK]'
+        ]
+    
+    def test_redact_ner_bert_val_dataset(self, val_dataset):
+        take_20_words = lambda s: ' '.join(s.split(' ')[:20])
+        docs = [
+            take_20_words(val_dataset[i]['document']) for i in range(10)
+        ]
+        redacted_docs = remove_named_entities_bert_batch(docs)
+        assert redacted_docs == [
+            'pope [MASK] [MASK] of [MASK] ( also known as [MASK] [MASK] ) was the [MASK] pope of [MASK] and patriarch',
+            '[MASK] [MASK] is a male former table tennis player from [MASK] .\n',
+            '[MASK] [MASK] ( born 30 november 1977 ) is a [MASK] professional footballer .\nhe currently plays as a striker for',
+            '[MASK] [MASK] , ( born march 14 , 1996 ) is a professional squash player who represents [MASK] .\nshe reached',
+            '[MASK] [MASK]. [MASK] is a former [MASK] member of the [MASK] [MASK] [MASK] [MASK] .\nhe was born in [MASK] to',
+            '[MASK] [MASK] ( born may 8 , 1935 ) is an [MASK] stage , film and television actress .\nshe is',
+            "[MASK] [MASK] [MASK] ( born august 5 , 1981 ) , nicknamed `` [MASK] [MASK] [MASK] '' , is an",
+            '[MASK] [MASK] ( born [MASK] [MASK] [MASK] on 22 november 1960 ) is a [MASK] musician and author , best',
+            '[MASK] [MASK] ( born november 20 , 1972 in [MASK] , [MASK] ) is a former professional [MASK] football defensive',
+            'blessed [MASK] [MASK] [MASK] t.[MASK].[MASK].[MASK]. ( ) was a [MASK] visionary and anchoress from [MASK] ( [MASK] ) .\nshe was'
+        ]
+
     
     def test_redact_lexical(self, val_dataset):
         doc = val_dataset[0]['document']

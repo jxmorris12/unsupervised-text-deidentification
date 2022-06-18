@@ -281,7 +281,7 @@ class Model(LightningModule, abc.ABC):
             # current_step = optim_steps - warmup_steps
             current_step = self.global_step - (len(self._optim_steps) * warmup_steps)
             ############################ Linear scheduling ############################
-            min_lr = 2e-6
+            min_lr = 1e-6
             if scheduling == 'linear':
                 delta = (self.document_learning_rate - min_lr) / (lr_epochs * self.steps_per_epoch)
                 new_lr = max(
@@ -492,7 +492,7 @@ class Model(LightningModule, abc.ABC):
         # Get dataloader by calling it - train_dataloader() is called after setup() by default
         train_loader = self.trainer.datamodule.train_dataloader()
         # Calculate total steps
-        tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
+        tb_size = self.hparams.train_batch_size * max(1, self.trainer.num_devices)
         ab_size = self.trainer.accumulate_grad_batches
         self.steps_per_epoch = (len(train_loader.dataset) // tb_size) // ab_size
         self.total_steps = self.steps_per_epoch * float(self.trainer.max_epochs)
