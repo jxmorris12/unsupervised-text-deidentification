@@ -43,3 +43,27 @@ model_paths_dict["model_8_ls0.1"] = '/home/jxm3/research/deidentification/unsupe
 model_paths_dict["model_9_ls0.01"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.01/deid-wikibio-3_default/1jpaswow_695/checkpoints/epoch=93-step=214037-adv100_acc.ckpt'
 model_paths_dict["model_9_ls0.05"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.05/deid-wikibio-3_default/1vfvk4uq_702/checkpoints/epoch=79-step=182159-adv100_acc.ckpt'
 model_paths_dict["model_9_ls0.1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-3_default/3fd1ha2g_699/checkpoints/epoch=96-step=220868-adv100_loss.ckpt'
+
+# model_2_1 is roberta-tapas, no masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/1tu650oe
+model_paths_dict["model_2_1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__e3072__ls0.1/deid-wikibio-4_default/1tu650oe_747/checkpoints/epoch=63-step=145727-idf_total.ckpt'
+
+# model_2_2 is pmlm-a-tapas, uniformly sampled idf masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/3fyovpn7
+model_paths_dict["model_2_2"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/3fyovpn7_753/checkpoints/epoch=30-step=70586-idf_total.ckpt'
+
+# model_2_3 is roberta-tapas, uniformly sampled idf masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/6soyixf9
+model_paths_dict["model_2_3"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/6soyixf9_752/checkpoints/epoch=30-step=70586-idf_total.ckpt'
+
+# model_2_4 is roberta-tapas, 0.5 sampled random masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/20zw3yj3
+model_paths_dict["model_2_4"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_0.5_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/20zw3yj3_748/checkpoints/epoch=63-step=145727-idf_total.ckpt'
+
+# model_2_5 is roberta-roberta, 0.5 sampled random masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/1c9464tp
+model_paths_dict["model_2_5"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__dropout_0.5_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/1c9464tp_750/checkpoints/epoch=58-step=134342-idf_total.ckpt'
+
+# model_2_6 is roberta-roberta, 0.5 sampled idf masking
+#   wandb.ai/jack-morris/deid-wikibio-4/runs/1c9464tp
+model_paths_dict["model_2_6"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__idf__dropout_0.5_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/f18dh3hl_751/checkpoints/epoch=30-step=70586-idf_total.ckpt'

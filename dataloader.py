@@ -1,8 +1,10 @@
 from typing import Any, Callable, Dict, List, Union
 
+# import cPickle as pickle
+import pickle
 import functools
 import os
-import pickle
+import re
 
 import datasets
 import numpy as np
@@ -18,7 +20,7 @@ from redact import remove_named_entities_spacy_batch, remove_overlapping_words, 
 from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile
 
 # 
-# TODO: filter data to have > 10 words or something? And maybe a certain
+# TODO: Consider filtering data to have > 10 words or something? And maybe a certain
 #   number of rows?
 # bad data example:
 # [train example 326510] - 0 words in target text
@@ -30,8 +32,10 @@ from utils import create_document_and_profile_from_wikibio, dict_union, tokenize
 class WikipediaDataModule(LightningDataModule):
     dataset_name: str
     dataset_version: str
+
     dataset_train_split: str
     dataset_val_split: str
+    dataset_test_split: str
 
     document_model_name_or_path: str
     profile_model_name_or_path: str
@@ -57,6 +61,8 @@ class WikipediaDataModule(LightningDataModule):
 
     train_dataset: datasets.Dataset     # train examples
     val_dataset: datasets.Dataset       # validation examples
+    test_dataset: datasets.Dataset      # test examples
+
     adv_val_dataset: datasets.Dataset   # adversarially-generated validation examples
 
     def __init__(
@@ -67,6 +73,7 @@ class WikipediaDataModule(LightningDataModule):
         dataset_name: str = "wiki_bio",
         dataset_train_split: str = "train[:10%]",
         dataset_val_split: str = "val[:20%]",
+        dataset_test_split: str = "test[:256]",
         dataset_version: str = "1.2.0",
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
@@ -101,6 +108,7 @@ class WikipediaDataModule(LightningDataModule):
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
         self.dataset_val_split = dataset_val_split
+        self.dataset_test_split = dataset_test_split
         self.dataset_version = dataset_version
 
         self.train_batch_size = train_batch_size
@@ -120,19 +128,17 @@ class WikipediaDataModule(LightningDataModule):
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
 
     def _load_train_and_val_data(self):
+        version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
+
         # create fingerprints for caching data
-        train_fingerprint = "_".join(
-            (
-                self.dataset_name, self.dataset_train_split, self.dataset_version,
-                self.document_model_name_or_path, self.profile_model_name_or_path, str(self.max_seq_length)
-            )
-        )
-        val_fingerprint = "_".join(
-            (
-                self.dataset_name, self.dataset_val_split, self.dataset_version,
-                self.document_model_name_or_path, self.profile_model_name_or_path, str(self.max_seq_length)
-            )
-        )
+        train_fingerprint = "_".join((self.dataset_name, self.dataset_train_split, self.dataset_version, version_str, self.document_model_name_or_path))
+        train_fingerprint = re.sub(r'[^\w\-_\. ]', '__', train_fingerprint)
+
+        val_fingerprint = "_".join((self.dataset_name, self.dataset_val_split, self.dataset_version, version_str, self.document_model_name_or_path))
+        val_fingerprint = re.sub(r'[^\w\-_\. ]', '__', val_fingerprint)
+
+        test_fingerprint = "_".join((self.dataset_name, self.dataset_test_split, self.dataset_version, version_str, self.document_model_name_or_path))
+        test_fingerprint = re.sub(r'[^\w\-_\. ]', '__', test_fingerprint)
 
         # wiki_bio train size: 582,659
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
@@ -142,24 +148,21 @@ class WikipediaDataModule(LightningDataModule):
          # wiki_bio val size: 72,831
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
         self.val_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
-
+            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
+        )
+        
+        # wiki_bio test size: 72,831
+        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_test_split}")
+        self.test_dataset = datasets.load_dataset(
+            self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
+        )
+        
         self.train_dataset = self.train_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1, new_fingerprint=f"{train_fingerprint}_wiki")
         self.val_dataset = self.val_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1,  new_fingerprint=f"{val_fingerprint}_wiki")
-
-        # Pre-tokenize profiles
-        def tokenize_profile_ex(ex: Dict) -> Dict:
-            tokenized_profile = tokenize_profile(
-                tokenizer=self.profile_tokenizer,
-                ex=ex,
-                max_seq_length=self.max_seq_length
-            )
-            return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
-
-        self.train_dataset = self.train_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers), new_fingerprint=f"{train_fingerprint}_tokenized")
-        self.val_dataset = self.val_dataset.map(tokenize_profile_ex, num_proc=max(1, self.num_workers), new_fingerprint=f"{val_fingerprint}_tokenized")
+        self.test_dataset = self.test_dataset.map(
+            create_document_and_profile_from_wikibio, num_proc=1,  new_fingerprint=f"{test_fingerprint}_wiki")
         
         def redact_example(
                 redact_func: Callable,
@@ -182,6 +185,12 @@ class WikipediaDataModule(LightningDataModule):
                 num_proc=1,
                 new_fingerprint=f"{val_fingerprint}_lexical_redacted"
         )
+        self.test_dataset = self.test_dataset.map(
+            lambda ex: redact_example(
+                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
+                num_proc=1,
+                new_fingerprint=f"{test_fingerprint}_lexical_redacted"
+        )
 
         #  NER redaction
         ner_redact_func = functools.partial(
@@ -189,7 +198,8 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
-            batched=True, num_proc=1,
+            batched=True,
+            num_proc=1,
             new_fingerprint=f"{val_fingerprint}_spacy_redacted"
         )
 
@@ -223,7 +233,47 @@ class WikipediaDataModule(LightningDataModule):
             num_proc=1,
             new_fingerprint=f"{val_fingerprint}_idf80_redacted"
         )
+
+        # Stuff after here depends on tokenization
+        train_tokenized_fingerprint = '_'.join(
+            (train_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
+        )
+        train_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', train_tokenized_fingerprint)
         
+        val_tokenized_fingerprint = '_'.join(
+            (val_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
+        )
+        val_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', val_tokenized_fingerprint)
+
+        test_tokenized_fingerprint = '_'.join(
+            (test_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
+        )
+        test_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', test_tokenized_fingerprint)
+
+        # Pre-tokenize profiles
+        def tokenize_profile_ex(ex: Dict) -> Dict:
+            tokenized_profile = tokenize_profile(
+                tokenizer=self.profile_tokenizer,
+                ex=ex,
+                max_seq_length=self.max_seq_length
+            )
+            return dict_union(ex, {f'profile__{k}': v[0] for k, v in tokenized_profile.items()})
+
+        self.train_dataset = self.train_dataset.map(
+            tokenize_profile_ex,
+            num_proc=max(1, self.num_workers),
+            new_fingerprint=f"{train_tokenized_fingerprint}_tokenized"
+        )
+        self.val_dataset = self.val_dataset.map(
+            tokenize_profile_ex,
+            num_proc=max(1, self.num_workers),
+            new_fingerprint=f"{val_tokenized_fingerprint}_tokenized"
+        )
+        self.test_dataset = self.test_dataset.map(
+            tokenize_profile_ex,
+            num_proc=max(1, self.num_workers),
+            new_fingerprint=f"{test_tokenized_fingerprint}_tokenized"
+        )
 
         # Add index column to dataset, so that we can track which profiles match to which
         # documents from precomputed embeddings.
@@ -232,6 +282,9 @@ class WikipediaDataModule(LightningDataModule):
         )
         self.val_dataset = self.val_dataset.add_column(
             "text_key_id", list(range(len(self.val_dataset)))
+        )
+        self.test_dataset = self.test_dataset.add_column(
+            "text_key_id", list(range(len(self.test_dataset)))
         )
 
         # Truncate length of adv_val_dataset if it's too long. We need the profiles
@@ -243,8 +296,9 @@ class WikipediaDataModule(LightningDataModule):
 
         # Load nearest-neighbors to train set, if requested.
         if self.num_nearest_neighbors > 0:
+            base_folder = os.path.dirname(os.path.abspath(__file__))
             # Load train nearest-neighbors
-            train_nn_file_path = os.path.join('nearest_neighbors', f'nn__{self.dataset_train_split}__256.p')
+            train_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_train_split}__256.p')
             assert os.path.exists(train_nn_file_path)
             print("Loading train nearest-neighbors from:", train_nn_file_path)
             train_nearest_neighbors = pickle.load(open(train_nn_file_path, 'rb'))
@@ -254,7 +308,7 @@ class WikipediaDataModule(LightningDataModule):
                 "nearest_neighbor_idxs", train_nearest_neighbors.tolist()
             )
             # Load val nearest-neighbors
-            val_nn_file_path = os.path.join('nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
+            val_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
             assert os.path.exists(val_nn_file_path)
             print("Loading val nearest-neighbors from:", val_nn_file_path)
             val_nearest_neighbors = pickle.load(open(val_nn_file_path, 'rb'))
@@ -274,7 +328,6 @@ class WikipediaDataModule(LightningDataModule):
             
 
     def _load_adv_val_data(self):
-        # TODO: load multiple adv-val datasets?
         # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
         # dataset don't have adversarial examples.
         adv_idxs = list(
@@ -387,3 +440,28 @@ class WikipediaDataModule(LightningDataModule):
                 shuffle=False
             )
         ]
+
+    def test_dataloader(self) -> DataLoader:
+        test_tokenizing_dataset = MaskingTokenizingDataset(
+            self.test_dataset,
+            document_tokenizer=self.document_tokenizer,
+            profile_tokenizer=self.profile_tokenizer,
+            max_seq_length=self.max_seq_length,
+            word_dropout_ratio=0.0,
+            word_dropout_perc=0.0,
+            profile_row_dropout_perc=0.0,
+            sample_spans=False,
+            adversarial_masking=False,
+            idf_masking=False,
+            # num_nearest_neighbors=self.num_nearest_neighbors,
+            document_types=["document", "document_redact_lexical"],
+            is_train_dataset=False
+        )
+        return DataLoader(
+            test_tokenizing_dataset,
+            batch_size=self.eval_batch_size,
+            num_workers=min(self.num_workers, 8),
+            persistent_workers=(self.num_workers > 0),
+            pin_memory=True,
+            shuffle=False
+        )

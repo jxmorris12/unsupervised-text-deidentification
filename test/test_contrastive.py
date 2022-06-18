@@ -30,6 +30,7 @@ class TestContrastiveLoss:
             adversarial_masking=True,
             train_batch_size=10,
             eval_batch_size=3,
+            num_workers=0,
             num_nearest_neighbors=0, # no nearest-neighbors
         )
         dm.setup("fit")
@@ -76,6 +77,7 @@ class TestContrastiveLoss:
             train_batch_size=16,
             eval_batch_size=3,
             num_nearest_neighbors=4,
+            num_workers=0,
         )
         dm.setup("fit")
         
