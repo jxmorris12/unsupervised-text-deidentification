@@ -121,11 +121,7 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument('--document_type', type=str, default='document',
         help='document type for evaluation',
-        choices=[
-            "document", "document_redact_ner", "document_redact_lexical", 
-            "document_redact_idf_20",  "document_redact_idf_40",
-            "document_redact_idf_60",  "document_redact_idf_80"
-        ]
+        choices=["document", "document_redact_ner_bert", "document_redact_lexical"]
     )
     parser.add_argument('--model', '--model_key', type=str, default='model_5',
         help='model str name (see model_cfg for more info)',

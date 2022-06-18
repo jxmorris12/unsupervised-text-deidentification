@@ -16,7 +16,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
-from redact import remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
+from redact import remove_named_entities_bert_batch, remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
 from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile
 
 # 
@@ -192,17 +192,39 @@ class WikipediaDataModule(LightningDataModule):
                 new_fingerprint=f"{test_fingerprint}_lexical_redacted"
         )
 
-        #  NER redaction
-        ner_redact_func = functools.partial(
+        #  Spacy NER redaction
+        spacy_ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
         self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
+            lambda ex: redact_example(redact_func=spacy_ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
             batched=True,
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_spacy_redacted"
+            new_fingerprint=f"{val_fingerprint}_ner_spacy_redacted"
         )
 
+        # BERT-NER redaction
+        bert_ner_redact_func = functools.partial(
+            remove_named_entities_bert_batch, mask_token=self.mask_token
+        )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
+        #     batched=True,
+        #     num_proc=1,
+        #     new_fingerprint=f"{val_fingerprint}_ner_bert_redacted_2"
+        # )
+        self.test_dataset = self.test_dataset.map(
+            lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
+            batched=True,
+            num_proc=1,
+            new_fingerprint=f"{test_fingerprint}_ner_bert_redacted_2"
+        )
+
+
+        # Added this because I added BERT-NER redaction, so everything below needs to be regenerated.
+        # TODO clear cache and delete the two lines below.
+        val_fingerprint += '_3'
+        test_fingerprint += '_3'
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
         idf_redact_func = lambda p: functools.partial(
             remove_words_val_idf, p=p, mask_token=self.mask_token)
@@ -402,7 +424,10 @@ class WikipediaDataModule(LightningDataModule):
             idf_masking=False,
             num_nearest_neighbors=self.num_nearest_neighbors,
             document_types=[
-                "document", "document_redact_ner", "document_redact_lexical", 
+                "document",
+                "document_redact_ner",
+                "document_redact_ner_bert",
+                "document_redact_lexical", 
                 "document_redact_idf_20",  "document_redact_idf_40",
                 "document_redact_idf_60",  "document_redact_idf_80"
             ],
@@ -454,7 +479,11 @@ class WikipediaDataModule(LightningDataModule):
             adversarial_masking=False,
             idf_masking=False,
             # num_nearest_neighbors=self.num_nearest_neighbors,
-            document_types=["document", "document_redact_lexical"],
+            document_types=[
+                "document",
+                "document_redact_lexical",
+                "document_redact_ner_bert"
+            ],
             is_train_dataset=False
         )
         return DataLoader(
