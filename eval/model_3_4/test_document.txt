@@ -1,0 +1,5 @@
+**** Evaluated on 256 test examples of type document ****
+Top-1 accuracy = 98.44
+Top-10 accuracy = 99.22
+Top-100 accuracy = 99.61
+Top-1000 accuracy = 99.61

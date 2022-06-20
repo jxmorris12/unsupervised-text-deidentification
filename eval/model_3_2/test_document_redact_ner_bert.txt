@@ -1,0 +1,5 @@
+**** Evaluated on 256 test examples of type document_redact_ner_bert ****
+Top-1 accuracy = 54.69
+Top-10 accuracy = 79.69
+Top-100 accuracy = 91.80
+Top-1000 accuracy = 98.83

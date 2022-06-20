@@ -16,8 +16,8 @@ class CoordinateAscentModel(Model):
         self.train_profile_embeddings = None
     
     def _precompute_profile_embeddings(self):
-        self.profile_model.cuda()
-        self.profile_embed.cuda()
+        self.profile_model.to(self.device)
+        self.profile_embed.to(self.device)
         # In my experiments, train mode here seems to work as well or better.
         # self.profile_model.eval()
         self.profile_model.train()
@@ -29,10 +29,9 @@ class CoordinateAscentModel(Model):
                 profile_embeddings = self.forward_profile(batch=train_batch)
             self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
         self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
-        self.profile_model.train()
     
     def _precompute_document_embeddings(self):
-        self.document_model.cuda()
+        self.document_model.to(self.device)
         # In my experiments, train mode here seems to work as well or better.
         # self.document_model.eval()
         self.document_model.train()
@@ -51,11 +50,11 @@ class CoordinateAscentModel(Model):
         if self._document_encoder_is_training:
             self.train_document_embeddings = None
             self._precompute_profile_embeddings()
-            self.train_profile_embeddings = self.train_profile_embeddings.cuda()
+            self.train_profile_embeddings = self.train_profile_embeddings.to(self.device)
             # 
-            self.document_model.cuda()
+            self.document_model.to(self.device)
             self.document_model.train()
-            self.document_embed.cuda()
+            self.document_embed.to(self.device)
             self.document_embed.train()
             self.profile_model.cpu()
             self.profile_embed.cpu()
@@ -64,13 +63,13 @@ class CoordinateAscentModel(Model):
         else:
             self.train_profile_embeddings = None
             self._precompute_document_embeddings()
-            self.train_document_embeddings = self.train_document_embeddings.cuda()
+            self.train_document_embeddings = self.train_document_embeddings.to(self.device)
             # 
             self.document_model.cpu()
             self.document_embed.cpu()
-            self.profile_model.cuda()
+            self.profile_model.to(self.device)
             self.profile_model.train()
-            self.profile_embed.cuda()
+            self.profile_embed.to(self.device)
             self.profile_embed.train()
             #  Reset optimizer state
             profile_optimizer.state = collections.defaultdict(dict)
@@ -78,15 +77,16 @@ class CoordinateAscentModel(Model):
 
     def training_epoch_end(self, training_step_outputs: Dict):
         if self._document_encoder_is_training:
-            self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
-            for output in training_step_outputs:
-                self.train_document_embeddings[output["text_key_id"]] = output["document_embeddings"]
-            self.train_document_embeddings = torch.tensor(self.train_document_embeddings, requires_grad=False, dtype=torch.float32)
+            # self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+            # for output in training_step_outputs:
+            #     self.train_document_embeddings[output["text_key_id"]] = output["document_embeddings"]
+            # self.train_document_embeddings = torch.tensor(self.train_document_embeddings, requires_grad=False, dtype=torch.float32)
+            self.train_profile_embeddings = None
         else:
-            self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
-            for output in training_step_outputs:
-                self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
-            self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, requires_grad=False, dtype=torch.float32)
+            # self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+            # for output in training_step_outputs:
+            #     self.train_profile_embeddings[output["text_key_id"]] = output["profile_embeddings"]
+            # self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, requires_grad=False, dtype=torch.float32)
             self.train_document_embeddings = None
 
     @property
@@ -118,10 +118,11 @@ class CoordinateAscentModel(Model):
         )
 
         return {
-            "is_correct": is_correct,
+            # can't return bools or ints if using torch DistributedDataParallel
+            # "is_correct": is_correct,
             "loss": loss,
             "document_embeddings": document_embeddings.detach().cpu(),
-            "text_key_id": batch['text_key_id'].cpu()
+            # "text_key_id": batch['text_key_id'].cpu()
         }
     
     def _training_step_profile(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -134,10 +135,11 @@ class CoordinateAscentModel(Model):
         )
 
         return {
-            "is_correct": is_correct,
+            # can't return bools or ints if using torch DistributedDataParallel
+            # "is_correct": is_correct,
             "loss": loss,
             "profile_embeddings": profile_embeddings.detach().cpu(),
-            "text_key_id": batch['text_key_id'].cpu()
+            # "text_key_id": batch['text_key_id'].cpu()
         }
     
     def compute_loss(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:

@@ -1,0 +1,5 @@
+**** Evaluated on 256 test examples of type document_redact_lexical ****
+Top-1 accuracy = 17.19
+Top-10 accuracy = 39.06
+Top-100 accuracy = 66.80
+Top-1000 accuracy = 87.11
