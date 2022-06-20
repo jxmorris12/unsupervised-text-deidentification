@@ -29,6 +29,10 @@ from utils import create_document_and_profile_from_wikibio, dict_union, tokenize
 # {'input_text': {'table': {'column_header': ['caption', 'name', 'known_for', 'death_date', 'image', 'nationality', 'birth_place', 'birth_date', 'article_title', 'death_place'], 'row_number': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 'content': ['-lrb- ನಮ ಮ -rrb- ಕ ತ ತ ರ ರ ಣ ಚ ನ', 'kittur chennamma', 'indian freedom fighter', '21 february 1829', 'kittur chenamma.jpg', 'indian', 'kakati , belgaum taluk , british india', '23 october 1778', 'kittur chennamma\n', 'bailhongal taluk']}, 'context': 'kittur chennamma\n'}, 'target_text': "' `` kittur\n"}
 # 
 
+
+datasets.utils.logging.set_verbosity_error()
+
+
 class WikipediaDataModule(LightningDataModule):
     dataset_name: str
     dataset_version: str
@@ -90,6 +94,9 @@ class WikipediaDataModule(LightningDataModule):
         super().__init__()
         assert dataset_name == "wiki_bio"
         assert datasets.__version__[0] == '2', "need datasets v2 for datamodule"
+        assert "train" in dataset_train_split
+        assert "val" in dataset_val_split
+        assert "test" in dataset_test_split
 
         self.document_model_name_or_path = document_model_name_or_path
         self.profile_model_name_or_path = profile_model_name_or_path
@@ -426,7 +433,7 @@ class WikipediaDataModule(LightningDataModule):
             document_types=[
                 "document",
                 "document_redact_ner",
-                "document_redact_ner_bert",
+                # "document_redact_ner_bert",
                 "document_redact_lexical", 
                 "document_redact_idf_20",  "document_redact_idf_40",
                 "document_redact_idf_60",  "document_redact_idf_80"

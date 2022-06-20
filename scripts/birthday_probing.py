@@ -22,6 +22,7 @@ from tqdm import tqdm
 from dataloader import WikipediaDataModule
 from model import CoordinateAscentModel
 from model_cfg import model_paths_dict
+from utils import get_profile_embeddings_by_model_key
 
 num_cpus = len(os.sched_getaffinity(0))
 USE_WANDB = False
@@ -52,7 +53,7 @@ def get_args() -> argparse.Namespace:
     
     parser.add_argument('--model_key', type=str, default='model_8_ls0.1', help='path to model key (see model_cfg.py)')
     parser.add_argument('--dataset_train_split', type=str, default='train[:10%]')
-    parser.add_argument('--num_validations_per_epoch', type=int, default=4)
+    parser.add_argument('--num_validations_per_epoch', type=int, default=1)
 
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=2048)
@@ -65,11 +66,13 @@ def get_args() -> argparse.Namespace:
 
 class BirthdayDataModule(LightningDataModule):
     train_dataset: List[Tuple[int, int, int]]
+    test_dataset: List[Tuple[int, int, int]]
     val_dataset: List[Tuple[int, int, int]]
     batch_size: int
     def __init__(self, dm: WikipediaDataModule, batch_size: int = 128):
         super().__init__()
         self.train_dataset = process_dataset(dm.train_dataset)
+        self.test_dataset = process_dataset(dm.test_dataset)
         self.val_dataset = process_dataset(dm.val_dataset)
         self.batch_size = batch_size
         self.num_workers = min(4, num_cpus)
@@ -82,6 +85,14 @@ class BirthdayDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=True
+        )
+
+    def test_dataloader(self) -> DataLoader:
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
             shuffle=False # Only shuffle for train
         )
 
@@ -90,27 +101,35 @@ class BirthdayDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=False
+            shuffle=False # Only shuffle for train
         )
 
 
 class BirthdayModel(LightningModule):
     """Probes the PROFILE for birthday info."""
-    profile_embeddings: torch.Tensor
+    train_profile_embeddings: torch.Tensor
+    test_profile_embeddings: torch.Tensor
+    val_profile_embeddings: torch.Tensor
     classifier: torch.nn.Module
     learning_rate: float
     
-    def __init__(self, model: CoordinateAscentModel, learning_rate: float):
+    def __init__(self, profile_embeddings: Dict[str, torch.Tensor], learning_rate: float):
         super().__init__()
-        # We can pre-calculate these embeddings bc
-        self.train_profile_embeddings = torch.tensor(model.train_profile_embeddings.cpu())
-        self.val_profile_embeddings = torch.tensor(model.val_profile_embeddings.cpu())
+
+        self.train_profile_embeddings = profile_embeddings['train']
+        self.val_profile_embeddings = profile_embeddings['val']
+        self.test_profile_embeddings = profile_embeddings['test']
+
+        embedding_dim = self.train_profile_embeddings.shape[1]
+
         self.month_classifier = torch.nn.Sequential(
-            torch.nn.Linear(model.shared_embedding_dim, 64),
+            torch.nn.Linear(embedding_dim, 64),
+            torch.nn.ReLU(),
             torch.nn.Linear(64, 12),
         )
         self.day_classifier = torch.nn.Sequential(
-            torch.nn.Linear(model.shared_embedding_dim, 64),
+            torch.nn.Linear(embedding_dim, 64),
+            torch.nn.ReLU(),
             torch.nn.Linear(64, 31),
         )
         self.learning_rate = learning_rate
@@ -170,8 +189,8 @@ class BirthdayModel(LightningModule):
         self.log('val_acc_day', self.val_accuracy(day_logits, days))
         
         if batch_idx == 0:
-            print('val_acc_month', self.val_accuracy(month_logits, months))
-            print('val_acc_day', self.val_accuracy(day_logits, days))
+            self._print(f'Epoch {self.current_epoch}  val_acc_month = {self.val_accuracy(month_logits, months)}')
+            self._print(f'Epoch {self.current_epoch}  val_acc_day = {self.val_accuracy(day_logits, days)}')
 
         return (month_loss + day_loss)
 
@@ -181,28 +200,6 @@ class BirthdayModel(LightningModule):
             list(self.parameters()), lr=self.learning_rate
         )
         return optimizer
-            
-
-def precompute_profile_embeddings(model: CoordinateAscentModel, dm: WikipediaDataModule):
-    model.profile_model.cuda()
-    model.profile_model.eval()
-    model.profile_embed.cuda()
-    model.profile_embed.eval()
-
-
-    model.train_profile_embeddings = np.zeros((len(dm.train_dataset), model.shared_embedding_dim))
-    for train_batch in tqdm(dm.train_dataloader(), desc="Precomputing train embeddings", colour="#008080", leave=False):
-        with torch.no_grad():
-            profile_embeddings = model.forward_profile(batch=train_batch)
-        model.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
-    model.train_profile_embeddings = torch.tensor(model.train_profile_embeddings, dtype=torch.float32)
-    
-    model.val_profile_embeddings = np.zeros((len(dm.val_dataset), model.shared_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="#c09591", leave=False):
-        with torch.no_grad():
-            profile_embeddings = model.forward_profile(batch=val_batch)
-        model.val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
-    model.val_profile_embeddings = torch.tensor(model.val_profile_embeddings, dtype=torch.float32)
 
 
 def main(args: argparse.Namespace):
@@ -213,26 +210,29 @@ def main(args: argparse.Namespace):
     checkpoint_path = model_paths_dict[args.model_key]
     print(checkpoint_path)
 
-    model = CoordinateAscentModel.load_from_checkpoint(
-        checkpoint_path
-    )
+    model = CoordinateAscentModel.load_from_checkpoint(checkpoint_path)
 
     dm = WikipediaDataModule(
-        document_model_name_or_path=model.document_model_name_or_path,
-        profile_model_name_or_path=model.profile_model_name_or_path,
+        document_model_name_or_path='roberta-base', # these don't matter for probing (we just use raw profiles/documents)
+        profile_model_name_or_path='google/tapas-base',# these don't matter for probing (we just use raw profiles/documents)
         max_seq_length=128,
         dataset_name='wiki_bio',
         dataset_train_split=args.dataset_train_split,
         dataset_val_split=args.dataset_val_split,
         dataset_version='1.2.0',
         num_workers=num_cpus,
-        train_batch_size=64,
-        eval_batch_size=64
     )
     dm.setup("fit")
     
-    precompute_profile_embeddings(model=model, dm=dm)
-    birthday_model = BirthdayModel(model, args.learning_rate)
+    
+    profile_embeddings = get_profile_embeddings_by_model_key(model_key=args.model_key)
+
+    print("concatenating train, val, and test profile embeddings")
+
+    birthday_model = BirthdayModel(
+        profile_embeddings=profile_embeddings,
+        learning_rate=args.learning_rate
+    )
     
     birthday_dm = BirthdayDataModule(dm)
     birthday_dm.batch_size = args.batch_size

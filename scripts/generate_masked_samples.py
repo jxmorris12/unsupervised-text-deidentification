@@ -35,8 +35,10 @@ num_cpus = len(os.sched_getaffinity(0))
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
     k: int
-    def __init__(self, *args, k: int = 1, **kwargs):
+    normalize_scores: bool
+    def __init__(self, *args, k: int = 1, normalize_scores: bool, **kwargs):
         self.k = k
+        self.normalize_scores = normalize_scores
         super().__init__(*args, **kwargs)
 
     def _is_goal_complete(self, model_output, _):
@@ -44,8 +46,14 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         num_better_classes = (model_output > original_class_score).sum()
         return num_better_classes >= self.k
 
-    def _get_score(self, model_output, _):
-        return 1 - model_output[self.ground_truth_output]
+    def _get_score(self, model_logits, _):
+        if self.normalize_scores:
+            model_probs = torch.nn.functional.softmax(
+                model_logits, dim=-1
+            )
+            return 1 - model_probs[self.ground_truth_output]
+        else:
+            return -1 * model_logits[self.ground_truth_output]
     
     
     """have to reimplement the following method to change the precision on the sum-to-one condition."""
@@ -84,7 +92,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             raise ValueError(
                 f"Model return score of shape {scores.shape} for {len(inputs)} inputs."
             )
-        elif not ((scores.sum(dim=1) - 1).abs() < 1e-4).all():
+        elif self.normalize_scores and (not ((scores.sum(dim=1) - 1).abs() < 1e-4).all()):
             # Values in each row should sum up to 1. The model should return a
             # set of numbers corresponding to probabilities, which should add
             # up to 1. Since they are `torch.float` values, allow a small
@@ -133,10 +141,12 @@ class WikiDataset(textattack.datasets.Dataset):
     dataset: List[Dict[str, str]]
     label_names: List[str]
     
-    def __init__(self, dm: WikipediaDataModule):
+    def __init__(self, dm: WikipediaDataModule, max_samples: int = 1000):
         self.shuffled = True
         # filter out super long examples
-        self.dataset = [ex for ex in dm.test_dataset]
+        self.dataset = [
+            dm.test_dataset[i] for i in range(max_samples)
+        ]
         self.label_names = np.array(list(dm.test_dataset['name']) + list(dm.val_dataset['name']) + list(dm.train_dataset['name']))
     
     def __len__(self) -> int:
@@ -186,11 +196,9 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
         with torch.no_grad():
             document_embeddings = self.model.forward_document(batch=batch, document_type='document')
             document_to_profile_logits = document_embeddings @ (self.profile_embeddings.T)
-            document_to_profile_probs = torch.nn.functional.softmax(
-                document_to_profile_logits, dim=-1
-            )
-        assert document_to_profile_probs.shape == (len(text_input_list), len(self.profile_embeddings))
-        return document_to_profile_probs
+        breakpoint()
+        assert document_to_profile_logits.shape == (len(text_input_list), len(self.profile_embeddings))
+        return document_to_profile_logits
 
 
 def get_profile_embeddings(model_key: str):
@@ -205,7 +213,7 @@ def get_profile_embeddings(model_key: str):
     return all_profile_embeddings
 
 
-def main(k: int, n: int, beam_width: int, model_key: str):
+def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: str):
     checkpoint_path = model_paths_dict[model_key]
     assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
@@ -250,11 +258,15 @@ def main(k: int, n: int, beam_width: int, model_key: str):
     search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
-    goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k)
+    goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=False)
     attack = Attack(
         goal_function, constraints, transformation, search_method
     )
-    attack_args = AttackArgs(num_examples=n, disable_stdout=False)
+    attack_args = AttackArgs(
+        num_examples_offset=num_examples_offset,
+        num_examples=n,
+        disable_stdout=False
+    )
     attacker = Attacker(attack, dataset, attack_args)
 
     results_iterable = attacker.attack_dataset()
@@ -264,9 +276,11 @@ def main(k: int, n: int, beam_width: int, model_key: str):
     for result in results_iterable:
         logger.log_attack_result(result)
 
-    folder_path = os.path.join('adv_csvs_full', model_key)
-    os.makedirs(folder_path, exist_ok=True)
-    logger.df.to_csv(os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}.csv'))
+    # folder_path = os.path.join('adv_csvs_full', model_key)
+    # os.makedirs(folder_path, exist_ok=True)
+    # out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}.csv')
+    # logger.df.to_csv(out_csv_path)
+    # print('wrote csv to', out_csv_path)
     
 
 def get_args() -> argparse.Namespace:
@@ -280,10 +294,13 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--n', type=int, default=1000,
         help='number of examples to run on'
     )
-    parser.add_argument('--beam_width', '--b', type=int, default=4,
+    parser.add_argument('--num_examples_offset', type=int, default=0,
+        help='offset for search'
+    )
+    parser.add_argument('--beam_width', '--b', type=int, default=1,
         help='beam width for beam search'
     )
-    parser.add_argument('--model', '--model_key', type=str, default='model_5',
+    parser.add_argument('--model', '--model_key', type=str, default='model_3_1',
         help='model str name (see model_cfg for more info)',
         choices=model_paths_dict.keys()
     )
@@ -294,4 +311,4 @@ def get_args() -> argparse.Namespace:
 
 if __name__ == '__main__':
     args = get_args()
-    main(k=args.k, n=args.n, beam_width=args.beam_width, model_key=args.model)
+    main(k=args.k, n=args.n, num_examples_offset=args.num_examples_offset, beam_width=args.beam_width, model_key=args.model)

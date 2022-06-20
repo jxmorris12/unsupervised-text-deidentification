@@ -95,11 +95,11 @@ class TestEnd2End:
             precision=precision
         )
 
-    @pytest.mark.parametrize("loss_fn", ["concurrent_coordinate_ascent", "coordinate_ascent", "contrastive"])
+    @pytest.mark.parametrize("loss_fn", ["coordinate_ascent", "contrastive"])
     def test_e2e_tapas(self, tmpdir: str, loss_fn: str):
         self._run_e2e_test(tmpdir, loss_fn, 'distilbert-base-uncased',  'google/tapas-base', 32)
     
-    @pytest.mark.parametrize("loss_fn", ["concurrent_coordinate_ascent", "coordinate_ascent", "contrastive"])
+    @pytest.mark.parametrize("loss_fn", ["coordinate_ascent", "contrastive"])
     def test_inference_roberta_distilbert(self, loss_fn):
         dm, model = self._get_dm_and_model(
             loss_fn=loss_fn,

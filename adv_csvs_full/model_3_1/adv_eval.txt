@@ -1,0 +1,28 @@
+**** Evaluated on 0 test examples of type document ****
+
+
+
+model_name
+lexical                   0.043000
+model_3_1                 0.000000
+model_3_2                 0.216953
+model_3_2__idf            0.297571
+model_3_3__idf            0.430894
+model_3_3__placeholder    0.320565
+model_3_4                 0.353597
+model_3_4__idf            0.544057
+named_entity              0.227000
+Name: is_correct, dtype: float64
+
+
+                             i  model_pred_idxs  is_correct
+model_name                                                 
+lexical                 499500        354529555          43
+model_3_1               496047        375942603           0
+model_3_2               496016        279083634         215
+model_3_2__idf          494355        254523643         294
+model_3_3__idf          492866        203008230         424
+model_3_3__placeholder  496431        243121294         318
+model_3_4               493901        232826474         349
+model_3_4__idf          489428        162434660         531
+named_entity            499500        290324864         227

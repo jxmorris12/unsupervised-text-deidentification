@@ -30,21 +30,21 @@ def precompute_profile_embeddings(
     model.profile_embed.eval()
 
     train_profile_embeddings = np.zeros((len(dm.train_dataset), model.shared_embedding_dim))
-    for val_batch in tqdm(dm.train_dataloader(), desc="Precomputing train embeddings", colour="blue", leave=False):
+    for val_batch in tqdm(dm.train_dataloader(), desc="Precomputing train profile embeddings", colour="blue", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=val_batch)
         train_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
     train_profile_embeddings = torch.tensor(train_profile_embeddings, dtype=torch.float32)
 
     val_profile_embeddings = np.zeros((len(dm.val_dataset), model.shared_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val embeddings", colour="green", leave=False):
+    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val profile embeddings", colour="green", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=val_batch)
         val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
     val_profile_embeddings = torch.tensor(val_profile_embeddings, dtype=torch.float32)
 
     test_profile_embeddings = np.zeros((len(dm.test_dataset), model.shared_embedding_dim))
-    for test_batch in tqdm(dm.test_dataloader(), desc="Precomputing test embeddings", colour="magenta", leave=False):
+    for test_batch in tqdm(dm.test_dataloader(), desc="Precomputing test profile embeddings", colour="magenta", leave=False):
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=test_batch)
         test_profile_embeddings[test_batch["text_key_id"]] = profile_embeddings.cpu()
