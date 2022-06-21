@@ -38,7 +38,7 @@ def get_profile_embeddings(model_key: str):
 def get_output_folder_by_model_key(model_key: str) -> str:
     adv_csvs_folder = os.path.normpath(
         os.path.join(
-            os.path.abspath(__file__), os.pardir, os.pardir, 'adv_csvs_full'
+            os.path.abspath(__file__), os.pardir, os.pardir, 'adv_csvs_full_2'
         )
     )
     return os.path.join(adv_csvs_folder, model_key)
@@ -49,7 +49,7 @@ def load_adv_csv(dm: WikipediaDataModule) -> pd.DataFrame:
     for model_name in ['model_3_1', 'model_3_2', 'model_3_3', 'model_3_4']:
         adv_csvs_folder = os.path.normpath(
             os.path.join(
-                os.path.abspath(__file__), os.pardir, os.pardir, 'adv_csvs_full'
+                os.path.abspath(__file__), os.pardir, os.pardir, 'adv_csvs_full_2'
             )
         )
         print('adv_csvs_folder', adv_csvs_folder)
@@ -62,8 +62,8 @@ def load_adv_csv(dm: WikipediaDataModule) -> pd.DataFrame:
         print(model_name, csv_filenames)
         for filename in csv_filenames:
             df = pd.read_csv(filename)
-            df['model_name'] = re.search(r'adv_csvs_full/(model_\d.*)/.+.csv', filename).group(1)
-            df['k'] = re.search(r'adv_csvs_full/.+/.+__k_(\d+)__.+.csv', filename).group(1)
+            df['model_name'] = re.search(r'adv_csvs_full_2/(model_\d.*)/.+.csv', filename).group(1)
+            df['k'] = re.search(r'adv_csvs_full_2/.+/.+__k_(\d+)__.+.csv', filename).group(1)
             df['i'] = df.index
 
             df = df[df['result_type'] == 'Successful']
@@ -199,7 +199,7 @@ def main(document_type: str, model_key: str):
     # Print statistics
     output_folder = get_output_folder_by_model_key(model_key=model_key)
     os.makedirs(output_folder, exist_ok=True)
-    log_file_name = os.path.join(output_folder, 'adv_eval.txt')
+    log_file_name = os.path.join(output_folder, 'adv_2_eval.txt')
     log_file = open(log_file_name, 'w')
     
 

@@ -79,7 +79,7 @@ model_paths_dict["model_3_2"] = '/home/jxm3/research/deidentification/unsupervis
 model_paths_dict["model_3_2__idf"] = model_paths_dict["model_8_ls0.01"]
 
 # model_3_3 is roberta-roberta, uniformly sampled random maksing
-#   ??
+model_paths_dict["model_3_3"] = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_lightning_logs/2cr1gp87_28/checkpoints/epoch=68-step=157113.ckpt"
 # model_paths_dict["model_3_3"] = '??'
 model_paths_dict["model_3_3__placeholder"] = model_paths_dict["model_2_5"]
 #  wandb.ai/jack-morris/deid-wikibio-4/runs/f18dh3hl/logs?workspace=

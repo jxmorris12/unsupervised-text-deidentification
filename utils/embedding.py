@@ -109,7 +109,7 @@ def get_profile_embeddings_by_model_key(model_key: str):
     model_embeddings_path = get_profile_embedding_dir_by_model_key(
         model_key=model_key
     )
-    if not os.path.exists(model_embeddings_path):
+    if (not os.path.exists(model_embeddings_path)) or (not os.path.exists(os.path.join(model_embeddings_path, 'test.pkl'))):
         return precompute_profile_embeddings_for_model_key(model_key=model_key)
 
     else:
