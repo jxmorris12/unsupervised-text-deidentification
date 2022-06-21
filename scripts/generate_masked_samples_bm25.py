@@ -1,14 +1,12 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from typing import Dict, List, Tuple
-
-from dataloader import WikipediaDataModule
-from model import AbstractModel, CoordinateAscentModel
-from utils import get_profile_embeddings_by_model_key
+from typing import Any, Dict, List, Tuple
 
 import argparse
+import json
 import os
+import re
 import torch
 
 from collections import OrderedDict
@@ -19,6 +17,8 @@ import pandas as pd
 import textattack
 import transformers
 
+from elasticsearch import Elasticsearch
+
 from textattack import Attack
 from textattack import Attacker
 from textattack import AttackArgs
@@ -27,11 +27,97 @@ from textattack.constraints.pre_transformation import RepeatModification, MaxWor
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 
+
+from dataloader import WikipediaDataModule
+from model import AbstractModel, CoordinateAscentModel
 from model_cfg import model_paths_dict
+from utils import get_profile_embeddings_by_model_key
 
 
 num_cpus = len(os.sched_getaffinity(0))
 
+def get_elastic_search() -> Elasticsearch:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) 
+    
+    username = "elastic"
+    password = "FjZD_LI-=AJOtsfpq9U*"
+
+    url = f"https://{username}:{password}@rush-compute-01.tech.cornell.edu:9200"
+
+    return Elasticsearch(
+        url,
+        verify_certs=False
+    )
+
+def preprocess_es_query(doc: str) -> str:
+    # limit 150 words
+    doc = ' '.join(doc.split(' ')[:150])
+    # fix braces and remove weird characters
+    doc = doc.replace('-lrb-', '(').replace('-rrb-', ')')
+    return re.sub(r'[^\w|\s]', ' ',doc)
+
+def process_es_response_hit(response: Dict[str, Any]) -> Tuple[int, float]:
+    """Gets the index in the full dataset and score from a response object.
+    
+    Our dataset indexing order is [...test_dataset, ...val_dataset, ...train_dataset].
+
+    Returns: Tuple(int, float) representing (id, score) where score is un-normalized.
+    """
+    assert isinstance(response, dict), f"invalid response {response}"
+    assert '_id' in response,  f"invalid response {response}"
+    assert '_score' in response,  f"invalid response {response}"
+    assert '_index' in response,  f"invalid response {response}"
+
+    _id = int(response['_id'])
+    if response['_index'] == 'test_100_profile_str':
+        full_id = _id
+    elif response['_index'] == 'val_100_profile_str':
+        # offset by val set IDs
+        full_id = _id + 72831 
+    elif response['_index'] == 'train_100_profile_str':
+        # offset by val set and train set IDs
+        full_id = _id + 72831 + 72831
+    else:
+        raise ValueError(f'Unknown index from ES response hit: {response}')
+    
+    return full_id, float(response['_score'])
+
+
+def elasticsearch_msearch(
+        es: Elasticsearch,
+        max_hits: int,
+        query_strings: List[str],
+        index: str = 'train_100_profile_str,test_100_profile_str,val_100_profile_str'
+    ):
+    search_arr = []
+    
+    for q in query_strings:
+        search_arr.append({'index': index })
+        search_arr.append(
+            {
+                # Queries `q` using Lucene syntax.
+                "query": {
+                    "query_string": {
+                        "query": q
+                    },
+                },
+                # Don't return the full profile string, etc. with the result.
+                # We just want the ID and the score.
+                '_source': False,
+                # Only return `max_hits` documents.
+                'size': max_hits 
+            }
+        )
+    
+    # Create request JSONs.
+    request = ''
+    request = ' \n'.join([json.dumps(x) for x in search_arr])
+
+    # as you can see, you just need to feed the <body> parameter,
+    # and don't need to specify the <index> and <doc_type> as usual 
+    resp = es.msearch(body = request)
+    return resp
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
     k: int
@@ -178,77 +264,88 @@ class WikiDataset(textattack.datasets.Dataset):
         ])
         return input_dict, self.dataset[i]['text_key_id']
 
-class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
-    model: AbstractModel
-    document_tokenizer: transformers.AutoTokenizer
-    profile_embeddings: torch.Tensor
-    max_seq_length: int
+class Bm25ModelWrapper(textattack.models.wrappers.ModelWrapper):
+    elastic_search: Elasticsearch
+    index_names: List[str]
+    max_hits: int
+    use_train_profiles: bool
+    def __init__(self, use_train_profiles: bool, max_hits: int):
+        self.elastic_search = get_elastic_search()
+        self.use_train_profiles = use_train_profiles
+        if use_train_profiles:
+            index_names = ['test_100_profile_str', 'val_100_profile_str', 'train_100_profile_str']
+        else:
+            index_names = ['test_100_profile_str', 'val_100_profile_str']
+
+        existing_indexes = [idx for idx in self.elastic_search.indices.get_alias().keys() if not idx.startswith('.')]
+        assert set(index_names) <= set(existing_indexes)
+        self.index_names = index_names
+        assert max_hits > 0, "need to request at least 1 hit per query to Elasticsearch"
+        self.max_hits = max_hits
+
+        # hack for when TextAttack goal function checks `model_wrapper.model.__class__`
+        self.model = 'n/a'
     
-    def __init__(self,
-            model: AbstractModel,
-            document_tokenizer: transformers.AutoTokenizer,
-            profile_embeddings: torch.Tensor,
-            max_seq_length: int = 128
-        ):
-        self.model = model
-        self.model.eval()
-        self.document_tokenizer = document_tokenizer
-        self.profile_embeddings = profile_embeddings.clone().detach()
-        self.max_seq_length = max_seq_length
-                 
-    def to(self, device):
-        self.model.to(device)
-        self.profile_embeddings = self.profile_embeddings.to(device)
-        return self # so semantics `model = MyModelWrapper().to('cuda')` works properly
+    @property
+    def _num_documents(self) -> int:
+        """Num of total documents being searched by BM25 using this elasticsearch instance.
+        """
+        if self.use_train_profiles:
+            return 728321 # test + val + train = 72831 + 72831 + 582659
+        else:
+            return 145662 # test + val = 72831 + 72831
+    
+    def _get_search_results(self, text_input_list: List[str]) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Gets search results from Elasticsearch.
 
-    def __call__(self, text_input_list):
-        model_device = next(self.model.parameters()).device
+        Args:
+            text_input_list List(str): queries
+        Returns:
+            List[Tuple[np.ndarray, np.ndarray]]:
+                search results for each query. Should be of shape (len(text_input_list), 2, self.max_hits).
 
-        tokenized_documents = self.document_tokenizer.batch_encode_plus(
-            text_input_list,
-            max_length=self.max_seq_length,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt',
+                Each element in the output list contains an array of top indices returned and 
+                    their corresponding scores.
+        """
+        query_strings = [preprocess_es_query(t) for t in text_input_list]
+        results = elasticsearch_msearch(
+            es=self.elastic_search,
+            max_hits=self.max_hits,
+            query_strings=query_strings,
+            index=','.join(self.index_names),
         )
-        batch = {f"document__{k}": v for k,v in tokenized_documents.items()}
+        assert len(results['responses']) == len(query_strings)
 
-        with torch.no_grad():
-            document_embeddings = self.model.forward_document(batch=batch, document_type='document')
-            document_to_profile_logits = document_embeddings @ (self.profile_embeddings.T)
-        assert document_to_profile_logits.shape == (len(text_input_list), len(self.profile_embeddings))
-        return document_to_profile_logits.softmax(dim=1)
+        result_tuples = [
+            [process_es_response_hit(hit) for hit in response['hits']['hits']]
+            for response in results['responses']
+        ]
+        assert len(result_tuples) == len(query_strings)
+        assert len(result_tuples[0]) == self.max_hits
+        assert len(result_tuples[0][0]) == 2
+
+        # Now unroll each list of tuples to a tuple of lists
+        result_lists = [zip(*list_of_tuples) for list_of_tuples in result_tuples]
+
+        # Now convert to np.ndarrays
+        return [
+            (np.array(idxs_list), np.array(scores_list)) for idxs_list, scores_list in result_lists
+        ]
+
+    def __call__(self, text_input_list: List[List[Tuple[int, float]]]) -> np.ndarray:
+        score_logits = np.zeros((len(text_input_list), self._num_documents))
+        search_results = self._get_search_results(text_input_list=text_input_list)
+        for idx, (result_profile_idxs, result_profile_scores) in enumerate(search_results):
+            score_logits[idx, result_profile_idxs] = result_profile_scores
+
+        return torch.tensor(score_logits, dtype=torch.float32).softmax(dim=1)
 
 
-def get_profile_embeddings(model_key: str, use_train_profiles: bool):
-    profile_embeddings = get_profile_embeddings_by_model_key(model_key=model_key)
-
-    print("concatenating train, val, and test profile embeddings")
-    if use_train_profiles:
-        all_profile_embeddings = torch.cat(
-            (profile_embeddings['test'], profile_embeddings['val'], profile_embeddings['train']), dim=0
-        )
-    else:
-        all_profile_embeddings = torch.cat(
-            (profile_embeddings['test'], profile_embeddings['val']), dim=0
-        )
-
-    print("all_profile_embeddings:", all_profile_embeddings.shape)
-    return all_profile_embeddings
-
-
-def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: str, use_train_profiles: bool):
-    checkpoint_path = model_paths_dict[model_key]
-    assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
-    print(f"running attack on {model_key} loaded from {checkpoint_path}")
-    model = CoordinateAscentModel.load_from_checkpoint(
-        checkpoint_path
-    )
-
+def main(k: int, n: int, num_examples_offset: int, beam_width: int, use_train_profiles: bool):
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
-        document_model_name_or_path=model.document_model_name_or_path,
-        profile_model_name_or_path=model.profile_model_name_or_path,
+        document_model_name_or_path='roberta-base',
+        profile_model_name_or_path='google/tapas-base',
         dataset_name='wiki_bio',
         dataset_train_split='train[:100%]',
         dataset_val_split='val[:100%]',
@@ -264,14 +361,15 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: s
 
     dataset = WikiDataset(dm=dm)
 
-    all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
-    model_wrapper = MyModelWrapper(
-        model=model,
-        document_tokenizer=dm.document_tokenizer,
-        max_seq_length=dm.max_seq_length,
-        profile_embeddings=all_profile_embeddings,
+    model_wrapper = Bm25ModelWrapper(
+        use_train_profiles=use_train_profiles,
+        # TODO: What's the best way to set max_hits? The problem is that if the correct document
+        # is not included in the search results, we won't have a score for it. 
+        # Maybe we can specifically get the score for the proper document, so that even when it's outside of
+        # the list we know how good it is? But hopefully this works
+        # for now.
+        max_hits=k*10
     )
-    model_wrapper.to('cuda')
 
     constraints = [
         RepeatModification(),
@@ -327,10 +425,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--beam_width', '--b', type=int, default=1,
         help='beam width for beam search'
     )
-    parser.add_argument('--model', '--model_key', type=str, default='model_3_1',
-        help='model str name (see model_cfg for more info)',
-        choices=model_paths_dict.keys()
-    )
     parser.add_argument('--use_train_profiles', type=bool,
         help='whether to include training profiles in potential people',
     )
@@ -346,6 +440,5 @@ if __name__ == '__main__':
         n=args.n,
         num_examples_offset=args.num_examples_offset,
         beam_width=args.beam_width,
-        model_key=args.model,
         use_train_profiles=args.use_train_profiles,
     )
