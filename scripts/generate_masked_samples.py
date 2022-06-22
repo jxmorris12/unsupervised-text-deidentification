@@ -1,14 +1,16 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dataloader import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
+from model_cfg import model_paths_dict
 from utils import get_profile_embeddings_by_model_key
 
 import argparse
 import os
+import re
 import torch
 
 from collections import OrderedDict
@@ -26,8 +28,6 @@ from textattack.attack_results import SuccessfulAttackResult
 from textattack.constraints.pre_transformation import RepeatModification, MaxWordIndexModification
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
-
-from model_cfg import model_paths_dict
 
 
 num_cpus = len(os.sched_getaffinity(0))
@@ -48,7 +48,6 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
 
     def _get_score(self, model_outputs, _):
         return 1 - model_outputs[self.ground_truth_output]
-    
     
     """have to reimplement the following method to change the precision on the sum-to-one condition."""
     def _process_model_outputs(self, inputs, scores):
@@ -96,7 +95,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
                 raise ValueError("Model scores do not add up to 1.")
         return scores.cpu()
 
-class WordSwapSingleWord(textattack.transformations.word_swap.WordSwap):
+class WordSwapSingleWordToken(textattack.transformations.word_swap.WordSwap):
     """Takes a sentence and transforms it by replacing with a single fixed word.
     """
     single_word: str
@@ -106,6 +105,36 @@ class WordSwapSingleWord(textattack.transformations.word_swap.WordSwap):
 
     def _get_replacement_words(self, _word: str):
         return [self.single_word]
+
+
+class WordSwapSingleWordType(textattack.transformations.Transformation):
+    """Replaces every instance of each unique word in the text with prechosen word `single_word`.
+    """
+    def __init__(self, single_word: str = "?", **kwargs):
+        super().__init__(**kwargs)
+        self.single_word = single_word
+
+    def _get_transformations(self, current_text, indices_to_modify):
+        words = current_text.words
+        transformed_texts = []
+
+        unique_words = set(current_text.words)
+        for word in unique_words:
+            if word == self.single_word:
+                continue
+            words_to_replace_idxs = set(
+                [idx for idx, ct_word in enumerate(current_text.words) if ct_word == word]
+            ).intersection(indices_to_modify)
+            if not len(words_to_replace_idxs):
+                continue
+
+            transformed_texts.append(
+                current_text.replace_words_at_indices(
+                    list(words_to_replace_idxs), [self.single_word] * len(words_to_replace_idxs)
+                )
+            )
+
+        return transformed_texts
 
 class CustomCSVLogger(CSVLogger):
     """Logs attack results to a CSV."""
@@ -135,8 +164,9 @@ class WikiDataset(textattack.datasets.Dataset):
     dataset: List[Dict[str, str]]
     label_names: List[str]
     dm: WikipediaDataModule
+    adv_dataset: Optional[pd.DataFrame]
     
-    def __init__(self, dm: WikipediaDataModule, max_samples: int = 1000):
+    def __init__(self, dm: WikipediaDataModule, max_samples: int = 1000, adv_dataset: Optional[pd.DataFrame] = None):
         self.shuffled = True
         self.dm = dm
         # filter out super long examples
@@ -144,6 +174,7 @@ class WikiDataset(textattack.datasets.Dataset):
             dm.test_dataset[i] for i in range(max_samples)
         ]
         self.label_names = np.array(list(dm.test_dataset['name']) + list(dm.val_dataset['name']) + list(dm.train_dataset['name']))
+        self.adv_dataset = adv_dataset
     
     def __len__(self) -> int:
         return len(self.dataset)
@@ -170,8 +201,27 @@ class WikiDataset(textattack.datasets.Dataset):
         )
         return reconstructed_text
     
+    def _process_adversarial_text(self, text: str, max_length: int = 128) -> str:
+        # Put newlines back
+        text = text.replace('<SPLIT>', '\n')
+        # Standardize mask tokens 
+        text = text.replace('[MASK]', self.dm.mask_token)
+        text = text.replace('<mask>', self.dm.mask_token)
+        # Truncate
+        return self._truncate_text(text=text)
+    
     def __getitem__(self, i: int) -> Tuple[OrderedDict, int]:
-        document = self._truncate_text(self.dataset[i]['document'])
+        if self.adv_dataset is None:
+            document = self._truncate_text(
+                text=self.dataset[i]['document']
+            )
+        else:
+            document = self._process_adversarial_text(
+                text=self.adv_dataset.iloc[i]['perturbed_text']
+            )
+
+        # This removes non-ascii characters like Chinese etc. letters.
+        document = re.sub(r'[^\x00-\x7f]',r'', document) 
             
         input_dict = OrderedDict([
             ('document', document)
@@ -217,7 +267,7 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
             document_embeddings = self.model.forward_document(batch=batch, document_type='document')
             document_to_profile_logits = document_embeddings @ (self.profile_embeddings.T)
         assert document_to_profile_logits.shape == (len(text_input_list), len(self.profile_embeddings))
-        return document_to_profile_logits.softmax(dim=1)
+        return document_to_profile_logits
 
 
 def get_profile_embeddings(model_key: str, use_train_profiles: bool):
@@ -237,14 +287,24 @@ def get_profile_embeddings(model_key: str, use_train_profiles: bool):
     return all_profile_embeddings
 
 
-def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: str, use_train_profiles: bool):
+def main(
+        k: int,
+        n: int,
+        num_examples_offset: int,
+        beam_width: int, 
+        model_key: str,
+        use_train_profiles: bool,
+        use_type_swap: bool,
+        dataset: Optional[WikiDataset] = None,
+        out_folder_path: str = 'adv_csvs_full_3'
+    ):
     checkpoint_path = model_paths_dict[model_key]
     assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
     model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path
     )
-
+    
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
         document_model_name_or_path=model.document_model_name_or_path,
@@ -261,7 +321,6 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: s
         sample_spans=False,
     )
     dm.setup("fit")
-
     dataset = WikiDataset(dm=dm)
 
     all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
@@ -272,17 +331,22 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: s
         profile_embeddings=all_profile_embeddings,
     )
     model_wrapper.to('cuda')
+    # breakpoint()
 
     constraints = [
         RepeatModification(),
         MaxWordIndexModification(max_length=dm.max_seq_length),
     ]
-    transformation = WordSwapSingleWord(single_word=dm.document_tokenizer.mask_token)
+
+    if use_type_swap:
+        transformation = WordSwapSingleWordType(single_word=dm.document_tokenizer.mask_token)
+    else:
+        transformation = WordSwapSingleWordToken(single_word=dm.document_tokenizer.mask_token)
     # search_method = textattack.search_methods.GreedyWordSwapWIR()
     search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
-    goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=True)
+    goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=False)
     attack = Attack(
         goal_function, constraints, transformation, search_method
     )
@@ -293,19 +357,15 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, model_key: s
     )
     attacker = Attacker(attack, dataset, attack_args)
 
-    results_iterable = attacker.attack_dataset()
-
     logger = CustomCSVLogger(color_method=None)
 
-    for result in results_iterable:
+    for result in attacker.attack_dataset():
         logger.log_attack_result(result)
+        del result
 
-    folder_path = os.path.join('adv_csvs_full_2', model_key)
+    folder_path = os.path.join(out_folder_path, model_key)
     os.makedirs(folder_path, exist_ok=True)
-    if use_train_profiles:
-        out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}_with_train.csv')
-    else:
-        out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}.csv')
+    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
     logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
     
@@ -331,8 +391,14 @@ def get_args() -> argparse.Namespace:
         help='model str name (see model_cfg for more info)',
         choices=model_paths_dict.keys()
     )
-    parser.add_argument('--use_train_profiles', type=bool,
+    parser.add_argument('--use_train_profiles', action='store_true',
         help='whether to include training profiles in potential people',
+    )
+    parser.add_argument('--use_type_swap', action='store_true',
+        help=(
+            'whether to swap words by type instead of token '
+            '(i.e. mask all instances of the same word together'
+        ),
     )
 
     args = parser.parse_args()
@@ -347,5 +413,6 @@ if __name__ == '__main__':
         num_examples_offset=args.num_examples_offset,
         beam_width=args.beam_width,
         model_key=args.model,
+        use_type_swap=args.use_type_swap,
         use_train_profiles=args.use_train_profiles,
     )

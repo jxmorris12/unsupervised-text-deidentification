@@ -1,9 +1,10 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -14,11 +15,12 @@ from collections import OrderedDict
 import datasets
 import numpy as np
 import pandas as pd
-import textattack
 import transformers
 
 from elasticsearch import Elasticsearch
+from nltk.corpus import stopwords
 
+import textattack
 from textattack import Attack
 from textattack import Attacker
 from textattack import AttackArgs
@@ -27,12 +29,11 @@ from textattack.constraints.pre_transformation import RepeatModification, MaxWor
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 
-
 from dataloader import WikipediaDataModule
-from model import AbstractModel, CoordinateAscentModel
-from model_cfg import model_paths_dict
-from utils import get_profile_embeddings_by_model_key
 
+eng_stopwords = set(stopwords.words('english'))
+
+remove_stopwords: bool = True
 
 num_cpus = len(os.sched_getaffinity(0))
 
@@ -51,44 +52,25 @@ def get_elastic_search() -> Elasticsearch:
     )
 
 def preprocess_es_query(doc: str) -> str:
+    # remove mask token to make sure it doesn't mess w bm25 results
+    doc = doc.replace('<mask>', ' ')
+    # remove stopwords
+    if remove_stopwords:
+        words = doc.strip().split(' ')
+        words = [w for w in words if (len(w) > 0) and (w not in eng_stopwords)]
+        doc = ' '.join(words)
     # limit 150 words
     doc = ' '.join(doc.split(' ')[:150])
     # fix braces and remove weird characters
     doc = doc.replace('-lrb-', '(').replace('-rrb-', ')')
     return re.sub(r'[^\w|\s]', ' ',doc)
 
-def process_es_response_hit(response: Dict[str, Any]) -> Tuple[int, float]:
-    """Gets the index in the full dataset and score from a response object.
-    
-    Our dataset indexing order is [...test_dataset, ...val_dataset, ...train_dataset].
-
-    Returns: Tuple(int, float) representing (id, score) where score is un-normalized.
-    """
-    assert isinstance(response, dict), f"invalid response {response}"
-    assert '_id' in response,  f"invalid response {response}"
-    assert '_score' in response,  f"invalid response {response}"
-    assert '_index' in response,  f"invalid response {response}"
-
-    _id = int(response['_id'])
-    if response['_index'] == 'test_100_profile_str':
-        full_id = _id
-    elif response['_index'] == 'val_100_profile_str':
-        # offset by val set IDs
-        full_id = _id + 72831 
-    elif response['_index'] == 'train_100_profile_str':
-        # offset by val set and train set IDs
-        full_id = _id + 72831 + 72831
-    else:
-        raise ValueError(f'Unknown index from ES response hit: {response}')
-    
-    return full_id, float(response['_score'])
-
-
-def elasticsearch_msearch(
+def elasticsearch_msearch_by_id(
         es: Elasticsearch,
-        max_hits: int,
         query_strings: List[str],
-        index: str = 'train_100_profile_str,test_100_profile_str,val_100_profile_str'
+        _id: int,
+        max_hits: int,
+        index: str,
     ):
     search_arr = []
     
@@ -96,21 +78,28 @@ def elasticsearch_msearch(
         search_arr.append({'index': index })
         search_arr.append(
             {
-                # Queries `q` using Lucene syntax.
                 "query": {
-                    "query_string": {
-                        "query": q
+                    "bool": {
+                        "must": [
+                            {
+                                "query_string": {
+                                    "query": q
+                                }
+                            },
+                        ],
+                    "filter": {
+                          "ids": {
+                            "values": [_id]
+                          }
+                    }
                     },
                 },
-                # Don't return the full profile string, etc. with the result.
-                # We just want the ID and the score.
-                '_source': False,
-                # Only return `max_hits` documents.
-                'size': max_hits 
+                'size': max_hits,
+                'track_total_hits': True,
+                '_source': False
             }
         )
     
-    # Create request JSONs.
     request = ''
     request = ' \n'.join([json.dumps(x) for x in search_arr])
 
@@ -118,6 +107,123 @@ def elasticsearch_msearch(
     # and don't need to specify the <index> and <doc_type> as usual 
     resp = es.msearch(body = request)
     return resp
+
+def msearch_total_hits_by_min_score(
+        es: Elasticsearch,
+        query_strings: List[str],
+        min_scores: List[float],
+        index: str,
+    ):
+    """Gets the total number of hits higher than a minimum score for a given query.
+    """
+    search_arr = []
+    
+    # from https://stackoverflow.com/a/60857312/2287177:
+    #  If _search must be used instead of _count, and you're on Elasticsearch 7.0+,
+    # setting size: 0 and track_total_hits: true will provide the same info as _count
+    
+    assert len(query_strings) == len(min_scores)
+
+    for q, min_score in zip(query_strings, min_scores):
+        search_arr.append({'index': index })
+        search_arr.append(
+            {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "query_string": {
+                                    "query": q
+                                }
+                            },
+                        ],
+                    },
+                },
+                "min_score": min_score,
+                "track_total_hits": True,
+                'size': 1,
+                '_source': False
+            }
+        )
+    
+    request = ''
+    request = ' \n'.join([json.dumps(x) for x in search_arr])
+
+    # as you can see, you just need to feed the <body> parameter,
+    # and don't need to specify the <index> and <doc_type> as usual 
+    resp = es.msearch(body = request)
+    return resp
+
+
+@dataclasses.dataclass
+class Bm25SearchResult:
+    # Index of the profile that really matches the query,
+    # which is a potentially-redacted document which
+    # does correspond to a true profile.
+    profile_idx: int
+    # The score BM25 assigns to the profile that really matches
+    # the query document.
+    correct_profile_score: float
+    # The number of profiles with better scores than the true document.
+    num_better_profiles: int
+    # The index of the profile that best matches the query. This
+    # may or may not be the same as `profile_idx`, depending if
+    # BM25 got it right or not.
+    best_matching_profile_idx: int
+    # Score of the best-matching profile.
+    best_matching_profile_score: float
+    # The score of the profile which best matches the query. This
+    # may or may not be the same as `profile_idx`, depending if BM25 got it right or not.
+    # String of original query, a potentially-redacted document.
+    query: str
+
+    @property
+    def bm25_was_correct(self) -> bool:
+        return self.correct_profile_score == self.best_matching_profile_idx
+
+
+class Bm25GoalFunctionResult(textattack.goal_function_results.ClassificationGoalFunctionResult):
+
+    @property
+    def _processed_output(self):
+        """Takes a model output (like `1`) and returns the class labeled output
+        (like `positive`), if possible.
+
+        Also returns the associated color.
+        """
+        output_label = self.raw_output.best_matching_profile_idx
+        if "label_names" in self.attacked_text.attack_attrs:
+            output = self.attacked_text.attack_attrs["label_names"][self.output]
+            output = textattack.shared.utils.process_label_name(output)
+            color = textattack.shared.utils.color_from_output(output, output_label)
+            del self.attacked_text.attack_attrs["label_names"]
+            return output, color
+        else:
+            color = textattack.shared.utils.color_from_label(output_label)
+            return output_label, color
+
+    # def get_text_color_input(self):
+    #     """A string representing the color this result's changed portion should
+    #     be if it represents the original input."""
+    #     _, color = self._processed_output
+    #     return color
+
+    # def get_text_color_perturbed(self):
+    #     """A string representing the color this result's changed portion should
+    #     be if it represents the perturbed input."""
+    #     _, color = self._processed_output
+    #     return color
+
+    def get_colored_output(self, color_method=None):
+        """Returns a string representation of this result's output, colored
+        according to `color_method`."""
+        output_label = self.raw_output.best_matching_profile_idx
+        confidence_score = self.raw_output.best_matching_profile_score
+        output, color = self._processed_output
+        # concatenate with label and convert confidence score to percent, like '33%'
+        output_str = f"{output} ({confidence_score:.1f})"
+        return textattack.shared.utils.color_text(output_str, color=color, method=color_method)
+
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
     k: int
@@ -127,60 +233,29 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         self.normalize_scores = normalize_scores
         super().__init__(*args, **kwargs)
 
-    def _is_goal_complete(self, model_output, _):
-        original_class_score = model_output[self.ground_truth_output]
-        num_better_classes = (model_output > original_class_score).sum()
-        return num_better_classes >= self.k
+    def _goal_function_result_type(self):
+        """Returns the class of this goal function's results."""
+        return Bm25GoalFunctionResult
 
-    def _get_score(self, model_outputs, _):
-        return 1 - model_outputs[self.ground_truth_output]
-    
-    
-    """have to reimplement the following method to change the precision on the sum-to-one condition."""
-    def _process_model_outputs(self, inputs, scores):
-        """Processes and validates a list of model outputs.
-        This is a task-dependent operation. For example, classification
-        outputs need to have a softmax applied.
+    def _is_goal_complete(self, model_output: Bm25SearchResult, _) -> bool:
+        return model_output.num_better_profiles >= self.k
+
+    def _get_score(self, model_output: Bm25SearchResult, _) -> float:
+        """The search method is trying to maximize this value. We want to 
+        minimize the score BM25 assigns to a (document, profile) pair. So we
+        negate the score value.
         """
-        # Automatically cast a list or ndarray of predictions to a tensor.
-        if isinstance(scores, list):
-            scores = torch.tensor(scores)
+        return -1 * model_output.correct_profile_score
+    
+    def _get_displayed_output(self, raw_output: Bm25SearchResult) -> int:
+        return raw_output.best_matching_profile_idx
 
-        # Ensure the returned value is now a tensor.
-        if not isinstance(scores, torch.Tensor):
-            raise TypeError(
-                "Must have list, np.ndarray, or torch.Tensor of "
-                f"scores. Got type {type(scores)}"
-            )
-
-        # Validation check on model score dimensions
-        if scores.ndim == 1:
-            # Unsqueeze prediction, if it's been squeezed by the model.
-            if len(inputs) == 1:
-                scores = scores.unsqueeze(dim=0)
-            else:
-                raise ValueError(
-                    f"Model return score of shape {scores.shape} for {len(inputs)} inputs."
-                )
-        elif scores.ndim != 2:
-            # If model somehow returns too may dimensions, throw an error.
-            raise ValueError(
-                f"Model return score of shape {scores.shape} for {len(inputs)} inputs."
-            )
-        elif scores.shape[0] != len(inputs):
-            # If model returns an incorrect number of scores, throw an error.
-            raise ValueError(
-                f"Model return score of shape {scores.shape} for {len(inputs)} inputs."
-            )
-        elif self.normalize_scores and (not ((scores.sum(dim=1) - 1).abs() < 1e-4).all()):
-            # Values in each row should sum up to 1. The model should return a
-            # set of numbers corresponding to probabilities, which should add
-            # up to 1. Since they are `torch.float` values, allow a small
-            # error in the summation.
-            # scores = torch.nn.functional(scores, dim=1)
-            if not ((scores.sum(dim=1) - 1).abs() < 1e-4).all():
-                raise ValueError("Model scores do not add up to 1.")
-        return scores.cpu()
+    def _process_model_outputs(self, inputs: List[str], results: List[Bm25SearchResult]):
+        """Processes and validates a list of model outputs."""
+        assert isinstance(results, list)
+        if len(results):
+            assert isinstance(results[0], Bm25SearchResult)
+        return results
 
 class WordSwapSingleWord(textattack.transformations.word_swap.WordSwap):
     """Takes a sentence and transforms it by replacing with a single fixed word.
@@ -222,7 +297,7 @@ class WikiDataset(textattack.datasets.Dataset):
     label_names: List[str]
     dm: WikipediaDataModule
     
-    def __init__(self, dm: WikipediaDataModule, max_samples: int = 1000):
+    def __init__(self, dm: WikipediaDataModule, model_wrapper: textattack.models.wrappers.ModelWrapper, max_samples: int = 1000):
         self.shuffled = True
         self.dm = dm
         # filter out super long examples
@@ -230,6 +305,7 @@ class WikiDataset(textattack.datasets.Dataset):
             dm.test_dataset[i] for i in range(max_samples)
         ]
         self.label_names = np.array(list(dm.test_dataset['name']) + list(dm.val_dataset['name']) + list(dm.train_dataset['name']))
+        self.model_wrapper = model_wrapper
     
     def __len__(self) -> int:
         return len(self.dataset)
@@ -257,19 +333,27 @@ class WikiDataset(textattack.datasets.Dataset):
         return reconstructed_text
     
     def __getitem__(self, i: int) -> Tuple[OrderedDict, int]:
+        # Need to set the true profile ID on BM25 model wrapper so that
+        # it can query for the # of better things instead of returning all top-K.
+        # (It's much faster this way.)
+        self.model_wrapper.most_recent_test_profile_id = i
         document = self._truncate_text(self.dataset[i]['document'])
+
+        # This removes non-ascii characters like Chinese etc. letters.
+        document = re.sub(r'[^\x00-\x7f]',r'', document)
             
         input_dict = OrderedDict([
             ('document', document)
         ])
         return input_dict, self.dataset[i]['text_key_id']
 
+
 class Bm25ModelWrapper(textattack.models.wrappers.ModelWrapper):
     elastic_search: Elasticsearch
     index_names: List[str]
-    max_hits: int
     use_train_profiles: bool
-    def __init__(self, use_train_profiles: bool, max_hits: int):
+    most_recent_test_profile_id: Optional[int]
+    def __init__(self, use_train_profiles: bool):
         self.elastic_search = get_elastic_search()
         self.use_train_profiles = use_train_profiles
         if use_train_profiles:
@@ -280,10 +364,9 @@ class Bm25ModelWrapper(textattack.models.wrappers.ModelWrapper):
         existing_indexes = [idx for idx in self.elastic_search.indices.get_alias().keys() if not idx.startswith('.')]
         assert set(index_names) <= set(existing_indexes)
         self.index_names = index_names
-        assert max_hits > 0, "need to request at least 1 hit per query to Elasticsearch"
-        self.max_hits = max_hits
 
         # hack for when TextAttack goal function checks `model_wrapper.model.__class__`
+        # (TODO: shouldn't need to do this; TextAttack should check with hasattr(model_wrapper, 'model') first...)
         self.model = 'n/a'
     
     @property
@@ -295,53 +378,99 @@ class Bm25ModelWrapper(textattack.models.wrappers.ModelWrapper):
         else:
             return 145662 # test + val = 72831 + 72831
     
-    def _get_search_results(self, text_input_list: List[str]) -> List[Tuple[np.ndarray, np.ndarray]]:
+    @property
+    def _full_num_indexes(self) -> int:
+        return len(self.index_names)
+    
+    @property
+    def _full_search_index(self) -> str:
+        return ','.join(self.index_names)
+    
+    def _get_search_results(self, text_input_list: List[str]) -> List[Bm25SearchResult]:
         """Gets search results from Elasticsearch.
 
         Args:
             text_input_list List(str): queries
         Returns:
-            List[Tuple[np.ndarray, np.ndarray]]:
-                search results for each query. Should be of shape (len(text_input_list), 2, self.max_hits).
-
-                Each element in the output list contains an array of top indices returned and 
-                    their corresponding scores.
+            List[Bm25SearchResult]:
+                search results for each query.
         """
-        query_strings = [preprocess_es_query(t) for t in text_input_list]
-        results = elasticsearch_msearch(
+        query_strings = list(map(preprocess_es_query, text_input_list))
+
+        # Get scores for the correct IDX for each document.
+        correct_profile_results = elasticsearch_msearch_by_id(
             es=self.elastic_search,
-            max_hits=self.max_hits,
             query_strings=query_strings,
-            index=','.join(self.index_names),
+            _id=self.most_recent_test_profile_id, 
+            max_hits=self._full_num_indexes,
+            index=self._full_search_index
         )
-        assert len(results['responses']) == len(query_strings)
-
-        result_tuples = [
-            [process_es_response_hit(hit) for hit in response['hits']['hits']]
-            for response in results['responses']
+        correct_idx_responses = correct_profile_results['responses']
+        assert len(correct_profile_results['responses']) == len(query_strings)
+        
+        correct_profile_score_per_query = []
+        for response in correct_idx_responses:
+            # Assert we got zero or one response *from each index* for each thing
+            assert response['hits']['total']['value'] <= self._full_num_indexes, f"bad response {response}"
+            test_set_responses = [hit for hit in response['hits']['hits'] if hit['_index'].startswith('test')]
+            if len(test_set_responses) == 0:
+                # Edge case where the query has zero overlap with the profile to start with.
+                correct_profile_score_per_query.append(0.0)
+            else:
+                # Take best score from the test set
+                assert len(test_set_responses) == 1
+                correct_profile_score_per_query.append(test_set_responses[0]['_score'])
+        assert len(correct_profile_score_per_query) == len(query_strings)
+        
+        # Count things that are better, and get top thing if there is one..?
+        min_score_responses = msearch_total_hits_by_min_score(
+            es=self.elastic_search,
+            query_strings=query_strings,
+            min_scores=correct_profile_score_per_query,
+            index=self._full_search_index,
+        )['responses']
+        
+        min_score_counts = [
+            response['hits']['total']['value'] for response in min_score_responses
         ]
-        assert len(result_tuples) == len(query_strings)
-        assert len(result_tuples[0]) == self.max_hits
-        assert len(result_tuples[0][0]) == 2
+        for response, correct_score, query in zip(min_score_responses, correct_profile_score_per_query, text_input_list):
+            num_profiles_with_min_score = response['hits']['total']['value']
+            if num_profiles_with_min_score == 0:
+                # Edge case where original thing has 0 probability and nothing matches it.
+                result = Bm25SearchResult(
+                    profile_idx=self.most_recent_test_profile_id,
+                    correct_profile_score=correct_score,
+                    num_better_profiles=self._num_documents,
+                    best_matching_profile_score=0.0,
+                    best_matching_profile_idx=-1,
+                    query=query,
+                )
+            else:
+                # Otherwise actually take this result.
+                idx_of_best_matching_profile_with_min_score = int(response['hits']['hits'][0]['_id'])
+                best_matching_profile_score = float(response['hits']['hits'][0]['_score'])
+                if idx_of_best_matching_profile_with_min_score != self.most_recent_test_profile_id:
+                    # If the best-matching profile isn't the true one,
+                    # there should be at least one better-matching profile with a higher score...
+                    # (These assertions just sanity-check what ElasticSearch is telling us.)
+                    assert best_matching_profile_score > correct_score, f"bad response {response}"
+                    assert num_profiles_with_min_score > 1, f"bad response {response}"
+                result = Bm25SearchResult(
+                    profile_idx=self.most_recent_test_profile_id,
+                    correct_profile_score=correct_score,
+                    num_better_profiles=num_profiles_with_min_score-1,
+                    best_matching_profile_score=best_matching_profile_score,
+                    best_matching_profile_idx=idx_of_best_matching_profile_with_min_score,
+                    query=query,
+                )
+            yield result
 
-        # Now unroll each list of tuples to a tuple of lists
-        result_lists = [zip(*list_of_tuples) for list_of_tuples in result_tuples]
-
-        # Now convert to np.ndarrays
-        return [
-            (np.array(idxs_list), np.array(scores_list)) for idxs_list, scores_list in result_lists
-        ]
-
-    def __call__(self, text_input_list: List[List[Tuple[int, float]]]) -> np.ndarray:
+    def __call__(self, text_input_list: List[List[Tuple[int, float]]]) -> List[Bm25SearchResult]:
         score_logits = np.zeros((len(text_input_list), self._num_documents))
-        search_results = self._get_search_results(text_input_list=text_input_list)
-        for idx, (result_profile_idxs, result_profile_scores) in enumerate(search_results):
-            score_logits[idx, result_profile_idxs] = result_profile_scores
-
-        return torch.tensor(score_logits, dtype=torch.float32).softmax(dim=1)
+        return list(self._get_search_results(text_input_list=text_input_list))
 
 
-def main(k: int, n: int, num_examples_offset: int, beam_width: int, use_train_profiles: bool):
+def main(k: int, n: int, num_examples_offset: int, use_train_profiles: bool):
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
         document_model_name_or_path='roberta-base',
@@ -359,25 +488,19 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, use_train_pr
     )
     dm.setup("fit")
 
-    dataset = WikiDataset(dm=dm)
-
     model_wrapper = Bm25ModelWrapper(
         use_train_profiles=use_train_profiles,
-        # TODO: What's the best way to set max_hits? The problem is that if the correct document
-        # is not included in the search results, we won't have a score for it. 
-        # Maybe we can specifically get the score for the proper document, so that even when it's outside of
-        # the list we know how good it is? But hopefully this works
-        # for now.
-        max_hits=k*10
     )
+    dataset = WikiDataset(dm=dm, model_wrapper=model_wrapper)
 
     constraints = [
         RepeatModification(),
-        MaxWordIndexModification(max_length=dm.max_seq_length),
     ]
-    transformation = WordSwapSingleWord(single_word=dm.document_tokenizer.mask_token)
-    # search_method = textattack.search_methods.GreedyWordSwapWIR()
-    search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
+    bm25_mask_token = '<mask>'
+    transformation = WordSwapSingleWord(single_word=bm25_mask_token)
+    # We can just use greedy-WIR here since BM25 is nonlinear. No need to do any search.
+    search_method = textattack.search_methods.GreedyWordSwapWIR(unk_token=bm25_mask_token)
+    # search_method = textattack.search_methods.BeamSearch(beam_width=1)
 
     print(f'***Attacking with k={k} n={n}***')
     goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=True)
@@ -398,12 +521,13 @@ def main(k: int, n: int, num_examples_offset: int, beam_width: int, use_train_pr
     for result in results_iterable:
         logger.log_attack_result(result)
 
-    folder_path = os.path.join('adv_csvs_full_2', model_key)
+    model_name = 'bm25' if not remove_stopwords else 'bm25_remove_stopwords'
+    folder_path = os.path.join('adv_csvs_full_3', model_name)
     os.makedirs(folder_path, exist_ok=True)
     if use_train_profiles:
-        out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}_with_train.csv')
+        out_csv_path = os.path.join(folder_path, f'results__bm25__k_{k}__n_{n}_with_train.csv')
     else:
-        out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}.csv')
+        out_csv_path = os.path.join(folder_path, f'results__bm25__k_{k}__n_{n}.csv')
     logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
     
@@ -422,9 +546,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--num_examples_offset', type=int, default=0,
         help='offset for search'
     )
-    parser.add_argument('--beam_width', '--b', type=int, default=1,
-        help='beam width for beam search'
-    )
     parser.add_argument('--use_train_profiles', type=bool,
         help='whether to include training profiles in potential people',
     )
@@ -439,6 +560,5 @@ if __name__ == '__main__':
         k=args.k,
         n=args.n,
         num_examples_offset=args.num_examples_offset,
-        beam_width=args.beam_width,
         use_train_profiles=args.use_train_profiles,
     )
