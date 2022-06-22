@@ -1,7 +1,7 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from dataloader import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
@@ -10,6 +10,7 @@ from utils import get_profile_embeddings_by_model_key
 
 import argparse
 import os
+import pickle
 import re
 import torch
 
@@ -25,6 +26,7 @@ from textattack import Attack
 from textattack import Attacker
 from textattack import AttackArgs
 from textattack.attack_results import SuccessfulAttackResult
+from textattack.constraints import PreTransformationConstraint
 from textattack.constraints.pre_transformation import RepeatModification, MaxWordIndexModification
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
@@ -33,12 +35,39 @@ from textattack.shared import AttackedText
 num_cpus = len(os.sched_getaffinity(0))
 
 
+class CertainWordsModification(PreTransformationConstraint):
+    certain_words: Set[str]
+    def __init__(self, certain_words: Set[str]):
+        self.certain_words = certain_words
+
+    def _get_modifiable_indices(self, current_text):
+        """Returns the word indices in current_text which are able to be
+        deleted."""
+        matching_word_idxs = {
+            i for i, word in enumerate(current_text.words) if word in self.certain_words
+        }
+        try:
+            return (
+                set(range(len(current_text.words)))
+                - matching_word_idxs
+            )
+        except KeyError:
+            raise KeyError(
+                "`modified_indices` in attack_attrs required for RepeatModification constraint."
+            )
+
+
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
     k: int
     normalize_scores: bool
     def __init__(self, *args, k: int = 1, normalize_scores: bool, **kwargs):
         self.k = k
         self.normalize_scores = normalize_scores
+        idf_file_path = os.path.join(
+            os.path.dirname(__file__), os.pardir, 'test_val_100_idf.p') # ['test_val_100_idf_date', 'test_val_100_idf.p']
+        self.idf = pickle.load(open(idf_file_path, 'rb'))
+        self.mean_idf = 11.437707231811393 # mean IDF for test+val corpus
+        self.max_idf = 12.176724504431347   # max IDF for test+val corpus
         super().__init__(*args, **kwargs)
 
     def _is_goal_complete(self, model_output, _):
@@ -46,8 +75,20 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         num_better_classes = (model_output > original_class_score).sum()
         return num_better_classes >= self.k
 
-    def _get_score(self, model_outputs, _):
-        return 1 - model_outputs[self.ground_truth_output]
+    def _get_score(self, model_outputs, attacked_text):
+        # score = 0.0 - model_outputs.log_softmax(dim=0)[self.ground_truth_output]
+        model_score = 0.0 - model_outputs.log_softmax(dim=0).max()
+        newly_modified_indices = attacked_text.attack_attrs.get("newly_modified_indices", {})
+        if len(newly_modified_indices):
+            # Add IDF score.
+            mean_idf_score = 0.0
+            for word in attacked_text.newly_swapped_words:
+                mean_idf_score += self.idf.get(word, self.mean_idf)
+            mean_idf_score /= len(attacked_text.newly_swapped_words)
+            
+            return model_score#  * mean_idf_score
+        else:
+            return model_score
     
     """have to reimplement the following method to change the precision on the sum-to-one condition."""
     def _process_model_outputs(self, inputs, scores):
@@ -295,7 +336,7 @@ def main(
         model_key: str,
         use_train_profiles: bool,
         use_type_swap: bool,
-        dataset: Optional[WikiDataset] = None,
+        adv_dataset: Optional[WikiDataset] = None,
         out_folder_path: str = 'adv_csvs_full_3'
     ):
     checkpoint_path = model_paths_dict[model_key]
@@ -321,7 +362,7 @@ def main(
         sample_spans=False,
     )
     dm.setup("fit")
-    dataset = WikiDataset(dm=dm)
+    dataset = WikiDataset(dm=dm, adv_dataset=adv_dataset)
 
     all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
     model_wrapper = MyModelWrapper(
@@ -336,6 +377,7 @@ def main(
     constraints = [
         RepeatModification(),
         MaxWordIndexModification(max_length=dm.max_seq_length),
+        CertainWordsModification(certain_words={'mask', 'MASK'})
     ]
 
     if use_type_swap:
@@ -344,6 +386,7 @@ def main(
         transformation = WordSwapSingleWordToken(single_word=dm.document_tokenizer.mask_token)
     # search_method = textattack.search_methods.GreedyWordSwapWIR()
     search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
+    # search_method = IdfWeightedBeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
     goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=False)
