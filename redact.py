@@ -108,7 +108,7 @@ def remove_named_entities_bert_batch(x_list: List[str], mask_token: str = "[MASK
     return redacted_docs
 
 
-def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", ignore_stopwords=False) -> str:
+def remove_overlapping_words(t1: str, t2: str, mask_token: str = "[MASK]", ignore_stopwords = False) -> str:
     """Replaces words in `t1` that occur in `t2` with `mask_token`.
 
     Also known as "lexical redaction".
