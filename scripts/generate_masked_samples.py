@@ -56,39 +56,144 @@ class CertainWordsModification(PreTransformationConstraint):
                 "`modified_indices` in attack_attrs required for RepeatModification constraint."
             )
 
+class RobertaRobertaReidMetric(textattack.metrics.Metric):
+    model_key: str
+    num_examples_offset: int
+    print_identified_results: bool
+    def __init__(self, num_examples_offset: int, print_identified_results: bool = True):
+        self.model_key = "model_3_3"
+        self.num_examples_offset = num_examples_offset
+        # TODO: enhance this class to support shuffled indices from the attack.
+        #   Right now things must be sequential.
+    
+    def _document_from_attack_result(self, result: textattack.attack_results.AttackResult):
+        document = result.perturbed_result.attacked_text.text
+        return document.replace("[MASK]", "<mask>")
+    
+    def calculate(self, attack_results: List[textattack.attack_results.AttackResult]) -> Dict[str, float]:
+        # TODO move to logging statement
+        print("Computing reidentification score...")
+        # get profile embeddings
+        all_profile_embeddings = get_profile_embeddings(model_key=self.model_key, use_train_profiles=True)
+
+        # initialize model
+        model = CoordinateAscentModel.load_from_checkpoint(
+            model_paths_dict[self.model_key]
+        )
+        tokenizer = transformers.AutoTokenizer.from_pretrained('roberta-base', use_fast=True)
+        model_wrapper = MyModelWrapper(
+            model=model,
+            document_tokenizer=tokenizer,
+            max_seq_length=128,
+            profile_embeddings=all_profile_embeddings,
+        ).to('cuda')
+
+        # get documents
+        documents = list(
+            map(self._document_from_attack_result, attack_results)
+        )
+
+        # check accuracy
+        predictions = model_wrapper(documents)
+        true_labels = (
+            torch.arange(len(attack_results)) + self.num_examples_offset
+        ).cuda()
+        correct_preds = (predictions.argmax(dim=1) == true_labels)
+        accuracy = correct_preds.float().mean()
+
+        for i, pred in enumerate(correct_preds.tolist()):
+            if pred:
+                print(f'Identified example {i}:', attack_results[i])
+
+        model_wrapper.model.cpu()
+        del model_wrapper
+        return f'{accuracy.item()*100.0:.2f}'
+
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
     k: int
-    normalize_scores: bool
-    def __init__(self, *args, k: int = 1, normalize_scores: bool, **kwargs):
+    min_percent_words: Optional[float]
+    most_recent_profile_words: List[str]
+    min_idf_weighting: Optional[float]
+    table_score: float
+    def __init__(self, *args, k: int = 1, min_idf_weighting: Optional[float] = None, min_percent_words: Optional[float] = None, table_score = 0.30, **kwargs):
         self.k = k
-        self.normalize_scores = normalize_scores
+        self.min_percent_words = min_percent_words
+        if self.min_percent_words is not None:
+            print(f'using criteria min_percent_words = {min_percent_words} instead of k')
+            self.k = None
+
+        self.most_recent_profile_words = [] # Set asynchronously by the dataset. (I know this is a bad pattern. TODO: fix this pattern.)
+
         idf_file_path = os.path.join(
-            os.path.dirname(__file__), os.pardir, 'test_val_100_idf.p') # ['test_val_100_idf_date', 'test_val_100_idf.p']
+            os.path.dirname(__file__), os.pardir, 'test_val_train_100_idf_dates.p') # ['test_val_100_idf_dates', 'test_val_100_idf.p', 'test_val_train_100_idf_dates.p', 'test_val_train_100_idf.p']
         self.idf = pickle.load(open(idf_file_path, 'rb'))
         self.mean_idf = 11.437707231811393 # mean IDF for test+val corpus
         self.max_idf = 12.176724504431347   # max IDF for test+val corpus
+
+        # Custom IDF values for stuff that could appear 
+        self.idf[','] = 0.0
+        self.idf['.'] = 0.0
+
+        self.min_idf_weighting = min_idf_weighting
+
         super().__init__(*args, **kwargs)
 
-    def _is_goal_complete(self, model_output, _):
-        original_class_score = model_output[self.ground_truth_output]
-        num_better_classes = (model_output > original_class_score).sum()
-        return num_better_classes >= self.k
+    def _is_goal_complete(self, model_output, attacked_text):
+        if self.min_percent_words is not None:
+            # min-% words swapped criterion
+            num_words_swapped = len(attacked_text.attack_attrs['modified_indices'])
+            num_words_total = len(attacked_text.words)
+            return ((num_words_swapped + 0.5) / num_words_total) >= self.min_percent_words
+        else:
+            # top-k criterion
+            original_class_score = model_output[self.ground_truth_output]
+            num_better_classes = (model_output > original_class_score).sum()
+            return num_better_classes >= self.k
+    
+    def get_word_idf_prob(self, word: str) -> float:
+        # Clamp at a certain value. to prevent low-probability words from being too improbable.
+        if word not in self.idf:
+            if not word.isalnum(): 
+                return 0.0
+            else:
+                print("warning: word with unknown IDF", word)
+                return 0.0
+        return max(
+            self.idf.get(word, 0.0) / self.max_idf, self.min_idf_weighting
+        )
 
     def _get_score(self, model_outputs, attacked_text):
-        # score = 0.0 - model_outputs.log_softmax(dim=0)[self.ground_truth_output]
-        model_score = 0.0 - model_outputs.log_softmax(dim=0).max()
         newly_modified_indices = attacked_text.attack_attrs.get("newly_modified_indices", {})
-        if len(newly_modified_indices):
-            # Add IDF score.
-            mean_idf_score = 0.0
-            for word in attacked_text.newly_swapped_words:
-                mean_idf_score += self.idf.get(word, self.mean_idf)
-            mean_idf_score /= len(attacked_text.newly_swapped_words)
-            
-            return model_score#  * mean_idf_score
+        if len(newly_modified_indices) == 0:
+            return 0.0 - model_outputs[self.ground_truth_output]
+
+        assert len(self.most_recent_profile_words)
+        # Add score for matching with table.
+        table_score = 0.0
+        idf_score = 0.0
+        for word in attacked_text.newly_swapped_words:
+            if word in self.most_recent_profile_words:
+                table_score += 0.30 # Intuition is we want use the table to break ties of about this much % probability.
+            idf_score += self.get_word_idf_prob(word)
+        idf_score /= len(attacked_text.newly_swapped_words)
+        table_score /= len(attacked_text.newly_swapped_words)
+        # print('\t\t',attacked_text.newly_swapped_words, table_score, '//', idf_score, '//', model_score)
+
+        # breakpoint()
+
+        model_output_stable = model_outputs - model_outputs.max()
+        softmax_denominator = model_output_stable.exp().sum()
+        # This is a numerically-stable softmax that incorporates the table score in probability space.
+        total_score = (
+            -1.0 * model_output_stable[self.ground_truth_output].exp()
+          + (softmax_denominator * (1 + table_score))
+        ) / softmax_denominator
+
+        if self.min_idf_weighting:
+            return total_score * idf_score
         else:
-            return model_score
+            return total_score
     
     """have to reimplement the following method to change the precision on the sum-to-one condition."""
     def _process_model_outputs(self, inputs, scores):
@@ -126,14 +231,6 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             raise ValueError(
                 f"Model return score of shape {scores.shape} for {len(inputs)} inputs."
             )
-        elif self.normalize_scores and (not ((scores.sum(dim=1) - 1).abs() < 1e-4).all()):
-            # Values in each row should sum up to 1. The model should return a
-            # set of numbers corresponding to probabilities, which should add
-            # up to 1. Since they are `torch.float` values, allow a small
-            # error in the summation.
-            # scores = torch.nn.functional(scores, dim=1)
-            if not ((scores.sum(dim=1) - 1).abs() < 1e-4).all():
-                raise ValueError("Model scores do not add up to 1.")
         return scores.cpu()
 
 class WordSwapSingleWordToken(textattack.transformations.word_swap.WordSwap):
@@ -206,10 +303,18 @@ class WikiDataset(textattack.datasets.Dataset):
     label_names: List[str]
     dm: WikipediaDataModule
     adv_dataset: Optional[pd.DataFrame]
+    goal_function: ChangeClassificationToBelowTopKClasses
     
-    def __init__(self, dm: WikipediaDataModule, max_samples: int = 1000, adv_dataset: Optional[pd.DataFrame] = None):
+    def __init__(
+            self,
+            dm: WikipediaDataModule,
+            goal_function: ChangeClassificationToBelowTopKClasses,
+            max_samples: int = 1000,
+            adv_dataset: Optional[pd.DataFrame] = None
+        ):
         self.shuffled = True
         self.dm = dm
+        self.goal_function = goal_function
         # filter out super long examples
         self.dataset = [
             dm.test_dataset[i] for i in range(max_samples)
@@ -227,20 +332,16 @@ class WikiDataset(textattack.datasets.Dataset):
             max_length=self.dm.max_seq_length
         )['input_ids']
         reconstructed_text = (
-            # funky way to fix <mask><mask> issue where
-            # spaces were removed.
-            self.dm.document_tokenizer
-                .decode(input_ids)
-                .replace('<mask>', ' <mask> ')
-                .replace('  <mask>', ' <mask>')
-                .replace('<mask>  ', '<mask> ')
-                .replace('<s>', '')
-                .replace('</s>', '')
-                .replace('[CLS]', '')
-                .replace('[SEP]', '')
-                .strip()
+            self.dm.document_tokenizer.decode(input_ids).strip()
         )
-        return reconstructed_text
+        num_tokenizable_words = len(reconstructed_text.split(' '))
+        # Subtract one here as a buffer in case the last word in `reconstructed_text`
+        # was a half-tokenized one. Otherwise we could accidentally leak information
+        # through additional subtokens in the last word!! This could happen if
+        # our deid model only sees the first token of the last word, and thinks it's benign,
+        # so doesn't mask it, but then it stays in the final output and is identifiable
+        # by a different model with a longer max sequence length.
+        return ' '.join(text.split(' ')[:num_tokenizable_words - 1])
     
     def _process_adversarial_text(self, text: str, max_length: int = 128) -> str:
         # Put newlines back
@@ -260,10 +361,13 @@ class WikiDataset(textattack.datasets.Dataset):
             document = self._process_adversarial_text(
                 text=self.adv_dataset.iloc[i]['perturbed_text']
             )
+        
+        self.goal_function.most_recent_profile_words = set(
+            textattack.shared.utils.words_from_text(
+                self.dataset[i]['profile']
+            )
+        )
 
-        # This removes non-ascii characters like Chinese etc. letters.
-        document = re.sub(r'[^\x00-\x7f]',r'', document) 
-            
         input_dict = OrderedDict([
             ('document', document)
         ])
@@ -336,8 +440,9 @@ def main(
         model_key: str,
         use_train_profiles: bool,
         use_type_swap: bool,
+        min_percent_words: Optional[float] = None,
         adv_dataset: Optional[WikiDataset] = None,
-        out_folder_path: str = 'adv_csvs_full_3'
+        out_folder_path: str = 'adv_csvs_full_4'
     ):
     checkpoint_path = model_paths_dict[model_key]
     assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
@@ -362,7 +467,6 @@ def main(
         sample_spans=False,
     )
     dm.setup("fit")
-    dataset = WikiDataset(dm=dm, adv_dataset=adv_dataset)
 
     all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
     model_wrapper = MyModelWrapper(
@@ -375,9 +479,10 @@ def main(
     # breakpoint()
 
     constraints = [
+        # Prevents us from trying to replace the same word multiple times.
         RepeatModification(),
-        MaxWordIndexModification(max_length=dm.max_seq_length),
-        CertainWordsModification(certain_words={'mask', 'MASK'})
+        # In the sequential setting, this prevents us from re-substituting masks for masks.
+        CertainWordsModification(certain_words={'mask', 'MASK'}) 
     ]
 
     if use_type_swap:
@@ -389,7 +494,18 @@ def main(
     # search_method = IdfWeightedBeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
-    goal_function = ChangeClassificationToBelowTopKClasses(model_wrapper, k=k, normalize_scores=False)
+    goal_function = ChangeClassificationToBelowTopKClasses(
+        model_wrapper, k=k,
+        min_percent_words=min_percent_words,
+        min_idf_weighting=args.min_idf_weighting,
+        table_score=args.table_score,
+    )
+    dataset = WikiDataset(
+        dm=dm,
+        goal_function=goal_function,
+        adv_dataset=adv_dataset,
+        max_samples=max(n, 1000)
+    )
     attack = Attack(
         goal_function, constraints, transformation, search_method
     )
@@ -397,6 +513,11 @@ def main(
         num_examples_offset=num_examples_offset,
         num_examples=n,
         disable_stdout=False
+    )
+    if attack_args.metrics is None:
+        attack_args.metrics = {}
+    attack_args.metrics["RoBERTa-RoBERTa Reid. %"] = RobertaRobertaReidMetric(
+        num_examples_offset=args.num_examples_offset
     )
     attacker = Attacker(attack, dataset, attack_args)
 
@@ -408,7 +529,7 @@ def main(
 
     folder_path = os.path.join(out_folder_path, model_key)
     os.makedirs(folder_path, exist_ok=True)
-    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
+    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__idf{args.min_idf_weighting}" if args.min_idf_weighting else ""}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
     logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
     
@@ -417,6 +538,11 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Generate adversarially-masked examples for a model.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('--min_percent_words', type=float, default=None,
+        help=(
+            'min_percent_words if we want this instead of k for the goal.'
+        )
     )
     parser.add_argument('--k', type=int, default=1,
         help='top-K classes for adversarial goal function'
@@ -429,6 +555,14 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument('--beam_width', '--b', type=int, default=1,
         help='beam width for beam search'
+    )
+    parser.add_argument('--table_score', type=float, default=0.0,
+        help='amount of probability boost to give words that are in the table'
+    )
+    parser.add_argument('--min_idf_weighting', type=float, default=None,
+        help=(
+            'if weighting probabilities by word IDF, minimum prob for low-IDF words. '
+            '(so')
     )
     parser.add_argument('--model', '--model_key', type=str, default='model_3_1',
         help='model str name (see model_cfg for more info)',
@@ -452,6 +586,7 @@ if __name__ == '__main__':
     args = get_args()
     main(
         k=args.k,
+        min_percent_words=args.min_percent_words,
         n=args.n,
         num_examples_offset=args.num_examples_offset,
         beam_width=args.beam_width,
@@ -459,3 +594,4 @@ if __name__ == '__main__':
         use_type_swap=args.use_type_swap,
         use_train_profiles=args.use_train_profiles,
     )
+    print(args)

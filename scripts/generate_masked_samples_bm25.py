@@ -338,9 +338,6 @@ class WikiDataset(textattack.datasets.Dataset):
         # (It's much faster this way.)
         self.model_wrapper.most_recent_test_profile_id = i
         document = self._truncate_text(self.dataset[i]['document'])
-
-        # This removes non-ascii characters like Chinese etc. letters.
-        document = re.sub(r'[^\x00-\x7f]',r'', document)
             
         input_dict = OrderedDict([
             ('document', document)
