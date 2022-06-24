@@ -90,3 +90,7 @@ model_paths_dict["model_3_3__idf"] = "/home/jxm3/research/deidentification/unsup
 model_paths_dict["model_3_4"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/1g8o1iw3_749/checkpoints/epoch=65-step=150281-idf_total.ckpt'
 model_paths_dict["model_3_4__idf"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/3fyovpn7_753/checkpoints/epoch=60-step=138896-idf_total.ckpt'
 
+# model_3_5 is pmlm-a-tapas, uniformly sampled random masking,
+#   **trained on lexically redacted data**
+#
+model_paths_dict["model_3_5"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/*/*3_41/*/last.ckpt'

@@ -86,7 +86,7 @@ class MaskingSpanSampler:
         """Randomly mask some words."""
         if random.uniform(0, 1) < self._word_dropout_ratio:
             # Don't do dropout this % of the time
-            words = set(words_from_text(text))
+            words = set(words_from_text(text)) - {self.mask_token}
             if not self.dropout_stopwords:
                 words = words - eng_stopwords
             

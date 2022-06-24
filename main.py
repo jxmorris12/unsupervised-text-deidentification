@@ -49,7 +49,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--max_seq_length', type=int, default=128)
     parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--grad_norm_clip', type=float, default=100.0)
+    parser.add_argument('--grad_norm_clip', type=float, default=10.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
     # parser.add_argument('--precision', type=int, default=32)
     
@@ -265,30 +265,45 @@ def main(args: argparse.Namespace):
     val_metric = "val/document_redact_idf_total/loss"
     # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 50 * args.num_validations_per_epoch)
+
+    if torch.cuda.device_count() == 1:
+        checkpoints = [
+            ModelCheckpoint(
+                monitor="val/document/loss",
+                mode="min",
+                filename="{epoch}-{step}",
+                save_last=True,
+                save_top_k=args.model_ckpt_save_top_k,
+                save_on_train_epoch_end=True,
+            ),
+            # ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+            ModelCheckpoint(
+                monitor="val/document_redact_idf_total/loss",
+                mode="min",
+                filename="{epoch}-{step}-idf_total",
+                save_last=True,
+                save_top_k=args.model_ckpt_save_top_k,
+                save_on_train_epoch_end=True
+            )
+        ]
+    else:
+        checkpoints = [
+            ModelCheckpoint(
+                monitor=None,
+                filename="{epoch}-{step}",
+                save_last=True,
+                save_top_k=args.model_ckpt_save_top_k,
+                save_on_train_epoch_end=True,
+            ),
+        ]
+
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         # 
-        ModelCheckpoint(
-            monitor="val/document/loss",
-            mode="min",
-            filename="{epoch}-{step}",
-            save_last=True,
-            save_top_k=args.model_ckpt_save_top_k,
-            save_on_train_epoch_end=True,
-        ),
-        # ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
-        ModelCheckpoint(
-            monitor="val/document_redact_idf_total/loss",
-            mode="min",
-            filename="{epoch}-{step}-idf_total",
-            save_last=True,
-            save_top_k=args.model_ckpt_save_top_k,
-            save_on_train_epoch_end=True
-        ),
         # 
         # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
         #
-    ]
+    ] + checkpoints
 
     print("creating Trainer")
     trainer = Trainer(
