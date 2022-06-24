@@ -9,6 +9,7 @@ from model_cfg import model_paths_dict
 from utils import get_profile_embeddings_by_model_key
 
 import argparse
+import functools
 import os
 import pickle
 import re
@@ -27,12 +28,15 @@ from textattack import Attacker
 from textattack import AttackArgs
 from textattack.attack_results import SuccessfulAttackResult
 from textattack.constraints import PreTransformationConstraint
-from textattack.constraints.pre_transformation import RepeatModification, MaxWordIndexModification
+from textattack.constraints.pre_transformation import MaxModificationRate, RepeatModification, MaxWordIndexModification, StopwordModification
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 
+from fuzzywuzzy import fuzz
+from nltk.corpus import stopwords
 
 num_cpus = len(os.sched_getaffinity(0))
+eng_stopwords = set(stopwords.words('english'))
 
 
 class CertainWordsModification(PreTransformationConstraint):
@@ -116,12 +120,17 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
     most_recent_profile_words: List[str]
     min_idf_weighting: Optional[float]
     table_score: float
-    def __init__(self, *args, k: int = 1, min_idf_weighting: Optional[float] = None, min_percent_words: Optional[float] = None, table_score = 0.30, **kwargs):
+    max_idf_goal: float
+    fuzzy_ratio: float
+    def __init__(self, *args, k: int = 1, max_idf_goal: Optional[float] = None, min_idf_weighting: Optional[float] = None, min_percent_words: Optional[float] = None, table_score = 0.30, 
+        fuzzy_ratio: float = 0.95, **kwargs):
         self.k = k
+        self.fuzzy_ratio = fuzzy_ratio
         self.min_percent_words = min_percent_words
+        self.max_idf_goal = max_idf_goal
+        self.table_score = table_score
         if self.min_percent_words is not None:
-            print(f'using criteria min_percent_words = {min_percent_words} instead of k')
-            self.k = None
+            print(f'using criteria min_percent_words = {min_percent_words} with k = {k}')
 
         self.most_recent_profile_words = [] # Set asynchronously by the dataset. (I know this is a bad pattern. TODO: fix this pattern.)
 
@@ -132,25 +141,74 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         self.max_idf = 12.176724504431347   # max IDF for test+val corpus
 
         # Custom IDF values for stuff that could appear 
-        self.idf[','] = 0.0
-        self.idf['.'] = 0.0
+        self.idf[','] = 1.0
+        self.idf['.'] = 1.0
 
         self.min_idf_weighting = min_idf_weighting
 
         super().__init__(*args, **kwargs)
 
-    def _is_goal_complete(self, model_output, attacked_text):
-        if self.min_percent_words is not None:
-            # min-% words swapped criterion
-            num_words_swapped = len(attacked_text.attack_attrs['modified_indices'])
-            num_words_total = len(attacked_text.words)
-            return ((num_words_swapped + 0.5) / num_words_total) >= self.min_percent_words
-        else:
-            # top-k criterion
-            original_class_score = model_output[self.ground_truth_output]
-            num_better_classes = (model_output > original_class_score).sum()
-            return num_better_classes >= self.k
+    def _k_criterion_is_met(self, model_output, attacked_text) -> bool:
+        # top-k criterion
+        original_class_score = model_output[self.ground_truth_output]
+        num_better_classes = (model_output > original_class_score).sum()
+        return num_better_classes >= self.k
+
+    def _percent_words_criterion_is_met(self, model_output, attacked_text) -> bool:
+        if self.min_percent_words is None: 
+            return True
+        # min-% words swapped criterion
+
+        ########################## For counting min % words changed total. #######################
+        # num_words_swapped = len(attacked_text.attack_attrs['modified_indices'])
+        # num_words_total = len(attacked_text.words)
+        ###########################################################################################
+
+        ################# For counting min % overlap with profile words instead. #################
+        prof_words = set(self.most_recent_profile_words)
+        original_attacked_text = attacked_text
+        while original_attacked_text.attack_attrs.get("previous_attacked_text") is not None:
+            original_attacked_text = original_attacked_text.attack_attrs["previous_attacked_text"]
+
+        # original number of words overlapping from profile.
+        all_overlapping_words = [
+            word for word in original_attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
+        ]
+        num_words_total = len(all_overlapping_words)
+        # current number of words overlapping from profile. (decreases as words from the profile have been masked.)
+        remaining_overlapping_words = [
+            word for word in attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
+        ]
+        num_words_from_profile_still_in_text = len(remaining_overlapping_words)
+        num_words_swapped = num_words_total - num_words_from_profile_still_in_text
+        ###########################################################################################
+
+        return (
+            ((num_words_swapped + 0.5) / num_words_total) >= self.min_percent_words
+        )
     
+    def _max_idf_goal_is_met(self, attacked_text: AttackedText) -> bool:
+        if self.max_idf_goal is None:
+            return True
+        max_idf = max(
+            [
+                self.idf[word] 
+                for i, word in enumerate(attacked_text.words) 
+                if (i not in attacked_text.attack_attrs["modified_indices"]) and (word.isalnum())
+            ]
+        )
+        return max_idf <= self.max_idf_goal
+
+    def _is_goal_complete(self, model_output, attacked_text):
+        return (
+            self._percent_words_criterion_is_met(model_output, attacked_text) 
+            and 
+            self._k_criterion_is_met(model_output, attacked_text)
+            and
+            self._max_idf_goal_is_met(attacked_text)
+        ) 
+    
+    @functools.cache
     def get_word_idf_prob(self, word: str) -> float:
         # Clamp at a certain value. to prevent low-probability words from being too improbable.
         if word not in self.idf:
@@ -162,6 +220,11 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         return max(
             self.idf.get(word, 0.0) / self.max_idf, self.min_idf_weighting
         )
+    
+    def _word_in_table(self, word: str) -> bool:
+        return (
+            max([(fuzz.ratio(word, profile_word) / 100.0) for profile_word in self.most_recent_profile_words]) >= self.fuzzy_ratio
+        )
 
     def _get_score(self, model_outputs, attacked_text):
         newly_modified_indices = attacked_text.attack_attrs.get("newly_modified_indices", {})
@@ -172,15 +235,14 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         # Add score for matching with table.
         table_score = 0.0
         idf_score = 0.0
+        
         for word in attacked_text.newly_swapped_words:
-            if word in self.most_recent_profile_words:
-                table_score += 0.30 # Intuition is we want use the table to break ties of about this much % probability.
+            if (self.table_score > 0) and self._word_in_table(word):
+                table_score += self.table_score # Intuition is we want use the table to break ties of about this much % probability.
             idf_score += self.get_word_idf_prob(word)
         idf_score /= len(attacked_text.newly_swapped_words)
         table_score /= len(attacked_text.newly_swapped_words)
         # print('\t\t',attacked_text.newly_swapped_words, table_score, '//', idf_score, '//', model_score)
-
-        # breakpoint()
 
         model_output_stable = model_outputs - model_outputs.max()
         softmax_denominator = model_output_stable.exp().sum()
@@ -190,7 +252,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
           + (softmax_denominator * (1 + table_score))
         ) / softmax_denominator
 
-        if self.min_idf_weighting:
+        if ((self.min_idf_weighting is not None) and self.min_idf_weighting < 1.0):
             return total_score * idf_score
         else:
             return total_score
@@ -247,24 +309,37 @@ class WordSwapSingleWordToken(textattack.transformations.word_swap.WordSwap):
 
 class WordSwapSingleWordType(textattack.transformations.Transformation):
     """Replaces every instance of each unique word in the text with prechosen word `single_word`.
+
+    *Not* a wordswap since this one can swap multiple words at once.
     """
-    def __init__(self, single_word: str = "?", **kwargs):
+    def __init__(self, single_word: str = "?", fuzzy_ratio: int = 0.95, **kwargs):
         super().__init__(**kwargs)
         self.single_word = single_word
+        self.fuzzy_ratio = fuzzy_ratio
+    
+    def words_match(self, w1: str, w2: str):
+        # print("\t\tw1", w1, "w2", w2, "fuzz.ratio(w1, w2)", fuzz.ratio(w1, w2))
+        if min(len(w1), len(w2)) < 4:
+            # Exact-match on short strings, since fuzzywuzzy doesn't seem to work quite right here.
+            return w1 == w2
+        else:
+            return (fuzz.ratio(w1, w2) / 100.0) >= self.fuzzy_ratio
 
     def _get_transformations(self, current_text, indices_to_modify):
-        words = current_text.words
         transformed_texts = []
 
         unique_words = set(current_text.words)
-        for word in unique_words:
+        for i in indices_to_modify:
+            word = current_text.words[i]
             if word == self.single_word:
                 continue
-            words_to_replace_idxs = set(
-                [idx for idx, ct_word in enumerate(current_text.words) if ct_word == word]
+            words_to_replace_idxs =  set(
+                    [idx for idx, ct_word in enumerate(current_text.words) if self.words_match(ct_word, word)]
+                  + [i]
             ).intersection(indices_to_modify)
             if not len(words_to_replace_idxs):
                 continue
+            # print("word", word, "words_to_replace_idxs", words_to_replace_idxs)
 
             transformed_texts.append(
                 current_text.replace_words_at_indices(
@@ -383,13 +458,14 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
             model: AbstractModel,
             document_tokenizer: transformers.AutoTokenizer,
             profile_embeddings: torch.Tensor,
-            max_seq_length: int = 128
+            max_seq_length: int = 128, fake_response: bool = False
         ):
         self.model = model
         self.model.eval()
         self.document_tokenizer = document_tokenizer
         self.profile_embeddings = profile_embeddings.clone().detach()
         self.max_seq_length = max_seq_length
+        self.fake_response = fake_response
                  
     def to(self, device):
         self.model.to(device)
@@ -397,6 +473,8 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
         return self # so semantics `model = MyModelWrapper().to('cuda')` works properly
 
     def __call__(self, text_input_list):
+        if self.fake_response:
+            return torch.ones((len(text_input_list), 72_831 * 2))
         model_device = next(self.model.parameters()).device
 
         tokenized_documents = self.document_tokenizer.batch_encode_plus(
@@ -442,7 +520,11 @@ def main(
         use_type_swap: bool,
         min_percent_words: Optional[float] = None,
         adv_dataset: Optional[WikiDataset] = None,
-        out_folder_path: str = 'adv_csvs_full_4'
+        out_folder_path: str = 'adv_csvs_full_7',
+        ignore_stopwords: bool = False,
+        fuzzy_ratio: float = 0.95,
+        max_idf_goal: Optional[float] = None,
+        no_model: bool = False,
     ):
     checkpoint_path = model_paths_dict[model_key]
     assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
@@ -474,9 +556,9 @@ def main(
         document_tokenizer=dm.document_tokenizer,
         max_seq_length=dm.max_seq_length,
         profile_embeddings=all_profile_embeddings,
+        fake_response=no_model
     )
     model_wrapper.to('cuda')
-    # breakpoint()
 
     constraints = [
         # Prevents us from trying to replace the same word multiple times.
@@ -484,21 +566,36 @@ def main(
         # In the sequential setting, this prevents us from re-substituting masks for masks.
         CertainWordsModification(certain_words={'mask', 'MASK'}) 
     ]
+    if ignore_stopwords:
+        # idf = pickle.load(
+        #     open(
+        #         os.path.join(os.path.dirname(__file__), os.pardir, 'test_val_train_100_idf_dates.p'), 
+        #         'rb'
+        #     )
+        # )
+        # stopwords = {k for k,v in idf.items() if v<2}
+        # constraints.append(StopwordModification(stopwords=stopwords))
+        constraints.append(StopwordModification())
+
 
     if use_type_swap:
         transformation = WordSwapSingleWordType(single_word=dm.document_tokenizer.mask_token)
     else:
         transformation = WordSwapSingleWordToken(single_word=dm.document_tokenizer.mask_token)
-    # search_method = textattack.search_methods.GreedyWordSwapWIR()
-    search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
-    # search_method = IdfWeightedBeamSearch(beam_width=beam_width)
+
+    if beam_width == 0:
+        search_method = textattack.search_methods.GreedyWordSwapWIR()
+    else:
+        search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
     goal_function = ChangeClassificationToBelowTopKClasses(
         model_wrapper, k=k,
         min_percent_words=min_percent_words,
         min_idf_weighting=args.min_idf_weighting,
+        max_idf_goal=args.max_idf_goal,
         table_score=args.table_score,
+        fuzzy_ratio=fuzzy_ratio,
     )
     dataset = WikiDataset(
         dm=dm,
@@ -529,7 +626,7 @@ def main(
 
     folder_path = os.path.join(out_folder_path, model_key)
     os.makedirs(folder_path, exist_ok=True)
-    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__idf{args.min_idf_weighting}" if args.min_idf_weighting else ""}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
+    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__nomodel" if args.no_model else ""}{f"__idf{args.min_idf_weighting}" if (args.min_idf_weighting is not None) else ""}{("__mp" + str(args.min_percent_words)) if args.min_percent_words else ""}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
     logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
     
@@ -559,10 +656,18 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--table_score', type=float, default=0.0,
         help='amount of probability boost to give words that are in the table'
     )
+    parser.add_argument('--fuzzy_ratio', type=float, default=0.95,
+        help='min fuzzy ratio for fuzzy-matching words to be a match'
+    )
     parser.add_argument('--min_idf_weighting', type=float, default=None,
         help=(
             'if weighting probabilities by word IDF, minimum prob for low-IDF words. '
             '(so')
+    )
+    parser.add_argument('--max_idf_goal', type=float, default=None,
+        help=(
+            'if we stop when the max IDF falls below a certain value'
+        )
     )
     parser.add_argument('--model', '--model_key', type=str, default='model_3_1',
         help='model str name (see model_cfg for more info)',
@@ -577,6 +682,12 @@ def get_args() -> argparse.Namespace:
             '(i.e. mask all instances of the same word together'
         ),
     )
+    parser.add_argument('--ignore_stopwords', default=False, action='store_true',
+        help=('whether to ignore stopwords during deidentification')
+    )
+    parser.add_argument('--no_model', default=False, action='store_true',
+        help=('whether to include model scores in deidentification search (otherwise just uses word overlap metrics)')
+    )
 
     args = parser.parse_args()
     return args
@@ -584,6 +695,8 @@ def get_args() -> argparse.Namespace:
 
 if __name__ == '__main__':
     args = get_args()
+
+    if args.no_model: assert "can't use k-criterion with no model"
     main(
         k=args.k,
         min_percent_words=args.min_percent_words,
@@ -593,5 +706,9 @@ if __name__ == '__main__':
         model_key=args.model,
         use_type_swap=args.use_type_swap,
         use_train_profiles=args.use_train_profiles,
+        ignore_stopwords=args.ignore_stopwords,
+        no_model=args.no_model,
+        fuzzy_ratio=args.fuzzy_ratio,
+        max_idf_goal=args.max_idf_goal,
     )
     print(args)
