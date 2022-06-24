@@ -267,7 +267,7 @@ class MaskingTokenizingDataset(Dataset):
                     text=ex["document"], words_to_mask=self.adv_word_mask_map[idx])
             else:
                 ex["document"] = self.masking_span_sampler.random_redact_str(
-                    text=ex["document"])
+                    text=ex["document_redact_lexical"])
         
         for doc_type in self.document_types:
             doc_tokenized = self._tokenize_document(ex=ex, doc_type=doc_type)

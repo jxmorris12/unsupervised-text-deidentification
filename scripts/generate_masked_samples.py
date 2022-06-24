@@ -10,6 +10,8 @@ from utils import get_profile_embeddings_by_model_key
 
 import argparse
 import functools
+import json
+import math
 import os
 import pickle
 import re
@@ -37,6 +39,11 @@ from nltk.corpus import stopwords
 
 num_cpus = len(os.sched_getaffinity(0))
 eng_stopwords = set(stopwords.words('english'))
+
+
+@functools.cache
+def fuzz_ratio(s1: str, s2: str) -> bool:
+    return fuzz.ratio(s1, s2)
 
 
 class CertainWordsModification(PreTransformationConstraint):
@@ -115,16 +122,22 @@ class RobertaRobertaReidMetric(textattack.metrics.Metric):
 
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
-    k: int
+    k: Optional[int]
     min_percent_words: Optional[float]
     most_recent_profile_words: List[str]
     min_idf_weighting: Optional[float]
     table_score: float
     max_idf_goal: float
     fuzzy_ratio: float
-    def __init__(self, *args, k: int = 1, max_idf_goal: Optional[float] = None, min_idf_weighting: Optional[float] = None, min_percent_words: Optional[float] = None, table_score = 0.30, 
+    eps: float
+    def __init__(self, *args, k: Optional[int] = None, eps: Optional[float] = None, max_idf_goal: Optional[float] = None, min_idf_weighting: Optional[float] = None, min_percent_words: Optional[float] = None, table_score = 0.30, 
         fuzzy_ratio: float = 0.95, **kwargs):
         self.k = k
+        self.eps = eps
+        # need one, can't have both
+        assert (self.k is None) or (self.eps is None)
+        assert (self.k is not None) or (self.eps is not None)
+
         self.fuzzy_ratio = fuzzy_ratio
         self.min_percent_words = min_percent_words
         self.max_idf_goal = max_idf_goal
@@ -135,9 +148,9 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         self.most_recent_profile_words = [] # Set asynchronously by the dataset. (I know this is a bad pattern. TODO: fix this pattern.)
 
         idf_file_path = os.path.join(
-            os.path.dirname(__file__), os.pardir, 'test_val_train_100_idf_dates.p') # ['test_val_100_idf_dates', 'test_val_100_idf.p', 'test_val_train_100_idf_dates.p', 'test_val_train_100_idf.p']
+            os.path.dirname(__file__), os.pardir, 'test_val_train_100_idf.p') # ['test_val_100_idf_dates', 'test_val_100_idf.p', 'test_val_train_100_idf_dates.p', 'test_val_train_100_idf.p']
         self.idf = pickle.load(open(idf_file_path, 'rb'))
-        self.mean_idf = 11.437707231811393 # mean IDF for test+val corpus
+        self.mean_idf = 11.437707231811393  # mean IDF for test+val corpus
         self.max_idf = 12.176724504431347   # max IDF for test+val corpus
 
         # Custom IDF values for stuff that could appear 
@@ -149,10 +162,16 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         super().__init__(*args, **kwargs)
 
     def _k_criterion_is_met(self, model_output, attacked_text) -> bool:
-        # top-k criterion
-        original_class_score = model_output[self.ground_truth_output]
-        num_better_classes = (model_output > original_class_score).sum()
-        return num_better_classes >= self.k
+        if args.k is not None:
+            assert self.eps is None
+            original_class_score = model_output[self.ground_truth_output]
+            # top-k criterion
+            num_better_classes = (model_output > original_class_score).sum()
+            return num_better_classes >= self.k
+        else:
+            assert self.eps is not None
+            # eps criterion
+            return model_output.log_softmax(dim=0)[self.ground_truth_output] <= math.log(self.eps)
 
     def _percent_words_criterion_is_met(self, model_output, attacked_text) -> bool:
         if self.min_percent_words is None: 
@@ -175,6 +194,11 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             word for word in original_attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
         ]
         num_words_total = len(all_overlapping_words)
+
+        # there is a weird edge case where there are *no* overlapping words in the profile.
+        if num_words_total == 0:
+            return True
+
         # current number of words overlapping from profile. (decreases as words from the profile have been masked.)
         remaining_overlapping_words = [
             word for word in attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
@@ -183,6 +207,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         num_words_swapped = num_words_total - num_words_from_profile_still_in_text
         ###########################################################################################
 
+
         return (
             ((num_words_swapped + 0.5) / num_words_total) >= self.min_percent_words
         )
@@ -190,13 +215,17 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
     def _max_idf_goal_is_met(self, attacked_text: AttackedText) -> bool:
         if self.max_idf_goal is None:
             return True
-        max_idf = max(
-            [
-                self.idf[word] 
-                for i, word in enumerate(attacked_text.words) 
-                if (i not in attacked_text.attack_attrs["modified_indices"]) and (word.isalnum())
-            ]
-        )
+        try:
+            max_idf = max(
+                [
+                    self.idf[word] 
+                    for i, word in enumerate(attacked_text.words) 
+                    if (i not in attacked_text.attack_attrs["modified_indices"]) and (word.isalnum())
+                ]
+            )
+        except ValueError: # "max is an empty sequence" -> no more words to modify.
+            return True
+
         return max_idf <= self.max_idf_goal
 
     def _is_goal_complete(self, model_output, attacked_text):
@@ -218,12 +247,12 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
                 print("warning: word with unknown IDF", word)
                 return 0.0
         return max(
-            self.idf.get(word, 0.0) / self.max_idf, self.min_idf_weighting
+            self.idf.get(word, 0.0) / self.max_idf, (self.min_idf_weighting or 0.0)
         )
     
     def _word_in_table(self, word: str) -> bool:
         return (
-            max([(fuzz.ratio(word, profile_word) / 100.0) for profile_word in self.most_recent_profile_words]) >= self.fuzzy_ratio
+            max([(fuzz_ratio(word, profile_word) / 100.0) for profile_word in self.most_recent_profile_words]) >= self.fuzzy_ratio
         )
 
     def _get_score(self, model_outputs, attacked_text):
@@ -323,7 +352,7 @@ class WordSwapSingleWordType(textattack.transformations.Transformation):
             # Exact-match on short strings, since fuzzywuzzy doesn't seem to work quite right here.
             return w1 == w2
         else:
-            return (fuzz.ratio(w1, w2) / 100.0) >= self.fuzzy_ratio
+            return (fuzz_ratio(w1, w2) / 100.0) >= self.fuzzy_ratio
 
     def _get_transformations(self, current_text, indices_to_modify):
         transformed_texts = []
@@ -453,12 +482,14 @@ class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
     document_tokenizer: transformers.AutoTokenizer
     profile_embeddings: torch.Tensor
     max_seq_length: int
+    fake_response: bool
     
     def __init__(self,
             model: AbstractModel,
             document_tokenizer: transformers.AutoTokenizer,
             profile_embeddings: torch.Tensor,
-            max_seq_length: int = 128, fake_response: bool = False
+            max_seq_length: int = 128,
+            fake_response: bool = False
         ):
         self.model = model
         self.model.eval()
@@ -518,9 +549,10 @@ def main(
         model_key: str,
         use_train_profiles: bool,
         use_type_swap: bool,
+        eps: Optional[float] = None,
         min_percent_words: Optional[float] = None,
         adv_dataset: Optional[WikiDataset] = None,
-        out_folder_path: str = 'adv_csvs_full_7',
+        out_folder_path: str = 'adv_csvs_full_8',
         ignore_stopwords: bool = False,
         fuzzy_ratio: float = 0.95,
         max_idf_goal: Optional[float] = None,
@@ -583,17 +615,16 @@ def main(
     else:
         transformation = WordSwapSingleWordToken(single_word=dm.document_tokenizer.mask_token)
 
-    if beam_width == 0:
-        search_method = textattack.search_methods.GreedyWordSwapWIR()
-    else:
-        search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
+    assert beam_width > 0
+    # search_method = textattack.search_methods.GreedyWordSwapWIR()
+    search_method = textattack.search_methods.BeamSearch(beam_width=beam_width)
 
     print(f'***Attacking with k={k} n={n}***')
     goal_function = ChangeClassificationToBelowTopKClasses(
-        model_wrapper, k=k,
+        model_wrapper, k=k, eps=eps,
         min_percent_words=min_percent_words,
         min_idf_weighting=args.min_idf_weighting,
-        max_idf_goal=args.max_idf_goal,
+        max_idf_goal=max_idf_goal,
         table_score=args.table_score,
         fuzzy_ratio=fuzzy_ratio,
     )
@@ -626,9 +657,16 @@ def main(
 
     folder_path = os.path.join(out_folder_path, model_key)
     os.makedirs(folder_path, exist_ok=True)
-    out_csv_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__nomodel" if args.no_model else ""}{f"__idf{args.min_idf_weighting}" if (args.min_idf_weighting is not None) else ""}{("__mp" + str(args.min_percent_words)) if args.min_percent_words else ""}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}.csv')
+    out_file_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__nomodel" if args.no_model else ""}{f"__idf{args.min_idf_weighting}" if (args.min_idf_weighting is not None) else ""}{("__mp" + str(args.min_percent_words)) if args.min_percent_words else ""}{f"__mig{max_idf_goal}" if (max_idf_goal) else ""}__eps{eps}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}')
+    out_csv_path = out_file_path + '.csv'
     logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
+
+    out_json_path = out_file_path + '__args.json'
+    with open(out_json_path, 'w') as json_file:
+        json.dump(vars(args), json_file)
+    print('wrote json to', out_json_path)
+        
     
 
 def get_args() -> argparse.Namespace:
@@ -641,8 +679,11 @@ def get_args() -> argparse.Namespace:
             'min_percent_words if we want this instead of k for the goal.'
         )
     )
-    parser.add_argument('--k', type=int, default=1,
+    parser.add_argument('--k', type=int, default=None,
         help='top-K classes for adversarial goal function'
+    )
+    parser.add_argument('--eps', type=float, default=None,
+        help='max true prob for max-eps criteria'
     )
     parser.add_argument('--n', type=int, default=1000,
         help='number of examples to run on'
@@ -690,6 +731,8 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+
+    assert (args.k is not None) or (args.eps is not None)
     return args
 
 
@@ -699,6 +742,7 @@ if __name__ == '__main__':
     if args.no_model: assert "can't use k-criterion with no model"
     main(
         k=args.k,
+        eps=args.eps,
         min_percent_words=args.min_percent_words,
         n=args.n,
         num_examples_offset=args.num_examples_offset,

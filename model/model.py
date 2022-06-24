@@ -413,6 +413,8 @@ class Model(LightningModule, abc.ABC):
         return output
 
     def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
+        print('skipping validation on 4 gpus :)')
+        return
         val_outputs, adv_val_outputs = output_list
         text_key_id = torch.cat(
             [o['text_key_id'] for o in val_outputs], axis=0)

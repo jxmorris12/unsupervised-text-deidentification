@@ -199,6 +199,15 @@ class WikipediaDataModule(LightningDataModule):
                 new_fingerprint=f"{test_fingerprint}_lexical_redacted"
         )
 
+        # Redact training data too
+        train_fingerprint += '_2'
+        self.train_dataset = self.train_dataset.map(
+            lambda ex: redact_example(
+                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
+                num_proc=1,
+                new_fingerprint=f"{train_fingerprint}_lexical_redacted"
+        )
+
         #  Spacy NER redaction
         spacy_ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
