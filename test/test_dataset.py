@@ -3,7 +3,7 @@ import pytest
 
 import torch
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 
 
 num_cpus = len(os.sched_getaffinity(0))

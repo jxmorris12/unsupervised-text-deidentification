@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from transformers import AdamW
 from tqdm import tqdm
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from model import CoordinateAscentModel
 from model_cfg import model_paths_dict
 from utils import get_profile_embeddings_by_model_key

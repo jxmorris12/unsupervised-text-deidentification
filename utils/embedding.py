@@ -56,7 +56,7 @@ def precompute_profile_embeddings(
 
 
 def precompute_profile_embeddings_for_model_key(model_key: str):
-    from dataloader import WikipediaDataModule
+    from datamodule import WikipediaDataModule
     from model import CoordinateAscentModel
 
     checkpoint_path = model_paths_dict[model_key]

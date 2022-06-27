@@ -1,0 +1,1 @@
+{"min_percent_words": 0.0, "k": 1, "eps": null, "n": 1000, "num_examples_offset": 0, "beam_width": 1, "table_score": 0.0, "fuzzy_ratio": 1.0, "min_idf_weighting": null, "max_idf_goal": null, "model": "model_3_4", "use_train_profiles": false, "use_type_swap": true, "ignore_stopwords": false, "no_model": false}

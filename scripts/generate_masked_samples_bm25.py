@@ -29,7 +29,7 @@ from textattack.constraints.pre_transformation import RepeatModification, MaxWor
 from textattack.loggers import CSVLogger
 from textattack.shared import AttackedText
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 
 eng_stopwords = set(stopwords.words('english'))
 

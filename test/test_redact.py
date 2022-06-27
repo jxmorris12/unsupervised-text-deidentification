@@ -1,7 +1,7 @@
 import os
 import pytest
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 
 from redact import (
     remove_named_entities_spacy, remove_named_entities_spacy_batch,

@@ -3,7 +3,7 @@ sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentificat
 
 from typing import Dict, List, Optional, Set, Tuple
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
 from model_cfg import model_paths_dict
 from utils import get_profile_embeddings_by_model_key
