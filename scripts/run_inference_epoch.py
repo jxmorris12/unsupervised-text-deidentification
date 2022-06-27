@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import tqdm
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from model import CoordinateAscentModel
 from model_cfg import model_paths_dict
 

@@ -52,10 +52,24 @@ def words_from_text(s: str) -> List[str]:
     assert isinstance(s, str)
     return words_from_text_re.findall(s)
 
+redacted_headers = [
+    "article_title", "name",  "fullname",
+    "birth_place", "birth_date",
+    "death_place", "death_date",
+    "image", "caption",
+    "bbr", "high_school"
+]
+
+def wikibio_example_has_non_redacted_rows(ex: Dict[str, str]) -> bool:
+    """Filters out dataset examples that don't have any non-redacted rows."""
+    table_info = ex['input_text']['table']
+    table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
+    return len(set(table_column_header) - set(redacted_headers)) > 0
 
 def create_document_and_profile_from_wikibio(
     ex: Dict[str, str],
-    redact_profile: bool = False) -> Dict[str, str]:
+    redact_profile: bool = False
+    ) -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
 
@@ -80,18 +94,6 @@ def create_document_and_profile_from_wikibio(
     table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
 
     if redact_profile:
-        redacted_headers = [
-            "article_title", "name",  "fullname",
-            "birth_place", "birth_date",
-            "image", "caption",
-            "bbr", "high_school"
-        ]
-        print(list(zip(table_info['column_header'], table_info['content'])))
-        print([
-            (header, content) for (header, content) in zip(table_info['column_header'], table_info['content'])
-        ])
-        print([(header, content) for (header, content) in zip(table_info['column_header'], table_info['content']) if header not in redacted_headers])
-
         table_column_header, table_content = zip(*[
             (header, content)
             for (header, content) in zip(table_info['column_header'], table_info['content'])
@@ -155,8 +157,8 @@ def tokenize_profile(
     ) -> Dict[str, torch.Tensor]:
     prefix = "redacted_" if use_redacted_profile else ""
     if isinstance(tokenizer, transformers.TapasTokenizer):
-        prof_keys = ex["{prefix}profile_keys"].split("||")
-        prof_values = ex["{prefix}profile_values"].split("||")
+        prof_keys = ex[f"{prefix}profile_keys"].split("||")
+        prof_values = ex[f"{prefix}profile_values"].split("||")
         if not len(prof_keys):
             raise ValueError("empty profile_keys")
         if not len(prof_values):
@@ -171,9 +173,10 @@ def tokenize_profile(
             query="Who is this?",
             num_cols=64
         )
+        # print(df)
     else:
         profile_tokenized = tokenizer.encode_plus(
-            ex["{prefix}profile"],
+            ex[f"{prefix}profile"],
             max_length=max_seq_length,
             padding='max_length',
             truncation=True,

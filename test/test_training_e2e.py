@@ -6,7 +6,7 @@ import torch
 
 from pytorch_lightning import Trainer, seed_everything
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from model import ContrastiveModel, CoordinateAscentModel
 from utils import model_cls_dict
 

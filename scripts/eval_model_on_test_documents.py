@@ -1,7 +1,7 @@
 import sys
 sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
 from utils import get_profile_embeddings_by_model_key
 

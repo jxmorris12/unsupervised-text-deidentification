@@ -267,7 +267,7 @@ class Model(LightningModule, abc.ABC):
 
         warmup_steps = self.warmup_epochs * self.steps_per_epoch
 
-        # scheduling = 'linear'
+        scheduling = 'linear'
         # scheduling = 'exponential'
         scheduling = None
 
@@ -275,7 +275,7 @@ class Model(LightningModule, abc.ABC):
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
             new_lr = lr_scale * self.document_learning_rate
         elif (scheduling is not None):
-            lr_epochs = 70
+            lr_epochs = 80
             # lr_epochs = 150 # Drop to min_lr after this many epochs
             # lr_epochs = 300
             # current_step = optim_steps - warmup_steps
@@ -302,11 +302,6 @@ class Model(LightningModule, abc.ABC):
                 pg['lr'] = new_lr
             
             self.log("learning_rate", new_lr)
-
-        ####### TEMPORARY (TODO: Remove!) ########
-        new_lr = 2e-6
-        for pg in optimizer.param_groups:
-            pg['lr'] = new_lr
         
         self.log("learning_rate", new_lr)
 
@@ -420,8 +415,9 @@ class Model(LightningModule, abc.ABC):
         return output
 
     def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
-        print('skipping validation on 4 gpus :)')
-        return
+        if torch.cuda.device_count() > 1:
+            print(f'skipping validation on {torch.cuda.device_count()} gpus :)')
+            return
         val_outputs, adv_val_outputs = output_list
         text_key_id = torch.cat(
             [o['text_key_id'] for o in val_outputs], axis=0)
@@ -446,8 +442,7 @@ class Model(LightningModule, abc.ABC):
             )
 
         # Compute losses on regular + redacted documents.
-        # TODO - make work on multi-gpu like this guy did: https://github.com/Lightning-AI/lightning/issues/4175
-        #   (Can test with 4 GPUs on 1% train/val data.)
+        # TODO - make work on multi-gpu: https://github.com/Lightning-AI/lightning/issues/4175
         document_embeddings = torch.cat(
             [o['document_embeddings'] for o in val_outputs], axis=0)
         _, doc_loss = self._compute_loss_exact(
@@ -480,7 +475,6 @@ class Model(LightningModule, abc.ABC):
             )
             doc_redact_idf_loss_total += doc_redact_idf_loss.item()
         self.log('val/document_redact_idf_total/loss', doc_redact_idf_loss_total)
-
 
         # Comment this part to disable scheduler in favor of manual scheduling
         # If there are multiple LR schedulers, call step() on all of them.

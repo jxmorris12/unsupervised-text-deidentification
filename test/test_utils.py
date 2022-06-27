@@ -4,7 +4,7 @@ import pandas as pd
 import datasets
 import transformers
 
-from dataloader import WikipediaDataModule
+from datamodule import WikipediaDataModule
 from utils import get_profile_df, tokenize_profile, words_from_text
 
 class TestUtils:
