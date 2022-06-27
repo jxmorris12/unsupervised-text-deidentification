@@ -53,7 +53,9 @@ def words_from_text(s: str) -> List[str]:
     return words_from_text_re.findall(s)
 
 
-def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, str]:
+def create_document_and_profile_from_wikibio(
+    ex: Dict[str, str],
+    redact_profile: bool = False) -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
 
@@ -61,12 +63,41 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
     'walter extra is a german award-winning aerobatic pilot , chief aircraft designer and founder of extra....
     >>> ex['input_text']
     {'table': {'column_header': ['nationality', 'name', 'article_title', 'occupation', 'birth_date'], 'row_number': [1, 1, 1, 1, 1], 'content': ['german', 'walter extra', 'walter extra\n', 'aircraft designer and manufacturer', '1954']}, 'context': 'walter extra\n'}
+
+    Args: 
+        ex (Dict[str, str]): examples from wiki_bio dataset
+        redact_profile (bool): whether to redact important keys from
+            profile object.
+    Returns:
+        Dict[str, str] of important fields like name, document, profile.
+            If `redact_profile` was set, return dict will not contain 
+            specified redacted keys.
     """
     # replace weird textual artifacts: -lrb- with ( and -rrb- with )
     fixed_target_text = ex['target_text'].replace('-rrb-', ')').replace('-lrb-', '(')
     # transform table to str
     table_info = ex['input_text']['table']
-    table_column_header, table_content = table_info['column_header'], table_info['content']
+    table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
+
+    if redact_profile:
+        redacted_headers = [
+            "article_title", "name",  "fullname",
+            "birth_place", "birth_date",
+            "image", "caption",
+            "bbr", "high_school"
+        ]
+        print(list(zip(table_info['column_header'], table_info['content'])))
+        print([
+            (header, content) for (header, content) in zip(table_info['column_header'], table_info['content'])
+        ])
+        print([(header, content) for (header, content) in zip(table_info['column_header'], table_info['content']) if header not in redacted_headers])
+
+        table_column_header, table_content = zip(*[
+            (header, content)
+            for (header, content) in zip(table_info['column_header'], table_info['content'])
+            if header not in redacted_headers
+        ])
+
     profile_keys = list(map(lambda s: s.strip().replace('|', ''), table_column_header))
     profile_values = list(map(lambda s: s.strip().replace('|', ''), table_content))
     table_rows = list(zip(profile_keys, profile_values))
@@ -77,7 +108,7 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str]) -> Dict[str, st
 
     # return example: transformed table + first paragraph
     return {
-        'name': name_from_table_rows(table_rows),
+        'name': None if redact_profile else name_from_table_rows(table_rows),
         'document': fixed_target_text,                          # First paragraph of biography
         'profile': table_text,                                  # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,      # Table with name removed
@@ -119,11 +150,13 @@ def get_profile_df(keys: List[str], values: List[str]) -> pd.DataFrame:
 def tokenize_profile(
         tokenizer: transformers.PreTrainedTokenizer,
         ex: Dict[str, str],
-        max_seq_length: int
+        max_seq_length: int,
+        use_redacted_profile: bool = False
     ) -> Dict[str, torch.Tensor]:
+    prefix = "redacted_" if use_redacted_profile else ""
     if isinstance(tokenizer, transformers.TapasTokenizer):
-        prof_keys = ex["profile_keys"].split("||")
-        prof_values = ex["profile_values"].split("||")
+        prof_keys = ex["{prefix}profile_keys"].split("||")
+        prof_values = ex["{prefix}profile_values"].split("||")
         if not len(prof_keys):
             raise ValueError("empty profile_keys")
         if not len(prof_values):
@@ -140,7 +173,7 @@ def tokenize_profile(
         )
     else:
         profile_tokenized = tokenizer.encode_plus(
-            ex["profile"],
+            ex["{prefix}profile"],
             max_length=max_seq_length,
             padding='max_length',
             truncation=True,

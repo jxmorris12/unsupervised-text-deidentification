@@ -642,11 +642,14 @@ def main(
         num_examples=n,
         disable_stdout=False
     )
-    if attack_args.metrics is None:
-        attack_args.metrics = {}
-    attack_args.metrics["RoBERTa-RoBERTa Reid. %"] = RobertaRobertaReidMetric(
-        num_examples_offset=args.num_examples_offset
-    )
+    do_reid = True
+
+    if do_reid:
+        if attack_args.metrics is None:
+            attack_args.metrics = {}
+        attack_args.metrics["RoBERTa-RoBERTa Reid. %"] = RobertaRobertaReidMetric(
+            num_examples_offset=args.num_examples_offset
+        )
     attacker = Attacker(attack, dataset, attack_args)
 
     logger = CustomCSVLogger(color_method=None)
