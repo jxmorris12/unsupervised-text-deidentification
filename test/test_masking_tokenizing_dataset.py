@@ -1,6 +1,3 @@
-import sys
-sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
-    
 import datasets
 import os
 import pytest
@@ -24,6 +21,17 @@ class TestMaskingTokenizingDataset:
         assert len(ex["profile_values"].strip())
         assert len(ex["document"].strip())
         assert len(ex["profile"].strip())
+        assert ex["profile_keys"].split("||") == ['name', 'nationality', 'birth_date', 'article_title', 'occupation']
+
+    def test_create_document_and_profile_redacted(self):
+        train_dataset = datasets.load_dataset('wiki_bio', split='train[:1024]', version='1.2.0')
+        ex = create_document_and_profile_from_wikibio(train_dataset[0], redact_profile=True)
+        assert len(ex["profile_keys"].strip())
+        assert len(ex["profile_values"].strip())
+        assert len(ex["document"].strip())
+        assert len(ex["profile"].strip())
+        # name, birth_date, article_title should be redacte.d
+        assert ex["profile_keys"].split("||") == ['nationality', 'occupation']
 
     def test_train_data(self):
         split = "train[:1%]"
@@ -102,28 +110,3 @@ if __name__ == '__main__':
 
     d = TestMaskingTokenizingDataset()
     d.test_train_data_uniform_idf()
-
-"""
-Profiler output
-         927590291 function calls (926402870 primitive calls) in 342.589 seconds
-
-   Ordered by: internal time
-   List reduced from 8337 to 15 due to restriction <15>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-  1422249   13.489    0.000   35.460    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/models/tapas/tokenization_tapas.py:2128(_clean_text)
-  3194682   12.575    0.000   32.334    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/models/tapas/tokenization_tapas.py:2069(_run_split_on_punc)
- 17102266   12.465    0.000   12.465    0.000 {method 'translate' of 'str' objects}
-  4270215   12.061    0.000   33.553    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils_base.py:1233(all_special_tokens_extended)
-  4158795   11.622    0.000   17.305    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/models/tapas/tokenization_tapas.py:2151(tokenize)
-  1423978    9.586    0.000  242.473    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils.py:481(tokenize)
-  3553936    9.416    0.000   23.153    0.000 {method 'sub' of 're.Pattern' objects}
- 17306343    9.414    0.000   14.012    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils.py:292(_is_punctuation)
- 19082486    9.053    0.000   13.686    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils.py:514(<lambda>)
-  1423978    8.796    0.000   12.331    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils.py:91(split)
-    40320    8.466    0.000  253.373    0.006 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/models/tapas/tokenization_tapas.py:1315(_tokenize_table)
-39885710/39879843    8.027    0.000    8.071    0.000 {built-in method builtins.getattr}
-  4270215    7.926    0.000   15.378    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils_base.py:1207(special_tokens_map_extended)
- 19076928    7.839    0.000   11.864    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/tokenization_utils.py:280(_is_control)
-  1422249    7.750    0.000   14.188    0.000 /home/jxm3/.conda/envs/torch/lib/python3.9/site-packages/transformers/models/tapas/tokenization_tapas.py:2091(_tokenize_chinese_chars)
-"""

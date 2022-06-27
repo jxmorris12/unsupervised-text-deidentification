@@ -109,7 +109,7 @@ def get_args() -> argparse.Namespace:
         raise ValueError('cannot provide both checkpoint_path and checkpoint_vnum')
     
     if args.checkpoint_vnum:
-        checkpoint_paths = glob.glob(f'saves/*/*/*_{args.checkpoint_vnum}/checkpoints/*.ckpt')
+        checkpoint_paths = glob.glob(f'saves/*/*/*{args.checkpoint_vnum}/checkpoints/*.ckpt')
         if not checkpoint_paths:
             raise ValueError(f'Found no checkpoints for vnum {args.checkpoint_vnum}')
         else:

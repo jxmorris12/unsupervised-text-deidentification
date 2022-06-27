@@ -267,9 +267,9 @@ class Model(LightningModule, abc.ABC):
 
         warmup_steps = self.warmup_epochs * self.steps_per_epoch
 
-        scheduling = 'linear'
+        # scheduling = 'linear'
         # scheduling = 'exponential'
-        # scheduling = None
+        scheduling = None
 
         if optim_steps < warmup_steps:
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
@@ -302,6 +302,13 @@ class Model(LightningModule, abc.ABC):
                 pg['lr'] = new_lr
             
             self.log("learning_rate", new_lr)
+
+        ####### TEMPORARY (TODO: Remove!) ########
+        new_lr = 2e-6
+        for pg in optimizer.param_groups:
+            pg['lr'] = new_lr
+        
+        self.log("learning_rate", new_lr)
 
         optimizer.step()
         optimizer.zero_grad()
