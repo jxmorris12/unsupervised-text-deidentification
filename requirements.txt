@@ -1,0 +1,9 @@
+datasets
+nltk
+sentence-transformers
+pytorch-lightning
+rank-bm25
+spacy
+tokenizers
+tqdm
+transformers

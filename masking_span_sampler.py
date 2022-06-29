@@ -15,7 +15,7 @@ from utils import words_from_text, word_start_and_end_idxs_from_text
 
 eng_stopwords = set(stopwords.words('english'))
 
-@functools.cache
+@functools.lru_cache(maxsize=None)
 def _cached_words_from_text(s: str) -> List[str]:
     return words_from_text(s)
 
