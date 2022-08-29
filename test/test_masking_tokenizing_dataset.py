@@ -23,16 +23,6 @@ class TestMaskingTokenizingDataset:
         assert len(ex["profile"].strip())
         assert ex["profile_keys"].split("||") == ['name', 'nationality', 'birth_date', 'article_title', 'occupation']
 
-    def test_create_document_and_profile_redacted(self):
-        train_dataset = datasets.load_dataset('wiki_bio', split='train[:1024]', version='1.2.0')
-        ex = create_document_and_profile_from_wikibio(train_dataset[0], redact_profile=True)
-        assert len(ex["profile_keys"].strip())
-        assert len(ex["profile_values"].strip())
-        assert len(ex["document"].strip())
-        assert len(ex["profile"].strip())
-        # name, birth_date, article_title should be redacte.d
-        assert ex["profile_keys"].split("||") == ['nationality', 'occupation']
-
     def test_train_data(self):
         split = "train[:1%]"
         datasets.utils.logging.set_verbosity_debug()

@@ -1,4 +1,3 @@
-
 from typing import List, Tuple, Union
 
 import argparse
@@ -94,9 +93,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--idf_masking', default=False, action='store_true',
         help='whether to do idf-based masking (via bm25)'
     )
-    parser.add_argument('--redact_profile', default=False, action='store_true',
-        help='whether to redact the name, birthday, and hometown information from profile.'
-    )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
@@ -157,7 +153,6 @@ def main(args: argparse.Namespace):
         profile_row_dropout_perc=args.profile_row_dropout_perc,
         adversarial_masking=args.adversarial_masking,
         idf_masking=args.idf_masking,
-        redact_profile=args.redact_profile,
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
@@ -227,8 +222,6 @@ def main(args: argparse.Namespace):
         exp_name += f'__e{args.shared_embedding_dim}'
     if args.label_smoothing:
         exp_name += f'__ls{args.label_smoothing}'
-    if args.redact_profile:
-        exp_name += f'__redact_profile'
     # day = time.strftime(f'%Y-%m-%d-%H%M')
     # exp_name += f'_{day}'
 

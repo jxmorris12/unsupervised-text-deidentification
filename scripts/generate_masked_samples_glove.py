@@ -6,7 +6,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from datamodule import WikipediaDataModule
 from model import AbstractModel, CoordinateAscentModel
 from model_cfg import model_paths_dict
-from utils import get_profile_embeddings_by_model_key
+
+from generate_masked_samples import get_profile_embeddings, MyModelWrapper
+
 
 import argparse
 import functools
@@ -32,6 +34,7 @@ from textattack.attack_results import SuccessfulAttackResult
 from textattack.constraints import PreTransformationConstraint
 from textattack.constraints.pre_transformation import MaxModificationRate, RepeatModification, MaxWordIndexModification, StopwordModification
 from textattack.loggers import CSVLogger
+from textattack.models.helpers import GloveEmbeddingLayer
 from textattack.shared import AttackedText
 
 from fuzzywuzzy import fuzz
@@ -244,7 +247,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             if not word.isalnum(): 
                 return 0.0
             else:
-                print(f"warning: word with unknown IDF: `{word}`")
+                print("warning: word with unknown IDF", word)
                 return 0.0
         return max(
             self.idf.get(word, 0.0) / self.max_idf, (self.min_idf_weighting or 0.0)
@@ -265,11 +268,12 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         table_score = 0.0
         idf_score = 0.0
         
-        for word in attacked_text.newly_swapped_words:
-            if (self.table_score > 0) and self._word_in_table(word):
-                table_score += self.table_score # Intuition is we want use the table to break ties of about this much % probability.
-            idf_score += self.get_word_idf_prob(word)
-        idf_score /= len(attacked_text.newly_swapped_words)
+        if self.table_score > 0:
+            for word in attacked_text.newly_swapped_words:
+                if (self.table_score > 0) and self._word_in_table(word):
+                    table_score += self.table_score # Intuition is we want use the table to break ties of about this much % probability.
+                idf_score += self.get_word_idf_prob(word)
+            idf_score /= len(attacked_text.newly_swapped_words)
         table_score /= len(attacked_text.newly_swapped_words)
         # print('\t\t',attacked_text.newly_swapped_words, table_score, '//', idf_score, '//', model_score)
 
@@ -399,7 +403,7 @@ class CustomCSVLogger(CSVLogger):
             "num_queries": result.num_queries,
             "result_type": result_type,
         }
-        self.row_list.append(row)
+        self.df = pd.concat([self.df, pd.DataFrame([row])], ignore_index=True)
         self._flushed = False
 
 class WikiDataset(textattack.datasets.Dataset):
@@ -477,68 +481,67 @@ class WikiDataset(textattack.datasets.Dataset):
         ])
         return input_dict, self.dataset[i]['text_key_id']
 
-class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
-    model: AbstractModel
-    document_tokenizer: transformers.AutoTokenizer
-    profile_embeddings: torch.Tensor
-    max_seq_length: int
+class GloveModelWrapper(textattack.models.wrappers.ModelWrapper):
     fake_response: bool
     
-    def __init__(self,
-            model: AbstractModel,
-            document_tokenizer: transformers.AutoTokenizer,
-            profile_embeddings: torch.Tensor,
-            max_seq_length: int = 128,
-            fake_response: bool = False
-        ):
-        self.model = model
-        self.model.eval()
-        self.document_tokenizer = document_tokenizer
-        self.profile_embeddings = profile_embeddings.clone().detach()
-        self.max_seq_length = max_seq_length
+    def __init__(self, dm: WikipediaDataModule, fake_response: bool = False):
+        self.model = "glove" # placeholder 
         self.fake_response = fake_response
+        self.emb_layer = GloveEmbeddingLayer(emb_layer_trainable=False).cpu()
+        self.max_seq_length = 128
+        self.tokenizer = textattack.models.tokenizers.GloveTokenizer(
+            word_id_map=self.emb_layer.word2id,
+            unk_token_id=self.emb_layer.oovid,
+            pad_token_id=self.emb_layer.padid,
+            max_length=self.max_seq_length,
+        )
+        self.profile_embeddings = self._embed_test_profiles(dm=dm)
                  
-    def to(self, device):
-        self.model.to(device)
-        self.profile_embeddings = self.profile_embeddings.to(device)
-        return self # so semantics `model = MyModelWrapper().to('cuda')` works properly
+    def to(self, device): # no need for cuda here
+        return self
+    
+    def _embed_text(self, text_input_list: List[str]) -> torch.Tensor:
+        with torch.no_grad():
+            _input = self.tokenizer.batch_encode(text_input_list)
+            _input = torch.tensor(_input).to(self.emb_layer.embedding.weight.device)
+            embeddings = self.emb_layer(_input)
+        assert embeddings.shape == (len(text_input_list), self.max_seq_length, 200)
 
-    def __call__(self, text_input_list):
+        # Mean across tokens that are not padding or OOV.
+        mmask = ~(_input == self.emb_layer.padid)
+        # TODO: rewrite following line in a cleaner way.
+        embeddings = (torch.einsum('bse,bs->be', embeddings, mmask.float()) / mmask.sum(1)[:, None])
+        assert embeddings.shape == (len(text_input_list), 200)
+
+        # Normalize embeddings
+        embeddings = embeddings / torch.norm(embeddings, p=2, dim=1, keepdim=True)
+
+        return embeddings.cpu()
+    
+    def _embed_test_profiles(self, dm: WikipediaDataModule) -> torch.Tensor:
+        def replace_profile_special_tokens(ex: Dict) -> Dict:
+            ex["profile"] = ex["profile"].replace("||", "")
+            return ex
+        profiles = dm.test_dataset.map(replace_profile_special_tokens)["profile"]
+        return torch.tensor(
+            textattack.shared.utils.batch_model_predict(
+                self._embed_text, profiles, batch_size=128
+            )
+        )
+
+    def __call__(self, text_input_list: List[str]):
         if self.fake_response:
             return torch.ones((len(text_input_list), 72_831 * 2))
-        model_device = next(self.model.parameters()).device
 
-        tokenized_documents = self.document_tokenizer.batch_encode_plus(
-            text_input_list,
-            max_length=self.max_seq_length,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt',
-        )
-        batch = {f"document__{k}": v for k,v in tokenized_documents.items()}
+        document_embeddings = self._embed_text(text_input_list=text_input_list)
 
-        with torch.no_grad():
-            document_embeddings = self.model.forward_document(batch=batch, document_type='document')
-            document_to_profile_logits = document_embeddings @ (self.profile_embeddings.T)
+        ##########################################################################################
+        # document_to_profile_logits = torch.nn.CosineSimilarity(dim=1)(document_embeddings, self.profile_embeddings)
+        document_to_profile_logits = document_embeddings @ self.profile_embeddings.T
+        ##########################################################################################
+        
         assert document_to_profile_logits.shape == (len(text_input_list), len(self.profile_embeddings))
         return document_to_profile_logits
-
-
-def get_profile_embeddings(model_key: str, use_train_profiles: bool):
-    profile_embeddings = get_profile_embeddings_by_model_key(model_key=model_key)
-
-    print("concatenating train, val, and test profile embeddings")
-    if use_train_profiles:
-        all_profile_embeddings = torch.cat(
-            (profile_embeddings['test'], profile_embeddings['val'], profile_embeddings['train']), dim=0
-        )
-    else:
-        all_profile_embeddings = torch.cat(
-            (profile_embeddings['test'], profile_embeddings['val']), dim=0
-        )
-
-    print("all_profile_embeddings:", all_profile_embeddings.shape)
-    return all_profile_embeddings
 
 
 def main(
@@ -546,7 +549,6 @@ def main(
         n: int,
         num_examples_offset: int,
         beam_width: int, 
-        model_key: str,
         use_train_profiles: bool,
         use_type_swap: bool,
         eps: Optional[float] = None,
@@ -558,21 +560,14 @@ def main(
         max_idf_goal: Optional[float] = None,
         no_model: bool = False,
     ):
-    checkpoint_path = model_paths_dict[model_key]
-    assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
-    print(f"running attack on {model_key} loaded from {checkpoint_path}")
-    model = CoordinateAscentModel.load_from_checkpoint(
-        checkpoint_path
-    )
-    
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
-        document_model_name_or_path=model.document_model_name_or_path,
-        profile_model_name_or_path=model.profile_model_name_or_path,
+        document_model_name_or_path="roberta-base",
+        profile_model_name_or_path="google/tapas-base",
         dataset_name='wiki_bio',
-        dataset_train_split='train[:100%]',
-        dataset_val_split='val[:100%]',
-        dataset_test_split='test[:100%]',
+        dataset_train_split='train[:1%]',
+        dataset_val_split='val[:1%]',
+        dataset_test_split='test[:1%]',
         dataset_version='1.2.0',
         num_workers=num_cpus,
         train_batch_size=256,
@@ -582,15 +577,9 @@ def main(
     )
     dm.setup("fit")
 
-    all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
-    model_wrapper = MyModelWrapper(
-        model=model,
-        document_tokenizer=dm.document_tokenizer,
-        max_seq_length=dm.max_seq_length,
-        profile_embeddings=all_profile_embeddings,
-        fake_response=no_model
+    model_wrapper = GloveModelWrapper(
+        dm=dm, fake_response=no_model
     )
-    model_wrapper.to('cuda')
 
     constraints = [
         # Prevents us from trying to replace the same word multiple times.
@@ -632,7 +621,7 @@ def main(
         dm=dm,
         goal_function=goal_function,
         adv_dataset=adv_dataset,
-        max_samples=max(n, 1000)
+        max_samples=max(n, min(1000, len(dm.test_dataset))), 
     )
     attack = Attack(
         goal_function, constraints, transformation, search_method
@@ -642,28 +631,27 @@ def main(
         num_examples=n,
         disable_stdout=False
     )
-    do_reid = True
+    do_reid = False
 
     if do_reid:
-        if (not hasattr(attack_args, "metrics")) or (attack_args.metrics is None):
+        if not hasattr(attack_args, metrics) or (attack_args.metrics is None):
             attack_args.metrics = {}
-        metric = RobertaRobertaReidMetric(
+        attack_args.metrics["RoBERTa-RoBERTa Reid. %"] = RobertaRobertaReidMetric(
             num_examples_offset=args.num_examples_offset
         )
-        attack_args.metrics["RoBERTa-RoBERTa Reid. %"] = metric
     attacker = Attacker(attack, dataset, attack_args)
 
-    folder_path = os.path.join(out_folder_path, model_key)
-    out_file_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__nomodel" if args.no_model else ""}{f"__idf{args.min_idf_weighting}" if (args.min_idf_weighting is not None) else ""}{("__mp" + str(args.min_percent_words)) if args.min_percent_words else ""}{f"__mig{max_idf_goal}" if (max_idf_goal) else ""}__eps{eps}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}')
-    out_csv_path = out_file_path + '.csv'
-    logger = CustomCSVLogger(filename=out_csv_path, color_method=None)
+    logger = CustomCSVLogger(color_method=None)
 
     for result in attacker.attack_dataset():
         logger.log_attack_result(result)
         del result
 
+    folder_path = os.path.join(out_folder_path, "glove")
     os.makedirs(folder_path, exist_ok=True)
-    logger.flush()
+    out_file_path = os.path.join(folder_path, f'results__b_{beam_width}__ts{args.table_score}{f"__nomodel" if args.no_model else ""}{f"__idf{args.min_idf_weighting}" if (args.min_idf_weighting is not None) else ""}{("__mp" + str(args.min_percent_words)) if args.min_percent_words else ""}{f"__mig{max_idf_goal}" if (max_idf_goal) else ""}__eps{eps}__k_{k}__n_{n}{"__type_swap" if use_type_swap else ""}{"__with_train" if use_train_profiles else ""}')
+    out_csv_path = out_file_path + '.csv'
+    logger.df.to_csv(out_csv_path)
     print('wrote csv to', out_csv_path)
 
     out_json_path = out_file_path + '__args.json'
@@ -714,10 +702,6 @@ def get_args() -> argparse.Namespace:
             'if we stop when the max IDF falls below a certain value'
         )
     )
-    parser.add_argument('--model', '--model_key', type=str, default='model_3_1',
-        help='model str name (see model_cfg for more info)',
-        choices=model_paths_dict.keys()
-    )
     parser.add_argument('--use_train_profiles', action='store_true',
         help='whether to include training profiles in potential people',
     )
@@ -751,7 +735,6 @@ if __name__ == '__main__':
         n=args.n,
         num_examples_offset=args.num_examples_offset,
         beam_width=args.beam_width,
-        model_key=args.model,
         use_type_swap=args.use_type_swap,
         use_train_profiles=args.use_train_profiles,
         ignore_stopwords=args.ignore_stopwords,

@@ -51,10 +51,6 @@ class WikipediaDataModule(LightningDataModule):
     profile_row_dropout_perc: float
     sample_spans: bool
     adversarial_masking: bool
-    # Whether to redact the profile during training. This means to remove
-    # name, birthday, and a few other "dead giveaway" fields. 
-    # See utils/misc.py::create_document_and_profile_from_wikibio.
-    redact_profile: bool
 
     train_batch_size: int
     eval_batch_size: int
@@ -93,7 +89,6 @@ class WikipediaDataModule(LightningDataModule):
         idf_masking: bool = False,
         num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
-        redact_profile: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -116,7 +111,6 @@ class WikipediaDataModule(LightningDataModule):
         self.idf_masking = idf_masking
         self.adversarial_masking = adversarial_masking
         self.num_nearest_neighbors = num_nearest_neighbors
-        self.redact_profile = redact_profile
 
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
@@ -142,17 +136,6 @@ class WikipediaDataModule(LightningDataModule):
 
     def _load_train_and_val_data(self):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
-        redact_str = 'redact_profile' if self.redact_profile else ''
-
-        # create fingerprints for caching data
-        train_fingerprint = "_".join((self.dataset_name, self.dataset_train_split, self.dataset_version, version_str, self.document_model_name_or_path, redact_str))
-        train_fingerprint = re.sub(r'[^\w\-_\. ]', '__', train_fingerprint)
-
-        val_fingerprint = "_".join((self.dataset_name, self.dataset_val_split, self.dataset_version, version_str, self.document_model_name_or_path, redact_str))
-        val_fingerprint = re.sub(r'[^\w\-_\. ]', '__', val_fingerprint)
-
-        test_fingerprint = "_".join((self.dataset_name, self.dataset_test_split, self.dataset_version, version_str, self.document_model_name_or_path, redact_str))
-        test_fingerprint = re.sub(r'[^\w\-_\. ]', '__', test_fingerprint)
 
         # wiki_bio train size: 582,659
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
@@ -171,31 +154,12 @@ class WikipediaDataModule(LightningDataModule):
             self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
         )
 
-        # If we are removing fields from profile, filter out examples that will have empty profiles
-        # once those fields are removed.
-        if self.redact_profile:
-            self.train_dataset = self.train_dataset.filter(
-                wikibio_example_has_non_redacted_rows,
-                new_fingerprint=f"{train_fingerprint}_filtered_wiki"
-            )
-            self.val_dataset = self.val_dataset.filter(
-                wikibio_example_has_non_redacted_rows,
-                new_fingerprint=f"{val_fingerprint}_filtered_wiki"
-            )
-            self.test_dataset = self.test_dataset.filter(
-                wikibio_example_has_non_redacted_rows,
-                new_fingerprint=f"{test_fingerprint}_filtered_wiki"
-            )
-        
-        custom_create_document_and_profile_from_wikibio = functools.partial(
-            create_document_and_profile_from_wikibio, redact_profile=self.redact_profile
-        )
         self.train_dataset = self.train_dataset.map(
-            custom_create_document_and_profile_from_wikibio, num_proc=1, new_fingerprint=f"{train_fingerprint}_wiki")
+            create_document_and_profile_from_wikibio, num_proc=1)
         self.val_dataset = self.val_dataset.map(
-            custom_create_document_and_profile_from_wikibio, num_proc=1,  new_fingerprint=f"{val_fingerprint}_wiki")
+            create_document_and_profile_from_wikibio, num_proc=1)
         self.test_dataset = self.test_dataset.map(
-            custom_create_document_and_profile_from_wikibio, num_proc=1,  new_fingerprint=f"{test_fingerprint}_wiki")
+            create_document_and_profile_from_wikibio, num_proc=1)
         
         def redact_example(
                 redact_func: Callable,
@@ -216,21 +180,18 @@ class WikipediaDataModule(LightningDataModule):
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
                 num_proc=1,
-                new_fingerprint=f"{val_fingerprint}_lexical_redacted"
         )
         self.test_dataset = self.test_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
                 num_proc=1,
-                new_fingerprint=f"{test_fingerprint}_lexical_redacted"
         )
 
         # Redact training data too
         self.train_dataset = self.train_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
-                num_proc=1,
-                new_fingerprint=f"{train_fingerprint}_lexical_redacted"
+                num_proc=1
         )
 
         #  Spacy NER redaction
@@ -241,25 +202,24 @@ class WikipediaDataModule(LightningDataModule):
             lambda ex: redact_example(redact_func=spacy_ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
             batched=True,
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_ner_spacy_redacted"
         )
 
         # BERT-NER redaction
-        bert_ner_redact_func = functools.partial(
-            remove_named_entities_bert_batch, mask_token=self.mask_token
-        )
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
-            batched=True,
-            num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_ner_bert_redacted"
-        )
-        self.test_dataset = self.test_dataset.map(
-            lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
-            batched=True,
-            num_proc=1,
-            new_fingerprint=f"{test_fingerprint}_ner_bert_redacted"
-        )
+        DO_BERT_NER_REDACTION = False
+        if DO_BERT_NER_REDACTION:
+            bert_ner_redact_func = functools.partial(
+                remove_named_entities_bert_batch, mask_token=self.mask_token
+            )
+            self.val_dataset = self.val_dataset.map(
+                lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
+                batched=True,
+                num_proc=1,
+            )
+            self.test_dataset = self.test_dataset.map(
+                lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
+                batched=True,
+                num_proc=1,
+            )
 
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
         idf_redact_func = lambda p: functools.partial(
@@ -269,44 +229,24 @@ class WikipediaDataModule(LightningDataModule):
                 redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False
             ),
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_idf20_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_idf40_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False
             ),
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_idf60_redacted"
         )
         self.val_dataset = self.val_dataset.map(
             lambda ex: redact_example(
                 redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False
             ),
             num_proc=1,
-            new_fingerprint=f"{val_fingerprint}_idf80_redacted"
         )
-
-        # Stuff after here depends on tokenization
-        train_tokenized_fingerprint = '_'.join(
-            (train_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
-        )
-        train_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', train_tokenized_fingerprint)
-        
-        val_tokenized_fingerprint = '_'.join(
-            (val_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
-        )
-        val_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', val_tokenized_fingerprint)
-
-        test_tokenized_fingerprint = '_'.join(
-            (test_fingerprint, str(self.max_seq_length), self.profile_model_name_or_path)
-        )
-        test_tokenized_fingerprint = re.sub(r'[^\w\-_\. ]', '_', test_tokenized_fingerprint)
 
         # Pre-tokenize profiles
         def tokenize_profile_ex(ex: Dict) -> Dict:
@@ -320,17 +260,14 @@ class WikipediaDataModule(LightningDataModule):
         self.train_dataset = self.train_dataset.map(
             tokenize_profile_ex,
             num_proc=max(1, self.num_workers),
-            new_fingerprint=f"{train_tokenized_fingerprint}_tokenized"
         )
         self.val_dataset = self.val_dataset.map(
             tokenize_profile_ex,
             num_proc=max(1, self.num_workers),
-            new_fingerprint=f"{val_tokenized_fingerprint}_tokenized"
         )
         self.test_dataset = self.test_dataset.map(
             tokenize_profile_ex,
             num_proc=max(1, self.num_workers),
-            new_fingerprint=f"{test_tokenized_fingerprint}_tokenized"
         )
 
         # Add index column to dataset, so that we can track which profiles match to which
@@ -462,7 +399,7 @@ class WikipediaDataModule(LightningDataModule):
             document_types=[
                 "document",
                 "document_redact_ner",
-                "document_redact_ner_bert",
+                # "document_redact_ner_bert",
                 "document_redact_lexical", 
                 "document_redact_idf_20",  "document_redact_idf_40",
                 "document_redact_idf_60",  "document_redact_idf_80"
@@ -518,7 +455,7 @@ class WikipediaDataModule(LightningDataModule):
             document_types=[
                 "document",
                 "document_redact_lexical",
-                "document_redact_ner_bert"
+                # "document_redact_ner_bert"
             ],
             is_train_dataset=False
         )

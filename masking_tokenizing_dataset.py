@@ -17,8 +17,9 @@ class MaskingTokenizingDataset(Dataset):
     """
     dataset: datasets.Dataset
     document_tokenizer: transformers.AutoTokenizer
-    profile_tokenizer: transformers.AutoTokenizer
+    profile_tokenizer: Optional[transformers.AutoTokenizer]
     document_types: List[str] # ["document", "document_redact_ner", "document_redact_lexical"] 
+    propagate_keys: List[str] # extra keys from dataset to propagate to output.
     is_train_dataset: bool
     adversarial_masking: bool
     num_nearest_neighbors: int
@@ -39,7 +40,8 @@ class MaskingTokenizingDataset(Dataset):
             is_train_dataset: bool, # bool so we can not redact the validation data.
             adversarial_masking: bool = False,
             idf_masking: bool = False,
-            num_nearest_neighbors: int = 0
+            num_nearest_neighbors: int = 0,
+            propagate_keys: Optional[List[str]] = None
         ):
         self.dataset = dataset
         self.document_tokenizer = document_tokenizer
@@ -66,6 +68,12 @@ class MaskingTokenizingDataset(Dataset):
             )
         else:
             self.masking_span_sampler = None
+        
+
+        if propagate_keys is not None:
+            self.propagate_keys = propagate_keys
+        else:
+            self.propagate_keys = []
 
     def process_grad(self,
             input_ids: torch.Tensor,
@@ -251,7 +259,10 @@ class MaskingTokenizingDataset(Dataset):
         #   'profile_values', 'text_key', 'document_redact_lexical', 'document_redact_ner',
         #   'text_key_id']) and possibly 'nearest_neighbor_idxs'
         out_ex = { "text_key_id": ex["text_key_id"] }
-        
+
+        # If specified, propagate some keys from input example to dataset output.
+        for key in self.propagate_keys:
+            out_ex[key] = ex[key]
 
         # 
         # Tokenize documents.
@@ -267,7 +278,7 @@ class MaskingTokenizingDataset(Dataset):
                     text=ex["document"], words_to_mask=self.adv_word_mask_map[idx])
             else:
                 ex["document"] = self.masking_span_sampler.random_redact_str(
-                    text=ex["document_redact_lexical"])
+                    text=ex["document"])
         
         for doc_type in self.document_types:
             doc_tokenized = self._tokenize_document(ex=ex, doc_type=doc_type)

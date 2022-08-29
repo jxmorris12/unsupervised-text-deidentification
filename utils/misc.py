@@ -52,24 +52,13 @@ def words_from_text(s: str) -> List[str]:
     assert isinstance(s, str)
     return words_from_text_re.findall(s)
 
-redacted_headers = [
-    "article_title", "name",  "fullname",
-    "birth_place", "birth_date",
-    "death_place", "death_date",
-    "image", "caption",
-    "bbr", "high_school"
-]
-
 def wikibio_example_has_non_redacted_rows(ex: Dict[str, str]) -> bool:
     """Filters out dataset examples that don't have any non-redacted rows."""
     table_info = ex['input_text']['table']
     table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
     return len(set(table_column_header) - set(redacted_headers)) > 0
 
-def create_document_and_profile_from_wikibio(
-    ex: Dict[str, str],
-    redact_profile: bool = False
-    ) -> Dict[str, str]:
+def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
 
@@ -80,25 +69,14 @@ def create_document_and_profile_from_wikibio(
 
     Args: 
         ex (Dict[str, str]): examples from wiki_bio dataset
-        redact_profile (bool): whether to redact important keys from
-            profile object.
     Returns:
         Dict[str, str] of important fields like name, document, profile.
-            If `redact_profile` was set, return dict will not contain 
-            specified redacted keys.
     """
     # replace weird textual artifacts: -lrb- with ( and -rrb- with )
     fixed_target_text = ex['target_text'].replace('-rrb-', ')').replace('-lrb-', '(')
     # transform table to str
     table_info = ex['input_text']['table']
     table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
-
-    if redact_profile:
-        table_column_header, table_content = zip(*[
-            (header, content)
-            for (header, content) in zip(table_info['column_header'], table_info['content'])
-            if header not in redacted_headers
-        ])
 
     profile_keys = list(map(lambda s: s.strip().replace('|', ''), table_column_header))
     profile_values = list(map(lambda s: s.strip().replace('|', ''), table_content))
@@ -110,7 +88,7 @@ def create_document_and_profile_from_wikibio(
 
     # return example: transformed table + first paragraph
     return {
-        'name': None if redact_profile else name_from_table_rows(table_rows),
+        'name': name_from_table_rows(table_rows),
         'document': fixed_target_text,                          # First paragraph of biography
         'profile': table_text,                                  # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,      # Table with name removed
