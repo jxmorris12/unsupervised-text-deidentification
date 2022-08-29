@@ -267,13 +267,14 @@ class Model(LightningModule, abc.ABC):
 
         warmup_steps = self.warmup_epochs * self.steps_per_epoch
 
-        scheduling = 'linear'
+        # scheduling = 'linear'
         # scheduling = 'exponential'
         scheduling = None
 
         if optim_steps < warmup_steps:
             lr_scale = min(1., float(optim_steps + 1) / warmup_steps)
             new_lr = lr_scale * self.document_learning_rate
+            self.log("learning_rate", new_lr)
         elif (scheduling is not None):
             lr_epochs = 80
             # lr_epochs = 150 # Drop to min_lr after this many epochs
@@ -303,8 +304,6 @@ class Model(LightningModule, abc.ABC):
             
             self.log("learning_rate", new_lr)
         
-        self.log("learning_rate", new_lr)
-
         optimizer.step()
         optimizer.zero_grad()
     
@@ -497,7 +496,7 @@ class Model(LightningModule, abc.ABC):
         # Get dataloader by calling it - train_dataloader() is called after setup() by default
         train_loader = self.trainer.datamodule.train_dataloader()
         # Calculate total steps
-        tb_size = self.hparams.train_batch_size * max(1, self.trainer.num_devices)
+        tb_size = self.hparams.train_batch_size * max(1, torch.cuda.device_count())
         ab_size = self.trainer.accumulate_grad_batches
         self.steps_per_epoch = (len(train_loader.dataset) // tb_size) // ab_size
         self.total_steps = self.steps_per_epoch * float(self.trainer.max_epochs)

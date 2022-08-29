@@ -34,6 +34,10 @@ class ContrastiveCrossAttentionModel(Model):
         self.document_model_name_or_path = document_model_name_or_path
         self.document_model = AutoModel.from_pretrained(document_model_name_or_path)
 
+        # Note there is no profile model declared here - the cross-attention model uses a single
+        # encoder to encode a (document, profile) pair. So we choose the document encoder arbitrarily
+        # and don't use a profile encoder at all.
+
         self.bottleneck_embedding_dim = 768
 
         print("Initializing contrastive cross-encoder as document model (not creating profile model)")
@@ -88,8 +92,7 @@ class ContrastiveCrossAttentionModel(Model):
         """Computes loss for cross-encoder. Cross-encoder outputs a score for every (document, profile) pair.
         We softmax over them and compute the loss. The pairs along the first column are the correct ones, which
         is why the true idxs are zeros.
-        
-        TODO: docstring."""
+        """
         batch_size = len(score_matrix)
         zero_idxs = torch.zeros(batch_size, dtype=torch.long).to(score_matrix.device)
         loss = torch.nn.functional.cross_entropy(
@@ -123,6 +126,12 @@ class ContrastiveCrossAttentionModel(Model):
             document_type: str = 'document',
             metrics_key: str = 'train',
         ) -> Dict[str, torch.Tensor]:
+        """Computes contrastive loss using `num_neighbors` neighbors.
+        
+        note that negative examples are only used for **profiles**, and each 
+        (doc, profile) example is concatenated and inputted to the model, whether
+        profile is a positive or negative example.
+        """
         batch_size, sequence_length = batch[f'{document_type}__input_ids'].shape
 
         # If keys that start with 'profile_neighbor' are present in the batch,

@@ -420,24 +420,32 @@ class WikipediaDataModule(LightningDataModule):
             document_types=["adv_document_1", "adv_document_10", "adv_document_100", "adv_document_1000"],
             is_train_dataset=False
         )
-        return [
-            DataLoader(
-                val_tokenizing_dataset,
-                batch_size=self.eval_batch_size,
-                num_workers=min(self.num_workers, 8),
-                persistent_workers=(self.num_workers > 0),
-                pin_memory=True,
-                shuffle=False
-            ),
-            DataLoader(
-                adv_val_tokenizing_dataset,
-                batch_size=self.eval_batch_size,
-                num_workers=min(self.num_workers, 8),
-                persistent_workers=(self.num_workers > 0),
-                pin_memory=True,
-                shuffle=False
-            )
-        ]
+        return DataLoader(
+            val_tokenizing_dataset,
+            batch_size=self.eval_batch_size,
+            num_workers=min(self.num_workers, 8),
+            persistent_workers=(self.num_workers > 0),
+            pin_memory=True,
+            shuffle=False
+        )
+        # return [
+        #     DataLoader(
+        #         val_tokenizing_dataset,
+        #         batch_size=self.eval_batch_size,
+        #         num_workers=min(self.num_workers, 8),
+        #         persistent_workers=(self.num_workers > 0),
+        #         pin_memory=True,
+        #         shuffle=False
+        #     ),
+        #     DataLoader(
+        #         adv_val_tokenizing_dataset,
+        #         batch_size=self.eval_batch_size,
+        #         num_workers=min(self.num_workers, 8),
+        #         persistent_workers=(self.num_workers > 0),
+        #         pin_memory=True,
+        #         shuffle=False
+        #     )
+        # ]
 
     def test_dataloader(self) -> DataLoader:
         test_tokenizing_dataset = MaskingTokenizingDataset(

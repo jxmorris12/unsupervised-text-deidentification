@@ -96,7 +96,7 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
-    parser.add_argument('--dataset_val_split', type=str, default='val[:20%]')
+    parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
@@ -114,6 +114,11 @@ def get_args() -> argparse.Namespace:
         else:
             args.checkpoint_path = checkpoint_paths[-1]
             print("loading model from", args.checkpoint_path)
+
+
+    if args.loss_function == 'contrastive_cross_attention':
+        # TODO: implement contrastive with just in-batch negatives
+        assert args.num_nearest_neighbors > 0, "nead nearest-neighbors for contrastive learning"
 
     return args
 

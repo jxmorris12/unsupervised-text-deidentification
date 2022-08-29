@@ -228,12 +228,12 @@ class MaskingTokenizingDataset(Dataset):
         else:
             return self._tokenize_profile(ex=self.dataset[idx])
     
-    def _get_nearest_neighbors(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
+    def _get_nearest_neighbors(self, idx: int, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
         """Gets the nearest-neighbors of an example. Used for contrastive learning."""
         assert "nearest_neighbor_idxs" in ex
         out_ex = {}
         eligible_neighbor_idxs = [
-            _i for _i in ex["nearest_neighbor_idxs"]
+            _i for _i in ex["nearest_neighbor_idxs"] if _i != idx
         ]
         assert len(eligible_neighbor_idxs) >= self.num_nearest_neighbors
         neighbor_idxs = eligible_neighbor_idxs[:self.num_nearest_neighbors]
@@ -332,7 +332,7 @@ class MaskingTokenizingDataset(Dataset):
             # This block of code is how neighbors are provided to our contrastive
             # learning algorithm.
             if self.num_nearest_neighbors > 0:
-                out_ex = dict_union(out_ex, self._get_nearest_neighbors(ex))
+                out_ex = dict_union(out_ex, self._get_nearest_neighbors(idx=idx, ex=ex))
 
         return out_ex
 
