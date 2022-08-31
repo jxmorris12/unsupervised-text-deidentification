@@ -52,6 +52,7 @@ def words_from_text(s: str) -> List[str]:
     assert isinstance(s, str)
     return words_from_text_re.findall(s)
 
+
 def wikibio_example_has_non_redacted_rows(ex: Dict[str, str]) -> bool:
     """Filters out dataset examples that don't have any non-redacted rows."""
     table_info = ex['input_text']['table']
@@ -126,6 +127,7 @@ def get_profile_df(keys: List[str], values: List[str]) -> pd.DataFrame:
     assert isinstance(keys, list) and len(keys) and isinstance(keys[0], str)
     assert isinstance(values, list) and len(values) and isinstance(values[0], str)
     return pd.DataFrame(columns=keys, data=[values])
+
 
 def tokenize_profile(
         tokenizer: transformers.PreTrainedTokenizer,

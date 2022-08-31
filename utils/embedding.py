@@ -12,7 +12,7 @@ from model_cfg import model_paths_dict
 num_cpus = len(os.sched_getaffinity(0))
 
 
-def get_profile_embedding_dir_by_model_key(model_key: str) -> str:
+def get_profile_embeddings_dir_by_model_key(model_key: str) -> str:
     current_folder = os.path.dirname(os.path.abspath(__file__))
     base_folder = os.path.join(current_folder, os.pardir)
     return os.path.normpath(
@@ -70,14 +70,14 @@ def precompute_profile_embeddings_for_model_key(model_key: str):
         dataset_test_split='test[:100%]',
         dataset_version='1.2.0',
         num_workers=num_cpus,
-        train_batch_size=256,
-        eval_batch_size=256,
+        train_batch_size=64,
+        eval_batch_size=64,
         max_seq_length=128,
         sample_spans=False,
     )
     dm.setup("fit")
 
-    model_embeddings_path = get_profile_embedding_dir_by_model_key(
+    model_embeddings_path = get_profile_embeddings_dir_by_model_key(
         model_key=model_key
     )
     os.makedirs(model_embeddings_path, exist_ok=True)
@@ -106,7 +106,7 @@ def precompute_profile_embeddings_for_model_key(model_key: str):
 
 
 def get_profile_embeddings_by_model_key(model_key: str):
-    model_embeddings_path = get_profile_embedding_dir_by_model_key(
+    model_embeddings_path = get_profile_embeddings_dir_by_model_key(
         model_key=model_key
     )
     if (not os.path.exists(model_embeddings_path)) or (not os.path.exists(os.path.join(model_embeddings_path, 'test.pkl'))):
