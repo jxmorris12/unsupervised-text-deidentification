@@ -3,6 +3,10 @@ sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentificat
 
 from typing import Tuple
 import os
+import pickle
+
+import numpy as np
+import tqdm
 
 from datamodule import WikipediaDataModule
 from model import CoordinateAscentModel
@@ -38,6 +42,16 @@ def load_dm(model_key: str) -> Tuple[CoordinateAscentModel, WikipediaDataModule]
 
     return dm
 
+def dump_embedding_nearest_neighbors(prefix: str, out_dir: str, embeddings: np.ndarray, k: int = 16) -> None:
+    print(f"computing nn for {prefix} embeddings")
+    neighbors = []
+    for i in tqdm.trange(len(embeddings)):
+        nn_i = (-1 * embeddings[i] @ embeddings.T).argsort()[:k+1]
+        neighbors.append(nn_i.flatten())
+    neighbors = np.array(neighbors)
+    pickle.dump(neighbors, open(os.path.join(out_dir, f'{prefix}_nn.p'), 'wb'))
+    print(f"done computing {prefix} nn!")
+
 
 def main(model_key: str):
     print(f"loading datasets for model_key {model_key}")
@@ -48,30 +62,33 @@ def main(model_key: str):
     
     out_dir = get_profile_embeddings_dir_by_model_key(model_key=model_key)
 
-    print("building index for test dataset . . .")
-    dm.test_dataset = dm.test_dataset.add_column('embeddings', profile_embeddings['test'].numpy().tolist())
-    dm.test_dataset.add_faiss_index(column='embeddings')
-    dm.test_dataset.save_faiss_index(
-        'embeddings', os.path.join(out_dir, 'test_index.faiss')
-    )
+    dump_embedding_nearest_neighbors(prefix="test", out_dir=out_dir, embeddings=profile_embeddings['test'].numpy())
+    dump_embedding_nearest_neighbors(prefix="val", out_dir=out_dir, embeddings=profile_embeddings['val'].numpy())
+    dump_embedding_nearest_neighbors(prefix="train", out_dir=out_dir, embeddings=profile_embeddings['train'].numpy())
 
-    print("building index for val dataset . . .")
-    dm.val_dataset = dm.val_dataset.add_column(
-        'embeddings', profile_embeddings['val'].numpy().tolist()
-    )
-    dm.val_dataset.add_faiss_index(column='embeddings')
-    dm.val_dataset.save_faiss_index(
-        'embeddings', os.path.join(out_dir, 'val_index.faiss')
-    )
+    # dm.test_dataset = dm.test_dataset.add_column('embeddings', profile_embeddings['test'].tolist())
+    # dm.test_dataset.add_faiss_index(column='embeddings')
+    # dm.test_dataset.save_faiss_index(
+    #     'embeddings', os.path.join(out_dir, 'test_index.faiss')
+    # )
 
-    print("building index for train dataset . . .")
-    dm.train_dataset = dm.train_dataset.add_column(
-        'embeddings', profile_embeddings['train'].numpy().tolist()
-    )
-    dm.train_dataset.add_faiss_index(column='embeddings')
-    dm.train_dataset.save_faiss_index(
-        'embeddings', os.path.join(out_dir, 'train_index.faiss')
-    )
+    # print("building index for val dataset . . .")
+    # dm.val_dataset = dm.val_dataset.add_column(
+    #     'embeddings', profile_embeddings['val'].numpy().tolist()
+    # )
+    # dm.val_dataset.add_faiss_index(column='embeddings')
+    # dm.val_dataset.save_faiss_index(
+    #     'embeddings', os.path.join(out_dir, 'val_index.faiss')
+    # )
+
+    # print("building index for train dataset . . .")
+    # dm.train_dataset = dm.train_dataset.add_column(
+    #     'embeddings', profile_embeddings['train'].numpy().tolist()
+    # )
+    # dm.train_dataset.add_faiss_index(column='embeddings')
+    # dm.train_dataset.save_faiss_index(
+    #     'embeddings', os.path.join(out_dir, 'train_index.faiss')
+    # )
 
 if __name__ == '__main__':
     MODEL_KEY = 'model_3_3'
