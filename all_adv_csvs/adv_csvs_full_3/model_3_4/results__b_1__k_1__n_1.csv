@@ -1,0 +1,2 @@
+,original_person,original_text,perturbed_person,perturbed_text,original_score,perturbed_score,original_output,perturbed_output,ground_truth_output,num_queries,result_type
+0,André salvador,andre fernando cabrita salvador ( born 4 november 1993 in portimao ) is a portuguese footballer who plays for portimonense s. c. as a midfielder.,João patrão,[MASK] [MASK] cabrita [MASK] ( born 4 [MASK] [MASK] [MASK] [MASK] ) is [MASK] [MASK] footballer who plays for [MASK] s. [MASK]. as a [MASK].,-15.574262619018555,-11.231983184814453,17,57536,17,211,Successful

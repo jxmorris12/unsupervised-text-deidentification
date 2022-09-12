@@ -1,0 +1,40 @@
+**** Evaluated on 0 test examples of type document ****
+
+
+
+model_name              k  
+lexical                 0      0.164000
+model_3_1               1      0.872105
+model_3_2               1      0.717457
+                        10     0.540102
+model_3_2__idf          1      0.726721
+model_3_3__idf          1      0.623984
+model_3_3__placeholder  1      0.000000
+                        10     0.000000
+                        100    0.000000
+model_3_4               1      0.770010
+                        10     0.579534
+                        100    0.387734
+model_3_4__idf          1      0.793033
+                        10     0.598985
+named_entity            0      0.674000
+Name: is_correct, dtype: float64
+
+
+                                 i  model_pred_idxs  is_correct
+model_name             k                                       
+lexical                0    499500        303844553         164
+model_3_1              1    496047         46361232         866
+model_3_2              1    496016         99176284         711
+                       10   494297        164748884         532
+model_3_2__idf         1    494355         98605563         718
+model_3_3__idf         1    492866        136788373         614
+model_3_3__placeholder 1    496431        357396583           0
+                       10   498561        361721198           0
+                       100  497945        366188946           0
+model_3_4              1    493901         83028689         760
+                       10   494315        151280844         572
+                       100  480926        221350716         373
+model_3_4__idf         1    489428         75620108         774
+                       10   493640        149096274         590
+named_entity           0    499500        118356908         674

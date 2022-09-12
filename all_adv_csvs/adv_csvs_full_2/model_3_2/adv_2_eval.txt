@@ -1,0 +1,18 @@
+**** Evaluated on 0 test examples of type document ****
+
+
+
+model_name              k
+lexical                 0    0.224000
+model_3_2               1    0.000000
+model_3_3__placeholder  1    0.394183
+named_entity            0    0.557000
+Name: is_correct, dtype: float64
+
+
+                               i  model_pred_idxs  is_correct
+model_name             k                                     
+lexical                0  499500        276392300         224
+model_3_2              1  496274        307217055           0
+model_3_3__placeholder 1  498561        215976298         393
+named_entity           0  499500        163212143         557

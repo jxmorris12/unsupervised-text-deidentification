@@ -1,0 +1,2 @@
+,original_person,original_text,perturbed_person,perturbed_text,original_score,perturbed_score,original_output,perturbed_output,ground_truth_output,num_queries,result_type
+0,496,tore sandell was a swedish footballer.,4124,<mask> <mask> was a swedish footballer.,-71.79906,-0.0,496,4124,496,9,Successful
