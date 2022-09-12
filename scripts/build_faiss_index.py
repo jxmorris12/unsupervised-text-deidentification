@@ -45,10 +45,18 @@ def load_dm(model_key: str) -> Tuple[CoordinateAscentModel, WikipediaDataModule]
 def dump_embedding_nearest_neighbors(prefix: str, out_dir: str, embeddings: np.ndarray, k: int = 16) -> None:
     print(f"computing nn for {prefix} embeddings")
     neighbors = []
-    for i in tqdm.trange(len(embeddings)):
-        nn_i = (-1 * embeddings[i] @ embeddings.T).argsort()[:k+1]
-        neighbors.append(nn_i.flatten())
-    neighbors = np.array(neighbors)
+    embeddings = embeddings.cuda()
+    i = 0
+    batch_size = 256
+    pbar = tqdm.tqdm(total=len(embeddings), desc="finding nearest neighbors", colour="red")
+    while i < len(embeddings):
+        emb_batch = embeddings[i:i+batch_size].cuda()
+        emb_scores = emb_batch @ embeddings.T
+        nn_i = (-emb_scores).argsort(dim=1)[:, :k+1].cpu().numpy().tolist()
+        neighbors.extend(nn_i)
+        #
+        i += batch_size
+        pbar.update(batch_size)
     pickle.dump(neighbors, open(os.path.join(out_dir, f'{prefix}_nn.p'), 'wb'))
     print(f"done computing {prefix} nn!")
 
@@ -62,9 +70,9 @@ def main(model_key: str):
     
     out_dir = get_profile_embeddings_dir_by_model_key(model_key=model_key)
 
-    dump_embedding_nearest_neighbors(prefix="test", out_dir=out_dir, embeddings=profile_embeddings['test'].numpy())
-    dump_embedding_nearest_neighbors(prefix="val", out_dir=out_dir, embeddings=profile_embeddings['val'].numpy())
-    dump_embedding_nearest_neighbors(prefix="train", out_dir=out_dir, embeddings=profile_embeddings['train'].numpy())
+    dump_embedding_nearest_neighbors(prefix="test", out_dir=out_dir, embeddings=profile_embeddings['test'])
+    dump_embedding_nearest_neighbors(prefix="val", out_dir=out_dir, embeddings=profile_embeddings['val'])
+    dump_embedding_nearest_neighbors(prefix="train", out_dir=out_dir, embeddings=profile_embeddings['train'])
 
     # dm.test_dataset = dm.test_dataset.add_column('embeddings', profile_embeddings['test'].tolist())
     # dm.test_dataset.add_faiss_index(column='embeddings')

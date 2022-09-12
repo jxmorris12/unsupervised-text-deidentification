@@ -293,29 +293,33 @@ class WikipediaDataModule(LightningDataModule):
         if self.num_nearest_neighbors > 0:
             base_folder = os.path.dirname(os.path.abspath(__file__))
             # Load train nearest-neighbors
-            train_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_train_split}__256.p')
+            # embeddings/profile/model_3_3/train_nn.p
+            train_nn_file_path = os.path.join(base_folder, 'embeddings', 'profile', 'model_3_3', 'train_nn.p')
+            # train_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_train_split}__256.p')
             assert os.path.exists(train_nn_file_path)
             print("Loading train nearest-neighbors from:", train_nn_file_path)
             train_nearest_neighbors = pickle.load(open(train_nn_file_path, 'rb'))
             assert len(train_nearest_neighbors) >= len(self.train_dataset)
             train_nearest_neighbors = train_nearest_neighbors[:len(self.train_dataset)]
             self.train_dataset = self.train_dataset.add_column(
-                "nearest_neighbor_idxs", train_nearest_neighbors.tolist()
+                "nearest_neighbor_idxs", train_nearest_neighbors
             )
             # Load val nearest-neighbors
-            val_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
+            # embeddings/profile/model_3_3/val_nn.p
+            val_nn_file_path = os.path.join(base_folder, 'embeddings', 'profile', 'model_3_3', 'val_nn.p')
+            # val_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
             assert os.path.exists(val_nn_file_path)
             print("Loading val nearest-neighbors from:", val_nn_file_path)
             val_nearest_neighbors = pickle.load(open(val_nn_file_path, 'rb'))
             assert len(val_nearest_neighbors) >= len(self.val_dataset)
             val_nearest_neighbors = val_nearest_neighbors[:len(self.val_dataset)]
             self.val_dataset = self.val_dataset.add_column(
-                "nearest_neighbor_idxs", val_nearest_neighbors.tolist()
+                "nearest_neighbor_idxs", val_nearest_neighbors
             )
             # Load neighbors into adv_val_dataset too
             adv_val_nearest_neighbors = val_nearest_neighbors[:len(self.adv_val_dataset)]
             self.adv_val_dataset = self.adv_val_dataset.add_column(
-                "nearest_neighbor_idxs", adv_val_nearest_neighbors.tolist()
+                "nearest_neighbor_idxs", adv_val_nearest_neighbors
             )
         
         # Now disable parallelism
