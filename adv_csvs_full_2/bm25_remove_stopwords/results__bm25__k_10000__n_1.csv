@@ -1,2 +1,0 @@
-,original_person,original_text,perturbed_person,perturbed_text,original_score,perturbed_score,original_output,perturbed_output,ground_truth_output,num_queries,result_type
-0,17974,dillon sheppard ( born 27 february 1979 ) is a south african football ( soccer ) left-winger who plays for premier soccer league club bidvest wits and south africa.,52153,<mask> <mask> ( born 27 february 1979 ) is a <mask> african football ( soccer ) <mask> who plays for premier soccer league club <mask> <mask> and <mask> <mask>.,-57.583664,-4.25383,17974,52153,6,34,Successful
