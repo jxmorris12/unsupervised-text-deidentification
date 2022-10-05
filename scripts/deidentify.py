@@ -735,8 +735,7 @@ def main(
     with open(out_json_path, 'w') as json_file:
         json.dump(vars(saved_args), json_file)
     print('wrote json to', out_json_path)
-        
-    
+
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

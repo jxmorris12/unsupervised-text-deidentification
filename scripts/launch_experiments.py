@@ -1,7 +1,7 @@
 from deidentify import main as deidentify_main
 
 class ExperimentArgs:
-    n = 4
+    n = 200
     num_examples_offset = 0
     model = "model_3_4"
     beam_width = 1
@@ -51,13 +51,13 @@ def launch_experiment(**kwargs):
 
 
 def main():
+    # NN DeID
+    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder')
+
     # IDF (Table Scoring)
     launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')
 
     # IDF (No Table Scoring)
     launch_experiment(max_idf_goal=1e-10, table_score=0.0, no_model=True, out_file_path='idf_no_table')
-
-    # NN DeID
-    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder')
 
 if __name__ == '__main__': main()

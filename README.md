@@ -1,12 +1,29 @@
-# unsupervised-deidentification
+<h1 align="center"> Unsupervised Text Deidentification </h1>
+<p align="center"> Removing arbitrary personal information from text
+</p>
 
-This repository contains the code for our 2022 paper, "Unsupervised Text Deidentification". It contains all the code for training reidentification models and deidentifying data. The main tools & frameworks used are PyTorch, PyTorch Lightning (for model-training), and TextAttack (for deidentification via greedy inference).
+<p align="center">
+  <img src="https://img.shields.io/badge/license-mit-blue.svg">
+  <img src="https://img.shields.io/badge/python-3.6--3.8-blue">
+</p>  
 
-`main.py` is the root
+
+<b>Official code for 2022 paper, "Unsupervised Text Deidentification".</b> Our method, NN DeID, is the first method proposed to remove arbitrary personal information from text, without any prior notion of what constitutes personal information. The paper presents initial results on the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/).
+
+This repository all the code for training reidentification models and deidentifying data. The main tools & frameworks used are [PyTorch](https://pytorch.org/), [PyTorch Lightning](https://github.com/Lightning-AI/lightning) (for model-training), and [TextAttack](https://github.com/QData/TextAttack) (for deidentification via greedy inference).
+
+
+## folder structure
+
+**Model-training:**
+`main.py` is the root file for model-training. All experiments can be launched by invoking this file with certain arguments, i.e. by running `python main.py --args`.
+
+**Deidentification**:
+All the text deidentification happens through `scripts/deidentify.py`. To launch all the deidentification experiments at once, run `python scripts/launch_experiments.py`.
 
 ## models
 
-Modeling stuff is in `models/*.py`. Contains code for training models using contrastive loss (biencoder), contrastive loss for a cross-encoder, and "coordinate ascent" via freezing embeddings for a bienocder.
+Modeling code is in `models/*.py`. Contains code for training models using contrastive loss (biencoder), contrastive loss for a cross-encoder, and "coordinate ascent" via freezing embeddings for a bienocder.
 
 Here's a sample command for training the models:
 
@@ -23,3 +40,14 @@ Other notable files include `masking_tokenizing_dataset.py`, which implements a 
 ## scripts
 
 There are a bunch of useful scripts in `scripts/`, including code for generating nearest-neighbors, uploading models to the HuggingFace hub, doing probing on embeddings to measure retainment of profile information such as birth dates and months, and deidentifying data using TextAttack.
+
+
+### Citation
+
+If this package is useful for you, please cite the following!
+
+```r
+@article{morris2022deid,
+  year = {2022},
+}
+```
