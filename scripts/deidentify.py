@@ -8,7 +8,7 @@ from deidentification.constraints import CertainWordsModification
 from deidentification.dataset_wrappers import WikiDatasetWrapper
 from deidentification.goal_functions import ChangeClassificationToBelowTopKClasses
 from deidentification.loggers import CustomCSVLogger
-from deidentification.model_wrappers import MainModelWrapper
+from deidentification.model_wrappers import CrossEncoderModelWrapper, MainModelWrapper
 from deidentification.transformations import WordSwapSingleWordToken, WordSwapSingleWordType
 from model import ContrastiveCrossAttentionModel, CoordinateAscentModel
 from model_cfg import model_paths_dict
@@ -160,6 +160,7 @@ def main(
     )
     dataset = WikiDatasetWrapper(
         dm=dm,
+        model_wrapper=model_wrapper,
         goal_function=goal_function,
         adv_dataset=adv_dataset,
         max_samples=max(n, 1000)

@@ -153,8 +153,6 @@ class ContrastiveCrossAttentionModel(Model):
         }
         assert all_prof_inputs['input_ids'].shape == (batch_size, 1 + num_neighbors, sequence_length)
 
-        # TODO: Change last token in profile to be SEP instead of END?? or is it already SEP?
-
         doc_inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
         if 'word_ids' in doc_inputs: del doc_inputs['word_ids']
         assert doc_inputs['input_ids'].shape == (batch_size, sequence_length)
@@ -200,10 +198,6 @@ class ContrastiveCrossAttentionModel(Model):
         assert self.document_embed.training
     
     def on_validation_start(self):
-        # 
-        # self.document_model.cuda()
-        # self.document_embed.cuda()
-        # 
         pass
     
     def _process_validation_batch(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:

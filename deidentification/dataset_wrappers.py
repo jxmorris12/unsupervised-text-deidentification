@@ -14,18 +14,21 @@ class WikiDatasetWrapper(textattack.datasets.Dataset):
     dataset: List[Dict[str, str]]
     label_names: List[str]
     dm: WikipediaDataModule
+    model_wrapper: textattack.models.wrappers.ModelWrapper
     adv_dataset: Optional[pd.DataFrame]
     goal_function: ChangeClassificationToBelowTopKClasses
     
     def __init__(
             self,
             dm: WikipediaDataModule,
+            model_wrapper: textattack.models.wrappers.ModelWrapper,
             goal_function: ChangeClassificationToBelowTopKClasses,
             max_samples: int = 1000,
             adv_dataset: Optional[pd.DataFrame] = None
         ):
         self.shuffled = True
         self.dm = dm
+        self.model_wrapper = model_wrapper
         self.goal_function = goal_function
         # filter out super long examples
         dataset = []
@@ -81,6 +84,8 @@ class WikiDatasetWrapper(textattack.datasets.Dataset):
                 text=self.adv_dataset.iloc[i]['perturbed_text']
             )
         
+        self.model_wrapper.most_recent_datapoint = self.dataset[i]
+        self.model_wrapper.most_recent_datapoint_idx = i
         self.goal_function.most_recent_profile_words = set(
             textattack.shared.utils.words_from_text(
                 self.dataset[i]['profile']
