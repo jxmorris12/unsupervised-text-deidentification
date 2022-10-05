@@ -102,5 +102,7 @@ model_paths_dict["model_3_5__epoch47"] = '/home/jxm3/research/deidentification/u
 #
 # cross-encoders
 #
+# trained on 10% of data for 16 epochs
 model_paths_dict["model_cross_encoder_10%"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/cca__roberta__n_7__dropout_-1.0_1.0_0.0__e3072__ls0.01/deid-wikibio-5-cross-encoder_default/vyrd6owo_804/checkpoints/last.ckpt'
-
+# trained on 100% of data for 8 epochs (harder neighbors)
+model_paths_dict["model_cross_encoder"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/cca__roberta__n_7__dropout_-1.0_1.0_0.0__e3072__ls0.01/deid-wikibio-5-cross-encoder_lightning_logs/185h9j9n_72/checkpoints'

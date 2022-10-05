@@ -19,6 +19,24 @@ def get_profile_embeddings_dir_by_model_key(model_key: str) -> str:
         os.path.join(base_folder, 'embeddings', 'profile', model_key)
     )
 
+
+def get_profile_embeddings(model_key: str, use_train_profiles: bool) -> torch.Tensor:
+    profile_embeddings = get_profile_embeddings_by_model_key(model_key=model_key)
+
+    print("concatenating train, val, and test profile embeddings")
+    if use_train_profiles:
+        all_profile_embeddings = torch.cat(
+            (profile_embeddings['test'], profile_embeddings['val'], profile_embeddings['train']), dim=0
+        )
+    else:
+        all_profile_embeddings = torch.cat(
+            (profile_embeddings['test'], profile_embeddings['val']), dim=0
+        )
+
+    print("all_profile_embeddings:", all_profile_embeddings.shape)
+    return all_profile_embeddings
+
+
 def precompute_profile_embeddings(
         model: Any, dm: Any
         # For some reason have to annotate WikipediaDataModule as `Any` type

@@ -21,7 +21,7 @@ This repository all the code for training reidentification models and deidentify
 `main.py` is the root file for model-training. All experiments can be launched by invoking this file with certain arguments, i.e. by running `python main.py --args`.
 
 **Deidentification**:
-All the text deidentification happens through `scripts/deidentify.py`. To launch all the deidentification experiments at once, run `python scripts/launch_experiments.py`.
+All the text deidentification happens through `scripts/deidentify.py`. To launch all the deidentification experiments at once, run `python scripts/launch_experiments.py`. Various pieces of the deidentification logic, are situated in `deidentification/*.py`.
 
 ## models
 
