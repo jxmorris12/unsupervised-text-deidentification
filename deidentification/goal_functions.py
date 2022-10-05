@@ -7,13 +7,9 @@ import pickle
 import textattack
 import torch
 
-from fuzzywuzzy import fuzz
+from utils import fuzz_ratio
+
 from textattack.shared import AttackedText
-
-
-@functools.cache
-def fuzz_ratio(s1: str, s2: str) -> bool:
-    return fuzz.ratio(s1, s2)
 
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
@@ -134,6 +130,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         """
         newly_modified_indices = attacked_text.attack_attrs.get("newly_modified_indices", {})
         if len(newly_modified_indices) == 0:
+            # Original class score
             return 0.0 - model_outputs[self.ground_truth_output]
 
         assert len(self.most_recent_profile_words)

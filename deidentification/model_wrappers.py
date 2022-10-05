@@ -54,7 +54,6 @@ class MainModelWrapper(textattack.models.wrappers.ModelWrapper):
 class CrossEncoderModelWrapper(textattack.models.wrappers.ModelWrapper):
     model: ContrastiveCrossAttentionModel
     document_tokenizer: transformers.AutoTokenizer
-    profile_embeddings: torch.Tensor
     max_seq_length: int
     fake_response: bool
     
@@ -67,7 +66,6 @@ class CrossEncoderModelWrapper(textattack.models.wrappers.ModelWrapper):
         self.model = model
         self.model.eval()
         self.document_tokenizer = document_tokenizer
-        self.profile_embeddings = profile_embeddings.clone().detach()
         self.max_seq_length = max_seq_length
         self.fake_response = fake_response
                  

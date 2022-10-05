@@ -81,14 +81,24 @@ def main(
     checkpoint_path = model_paths_dict[model_key]
     assert isinstance(checkpoint_path, str), f"invalid checkpoint_path {checkpoint_path} for {model_key}"
     print(f"running attack on {model_key} loaded from {checkpoint_path}")
-    model = CoordinateAscentModel.load_from_checkpoint(
-        checkpoint_path
-    )
+
+    is_cross_encoder = ('cross_encoder' in model_key)
+
+    if is_cross_encoder:
+        model = ContrastiveCrossAttentionModel.load_from_checkpoint(
+            checkpoint_path
+        )
+        profile_model_name_or_path = model.document_model_name_or_path
+    else:
+        model = CoordinateAscentModel.load_from_checkpoint(
+            checkpoint_path
+        )
+        profile_model_name_or_path = model.profile_model_name_or_path
     
     print(f"loading data with {num_cpus} CPUs")
     dm = WikipediaDataModule(
         document_model_name_or_path=model.document_model_name_or_path,
-        profile_model_name_or_path=model.profile_model_name_or_path,
+        profile_model_name_or_path=profile_model_name_or_path,
         dataset_name='wiki_bio',
         dataset_train_split='train[:100%]',
         dataset_val_split='val[:100%]',
@@ -102,14 +112,22 @@ def main(
     )
     dm.setup("fit")
 
-    all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
-    model_wrapper = MainModelWrapper(
-        model=model,
-        document_tokenizer=dm.document_tokenizer,
-        max_seq_length=dm.max_seq_length,
-        profile_embeddings=all_profile_embeddings,
-        fake_response=no_model
-    )
+    if is_cross_encoder:
+        model_wrapper = CrossEncoderModelWrapper(
+            model=model,
+            document_tokenizer=dm.document_tokenizer,
+            max_seq_length=dm.max_seq_length,
+            fake_response=no_model
+        )
+    else:
+        all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=use_train_profiles)
+        model_wrapper = MainModelWrapper(
+            model=model,
+            document_tokenizer=dm.document_tokenizer,
+            max_seq_length=dm.max_seq_length,
+            profile_embeddings=all_profile_embeddings,
+            fake_response=no_model
+        )
     model_wrapper.to('cuda')
 
     constraints = [

@@ -1,0 +1,8 @@
+datasets
+fuzzywuzzy
+numpy
+pandas
+pytorch-lightning
+tokenizers
+torch
+transformers

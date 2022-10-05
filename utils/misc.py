@@ -1,14 +1,21 @@
 from typing import Dict, List, Tuple
 
 import collections
+import functools
 import itertools
 import re
 
+import fuzzywuzzy.fuzz
 import pandas as pd
 import torch
 import transformers
 
 from model import ContrastiveModel, ContrastiveCrossAttentionModel, CoordinateAscentModel
+
+
+@functools.cache
+def fuzz_ratio(s1: str, s2: str) -> bool:
+    return fuzzywuzzy.fuzz.ratio(s1, s2)
 
 
 def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:

@@ -3,6 +3,8 @@ from typing import Iterable, List
 import textattack
 from textattack.shared import AttackedText
 
+from utils import fuzz_ratio
+
 
 class WordSwapSingleWordType(textattack.transformations.Transformation):
     """Replaces every instance of each unique word in the text with prechosen word `single_word`.
