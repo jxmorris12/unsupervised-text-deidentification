@@ -1,6 +1,4 @@
 <h1 align="center"> Unsupervised Text Deidentification </h1>
-<p align="center"> Removing arbitrary personal information from text
-</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-mit-blue.svg">
@@ -10,9 +8,9 @@
 <img src="https://github.com/jxmorris12/unsupervised-deid/blob/master/overview.svg">
 
 
-<b>Official code for 2022 paper, "Unsupervised Text Deidentification".</b> Our method, NN DeID, is the first method proposed to remove arbitrary personal information from text, without any prior notion of what constitutes personal information. The paper presents initial results on the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/).
+<b>Official code for 2022 paper, "Unsupervised Text Deidentification".</b> Our method, NN DeID can anonymize text without any prior notion of what constitutes personal information (i.e. without guidelines or labeled data). 
 
-This repository all the code for training reidentification models and deidentifying data. The main tools & frameworks used are [PyTorch](https://pytorch.org/), [PyTorch Lightning](https://github.com/Lightning-AI/lightning) (for model-training), and [TextAttack](https://github.com/QData/TextAttack) (for deidentification via greedy inference).
+This repository all the code for training reidentification models and deidentifying data. The main tools & frameworks used are [PyTorch](https://pytorch.org/), [PyTorch Lightning](https://github.com/Lightning-AI/lightning) (for model-training), and [TextAttack](https://github.com/QData/TextAttack) (for deidentification via greedy inference). The main dataset used is the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/), [loaded through HuggingFace datasets](https://huggingface.co/datasets/wiki_bio). The models that comprise the biencoder are [TAPAS](https://github.com/google-research/tapas) and [RoBERTa](https://ai.facebook.com/blog/roberta-an-optimized-method-for-pretraining-self-supervised-nlp-systems/).
 
 
 ## folder structure
