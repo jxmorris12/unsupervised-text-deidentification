@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/python-3.6--3.8-blue">
 </p>  
 
-<img src="https://github.com/jxmorris12/unsupervised-deid/blob/master/overview.png">
+<img src="https://github.com/jxmorris12/unsupervised-deid/blob/master/overview.svg">
 
 
 <b>Official code for 2022 paper, "Unsupervised Text Deidentification".</b> Our method, NN DeID, is the first method proposed to remove arbitrary personal information from text, without any prior notion of what constitutes personal information. The paper presents initial results on the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/).
