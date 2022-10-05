@@ -4,12 +4,11 @@ sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentificat
 from typing import Dict, List, Optional, Set, Tuple
 
 from datamodule import WikipediaDataModule
-from model import AbstractModel, CoordinateAscentModel
+from model import ContrastiveCrossAttentionModel, CoordinateAscentModel
 from model_cfg import model_paths_dict
 from utils import get_profile_embeddings_by_model_key
 
 import argparse
-import csv
 import functools
 import json
 import math
@@ -48,8 +47,6 @@ def fuzz_ratio(s1: str, s2: str) -> bool:
 
 
 class CertainWordsModification(PreTransformationConstraint):
-    """Constraint to modify certain words. This prevents us from modifying any words that are 'MASK' 
-    in the event we're re-masking some already-masked text."""
     certain_words: Set[str]
     def __init__(self, certain_words: Set[str]):
         self.certain_words = certain_words
@@ -125,11 +122,6 @@ class RobertaRobertaReidMetric(textattack.metrics.Metric):
 
 
 class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.ClassificationGoalFunction):
-    """A goal function that plugs into TextAttack to provide the top-K objective needed for deidentification.
-
-    Also implements the IDF-based + table-scoring baseline (which don't use a DL model) as well as some other features,
-    like fuzzy text matching, that we decided not to include in the paper.
-    """
     k: Optional[int]
     min_percent_words: Optional[float]
     most_recent_profile_words: List[str]
@@ -142,8 +134,9 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         fuzzy_ratio: float = 0.95, **kwargs):
         self.k = k
         self.eps = eps
-        # need one
-        assert ((self.k is None) ^ (self.eps is None)) or (min_percent_words is not None)
+        # need one, can't have both
+        assert (self.k is None) or (self.eps is None)
+        assert (self.k is not None) or (self.eps is not None)
 
         self.fuzzy_ratio = fuzzy_ratio
         self.min_percent_words = min_percent_words
@@ -175,18 +168,46 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             # top-k criterion
             num_better_classes = (model_output > original_class_score).sum()
             return num_better_classes >= self.k
-        elif self.eps is not None:
+        else:
+            assert self.eps is not None
             # eps criterion
             return model_output.log_softmax(dim=0)[self.ground_truth_output] <= math.log(self.eps)
-        else:
-            # just min-percent-words
-            return True
 
     def _percent_words_criterion_is_met(self, model_output, attacked_text) -> bool:
         if self.min_percent_words is None: 
             return True
-        num_words_swapped = len(attacked_text.attack_attrs['modified_indices'])
-        num_words_total = len(attacked_text.words)
+        # min-% words swapped criterion
+
+        ########################## For counting min % words changed total. #######################
+        # num_words_swapped = len(attacked_text.attack_attrs['modified_indices'])
+        # num_words_total = len(attacked_text.words)
+        ###########################################################################################
+
+        ################# For counting min % overlap with profile words instead. #################
+        prof_words = set(self.most_recent_profile_words)
+        original_attacked_text = attacked_text
+        while original_attacked_text.attack_attrs.get("previous_attacked_text") is not None:
+            original_attacked_text = original_attacked_text.attack_attrs["previous_attacked_text"]
+
+        # original number of words overlapping from profile.
+        all_overlapping_words = [
+            word for word in original_attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
+        ]
+        num_words_total = len(all_overlapping_words)
+
+        # there is a weird edge case where there are *no* overlapping words in the profile.
+        if num_words_total == 0:
+            return True
+
+        # current number of words overlapping from profile. (decreases as words from the profile have been masked.)
+        remaining_overlapping_words = [
+            word for word in attacked_text.words if ((word in prof_words) and (word not in eng_stopwords))
+        ]
+        num_words_from_profile_still_in_text = len(remaining_overlapping_words)
+        num_words_swapped = num_words_total - num_words_from_profile_still_in_text
+        ###########################################################################################
+
+
         return (
             ((num_words_swapped + 0.5) / num_words_total) >= self.min_percent_words
         )
@@ -207,7 +228,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
 
         return max_idf <= self.max_idf_goal
 
-    def _is_goal_complete(self, model_output, attacked_text) -> bool:
+    def _is_goal_complete(self, model_output, attacked_text):
         return (
             self._percent_words_criterion_is_met(model_output, attacked_text) 
             and 
@@ -234,11 +255,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             max([(fuzz_ratio(word, profile_word) / 100.0) for profile_word in self.most_recent_profile_words]) >= self.fuzzy_ratio
         )
 
-    def _get_score(self, model_outputs, attacked_text) -> float:
-        """Returns a score for a new AttackedText (probably a swapped word). Out of many potential scored
-        texts, the one with the best score will be taken. This will probably be the word-masking that
-        changes the model score the most.
-        """
+    def _get_score(self, model_outputs, attacked_text):
         newly_modified_indices = attacked_text.attack_attrs.get("newly_modified_indices", {})
         if len(newly_modified_indices) == 0:
             return 0.0 - model_outputs[self.ground_truth_output]
@@ -363,39 +380,11 @@ class WordSwapSingleWordType(textattack.transformations.Transformation):
 
 class CustomCSVLogger(CSVLogger):
     """Logs attack results to a CSV."""
-    def __init__(self, filename="results.csv", color_method="file"):
-        textattack.shared.logger.info(f"Logging to CSV at path {filename}")
-        assert ".csv" in filename
-        self.filename = filename
-        self.pickle_filename = filename.replace(".csv", "_examples.p")
-        self.color_method = color_method
-        self.row_list = []
-        self.example_strings_list = [] # for each example, *all the strings* 
-        self._flushed = True
-    
-    def _get_example_strings(self, pt: AttackedText) -> List[str]:
-        """The list of all texts that an AttackedText has been. Used to get the text
-        at all levels of masking, from no masks to all masks.
-        """
-        strings = [pt.text]
-        while 'prev_attacked_text' in pt.attack_attrs:
-            strings.append(pt.attack_attrs['prev_attacked_text'].text)
-            pt = pt.attack_attrs['prev_attacked_text']
-        return strings[::-1]
-
 
     def log_attack_result(self, result: textattack.goal_function_results.ClassificationGoalFunctionResult):
         original_text, perturbed_text = result.diff_color(self.color_method)
         original_text = original_text.replace("\n", AttackedText.SPLIT_TOKEN)
         perturbed_text = perturbed_text.replace("\n", AttackedText.SPLIT_TOKEN)
-        # how to go back to prev attacked text?
-        # (
-        #    result.perturbed_result.attacked_text
-        #       .attack_attrs['prev_attacked_text']
-        #       .attack_attrs['prev_attacked_text']
-        #       .attack_attrs['prev_attacked_text']
-        #       .attack_attrs['prev_attacked_text']
-        # )
         result_type = result.__class__.__name__.replace("AttackResult", "")
         row = {
             "original_person": result.original_result._processed_output[0],
@@ -411,20 +400,7 @@ class CustomCSVLogger(CSVLogger):
             "result_type": result_type,
         }
         self.row_list.append(row)
-        self.example_strings_list.append(self._get_example_strings(result.perturbed_result.attacked_text))
         self._flushed = False
-
-    def flush(self):
-        self.df = pd.DataFrame.from_records(self.row_list)
-        self.df.to_csv(self.filename, quoting=csv.QUOTE_NONNUMERIC, index=False)
-        pickle.dump(self.example_strings_list, open(self.pickle_filename, 'wb'))
-        textattack.shared.logger.info(f"Wrote examples to file at {self.pickle_filename}")
-        self._flushed = True
-
-    def close(self):
-        # self.fout.close()
-        super().close()
-
 
 class WikiDataset(textattack.datasets.Dataset):
     dataset: List[Dict[str, str]]
@@ -502,14 +478,14 @@ class WikiDataset(textattack.datasets.Dataset):
         return input_dict, self.dataset[i]['text_key_id']
 
 class MyModelWrapper(textattack.models.wrappers.ModelWrapper):
-    model: AbstractModel
+    model: ContrastiveCrossAttentionModel
     document_tokenizer: transformers.AutoTokenizer
     profile_embeddings: torch.Tensor
     max_seq_length: int
     fake_response: bool
     
     def __init__(self,
-            model: AbstractModel,
+            model: ContrastiveCrossAttentionModel,
             document_tokenizer: transformers.AutoTokenizer,
             profile_embeddings: torch.Tensor,
             max_seq_length: int = 128,
@@ -580,7 +556,6 @@ def main(
         ignore_stopwords: bool = False,
         fuzzy_ratio: float = 0.95,
         max_idf_goal: Optional[float] = None,
-        do_reid: bool = False,
         no_model: bool = False,
     ):
     checkpoint_path = model_paths_dict[model_key]
@@ -667,6 +642,7 @@ def main(
         num_examples=n,
         disable_stdout=False
     )
+    do_reid = True
 
     if do_reid:
         if (not hasattr(attack_args, "metrics")) or (attack_args.metrics is None):
@@ -757,13 +733,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--no_model', default=False, action='store_true',
         help=('whether to include model scores in deidentification search (otherwise just uses word overlap metrics)')
     )
-    parser.add_argument('--do_reid', default=False, action='store_true',
-        help=('whether to use a reidentification model')
-    )
 
     args = parser.parse_args()
 
-    assert (args.k is not None) or (args.eps is not None) or (args.min_percent_words is not None)
+    assert (args.k is not None) or (args.eps is not None)
     return args
 
 
@@ -785,6 +758,5 @@ if __name__ == '__main__':
         no_model=args.no_model,
         fuzzy_ratio=args.fuzzy_ratio,
         max_idf_goal=args.max_idf_goal,
-        do_reid=args.do_reid,
     )
     print(args)

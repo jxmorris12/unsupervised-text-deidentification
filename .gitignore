@@ -6,6 +6,7 @@ notebooks/.ipynb_checkpoints/
 checkpoints/
 deid-wikibio/
 embeddings/
+experiments/
 lightning_logs/
 logs/
 nearest_neighbors/
