@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 import functools
+import math
 import os
 import pickle
 
@@ -65,7 +66,8 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
             return num_better_classes >= self.k
         elif self.eps is not None:
             # eps criterion
-            return model_output.log_softmax(dim=0)[self.ground_truth_output] <= math.log(self.eps)
+            return model_output[self.ground_truth_output] <= self.eps
+            # return model_output.log_softmax(dim=0)[self.ground_truth_output] <= math.log(self.eps)
         else:
             # just min-percent-words
             return True
@@ -137,21 +139,17 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         # Add score for matching with table.
         table_score = 0.0
         idf_score = 0.0
-        
+
         for word in attacked_text.newly_swapped_words:
-            if (self.table_score > 0) and self._word_in_table(word):
+            if (self.table_score != 0) and self._word_in_table(word):
                 table_score += self.table_score # Intuition is we want use the table to break ties of about this much % probability.
             idf_score += self.get_word_idf_prob(word)
         idf_score /= len(attacked_text.newly_swapped_words)
         table_score /= len(attacked_text.newly_swapped_words)
 
-        model_output_stable = model_outputs - model_outputs.max()
-        softmax_denominator = model_output_stable.exp().sum()
+        softmax_denominator = model_outputs.exp().sum()
         # This is a numerically-stable softmax that incorporates the table score in probability space.
-        total_score = (
-            -1.0 * model_output_stable[self.ground_truth_output].exp()
-          + (softmax_denominator * (1 + table_score))
-        ) / softmax_denominator
+        total_score = (-1.0 * model_outputs[self.ground_truth_output]) + (1.0 * table_score)
 
         if ((self.min_idf_weighting is not None) and self.min_idf_weighting < 1.0):
             return total_score * idf_score

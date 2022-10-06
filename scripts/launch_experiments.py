@@ -51,8 +51,13 @@ def launch_experiment(**kwargs):
 
 
 def main():
-    # NN DeID
-    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder')
+    # NN DeID (Biencoder)
+    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder_table')
+    launch_experiment(max_idf_goal=None, table_score=0.0, no_model=False, out_file_path='nn_deid_biencoder')
+
+    # NN DeID (Cross-encoder)
+    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder_table')
+    launch_experiment(max_idf_goal=None, table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder')
 
     # IDF (Table Scoring)
     launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')

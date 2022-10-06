@@ -79,7 +79,7 @@ model_paths_dict["model_3_1"] = model_paths_dict["model_2_1"]
 
 # model_3_2 is roberta-tapas, uniformly sampled random masking
 #   wandb.ai/jack-morris/deid-wikibio-4/runs/ojgxa1tf?workspace=user-jxmorris12
-model_paths_dict["model_3_2"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_lightning_logs/ojgxa1tf_6/checkpoints/epoch=65-step=150282-idf_total.ckpt'
+model_paths_dict["model_3_2"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_lightning_logs/ojgxa1tf_6/checkpoints/last.ckpt'
 model_paths_dict["model_3_2__idf"] = model_paths_dict["model_8_ls0.01"]
 
 # model_3_3 is roberta-roberta, uniformly sampled random masking
@@ -87,11 +87,11 @@ model_paths_dict["model_3_3"] = "/home/jxm3/research/deidentification/unsupervis
 # model_paths_dict["model_3_3"] = '??'
 model_paths_dict["model_3_3__placeholder"] = model_paths_dict["model_2_5"]
 #  wandb.ai/jack-morris/deid-wikibio-4/runs/f18dh3hl/logs?workspace=
-model_paths_dict["model_3_3__idf"] = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__idf__dropout_0.5_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/f18dh3hl_751/checkpoints/epoch=62-step=143450-idf_total.ckpt"
+model_paths_dict["model_3_3__idf"] = "/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__idf__dropout_0.5_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/f18dh3hl_751/checkpoints/last.ckpt"
 
 # model_3_4 is pmlm-a-tapas, uniformly sampled random masknig
 #   wandb.ai/jack-morris/deid-wikibio-4/runs/1g8o1iw3
-model_paths_dict["model_3_4"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/1g8o1iw3_749/checkpoints/epoch=65-step=150281-idf_total.ckpt'
+model_paths_dict["model_3_4"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/1g8o1iw3_749/checkpoints/last.ckpt'
 model_paths_dict["model_3_4__idf"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__idf__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_default/3fyovpn7_753/checkpoints/epoch=60-step=138896-idf_total.ckpt'
 
 # model_3_5 is pmlm-a-tapas, uniformly sampled random masking,

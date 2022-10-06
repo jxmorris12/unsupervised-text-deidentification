@@ -120,8 +120,8 @@ class CrossEncoderModelWrapper(textattack.models.wrappers.ModelWrapper):
         with torch.no_grad():
             document_scores = self.model.forward_document_and_profile_inputs(inputs=all_inputs).squeeze(dim=1)
         assert document_scores.shape == (batch_size,)
-        document_to_profile_logits = torch.full(
-            (len(text_input_list), num_profiles), fill_value=-10000, dtype=torch.float32, device=model_device
+        document_to_profile_logits = torch.where(
+            (torch.arange(num_profiles,) == self.most_recent_datapoint_idx)[None].to(model_device),
+            document_scores[:, None], torch.tensor(-(10**5), dtype=torch.float32).to(model_device),
         )
-        document_to_profile_logits[:, self.most_recent_datapoint_idx] += document_scores
         return document_to_profile_logits
