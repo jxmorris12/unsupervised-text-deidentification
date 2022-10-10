@@ -51,6 +51,7 @@ class WikipediaDataModule(LightningDataModule):
     profile_row_dropout_perc: float
     sample_spans: bool
     adversarial_masking: bool
+    do_bert_ner_redaction: bool
 
     train_batch_size: int
     eval_batch_size: int
@@ -89,6 +90,7 @@ class WikipediaDataModule(LightningDataModule):
         idf_masking: bool = False,
         num_nearest_neighbors: int = 0,
         sample_spans: bool = False,
+        do_bert_ner_redaction: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -103,6 +105,7 @@ class WikipediaDataModule(LightningDataModule):
         self.document_tokenizer = transformers.AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
         self.profile_tokenizer = transformers.AutoTokenizer.from_pretrained(profile_model_name_or_path, use_fast=True)
         self.max_seq_length = max_seq_length
+        self.do_bert_ner_redaction = do_bert_ner_redaction
 
         self.word_dropout_ratio = word_dropout_ratio
         self.word_dropout_perc = word_dropout_perc
@@ -205,16 +208,15 @@ class WikipediaDataModule(LightningDataModule):
         )
 
         # BERT-NER redaction
-        DO_BERT_NER_REDACTION = False
-        if DO_BERT_NER_REDACTION:
+        if self.do_bert_ner_redaction:
             bert_ner_redact_func = functools.partial(
                 remove_named_entities_bert_batch, mask_token=self.mask_token
             )
-            self.val_dataset = self.val_dataset.map(
-                lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
-                batched=True,
-                num_proc=1,
-            )
+            # self.val_dataset = self.val_dataset.map(
+            #     lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
+            #     batched=True,
+            #     num_proc=1,
+            # )
             self.test_dataset = self.test_dataset.map(
                 lambda ex: redact_example(redact_func=bert_ner_redact_func, example=ex, suffix='redact_ner_bert', include_profile=False),
                 batched=True,
@@ -388,6 +390,16 @@ class WikipediaDataModule(LightningDataModule):
         )
 
     def val_dataloader(self) -> List[DataLoader]:
+        document_types = [
+            "document",
+            "document_redact_ner",
+            "document_redact_lexical", 
+            "document_redact_idf_20",  "document_redact_idf_40",
+            "document_redact_idf_60",  "document_redact_idf_80"
+        ]
+        # if self.do_bert_ner_redaction:
+            # document_types += ["document_redact_ner_bert"]
+        
         val_tokenizing_dataset = MaskingTokenizingDataset(
             self.val_dataset,
             document_tokenizer=self.document_tokenizer,
@@ -400,14 +412,7 @@ class WikipediaDataModule(LightningDataModule):
             adversarial_masking=False,
             idf_masking=False,
             num_nearest_neighbors=self.num_nearest_neighbors,
-            document_types=[
-                "document",
-                "document_redact_ner",
-                # "document_redact_ner_bert",
-                "document_redact_lexical", 
-                "document_redact_idf_20",  "document_redact_idf_40",
-                "document_redact_idf_60",  "document_redact_idf_80"
-            ],
+            document_types=document_types,
             is_train_dataset=False
         )
         adv_val_tokenizing_dataset = MaskingTokenizingDataset(
@@ -452,6 +457,12 @@ class WikipediaDataModule(LightningDataModule):
         # ]
 
     def test_dataloader(self) -> DataLoader:
+        document_types = [
+            "document", "document_redact_lexical",
+        ]
+        if self.do_bert_ner_redaction:
+            document_types += ["document_redact_ner_bert"]
+
         test_tokenizing_dataset = MaskingTokenizingDataset(
             self.test_dataset,
             document_tokenizer=self.document_tokenizer,
@@ -464,11 +475,7 @@ class WikipediaDataModule(LightningDataModule):
             adversarial_masking=False,
             idf_masking=False,
             # num_nearest_neighbors=self.num_nearest_neighbors,
-            document_types=[
-                "document",
-                "document_redact_lexical",
-                # "document_redact_ner_bert"
-            ],
+            document_types=document_types,
             is_train_dataset=False
         )
         return DataLoader(

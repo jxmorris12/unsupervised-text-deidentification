@@ -52,17 +52,19 @@ def launch_experiment(**kwargs):
 
 def main():
     # NN DeID (Biencoder)
-    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder_table')
-    launch_experiment(max_idf_goal=None, table_score=0.0, no_model=False, out_file_path='nn_deid_biencoder')
+    # launch_experiment(max_idf_goal=None, model="model_3_4", table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder_table')
+    # launch_experiment(max_idf_goal=None, model="model_3_4", table_score=0.0, no_model=False, out_file_path='nn_deid_biencoder')
 
     # NN DeID (Cross-encoder)
-    launch_experiment(max_idf_goal=None, table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder_table')
-    launch_experiment(max_idf_goal=None, table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder')
+    launch_experiment(max_idf_goal=None, model="cross_encoder", table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder_table')
+    launch_experiment(max_idf_goal=None, model="cross_encoder", table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder')
+    launch_experiment(max_idf_goal=None, model="cross_encoder_10", table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder10_table')
+    launch_experiment(max_idf_goal=None, model="cross_encoder_10", table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder10')
 
     # IDF (Table Scoring)
-    launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')
+    # launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')
 
     # IDF (No Table Scoring)
-    launch_experiment(max_idf_goal=1e-10, table_score=0.0, no_model=True, out_file_path='idf_no_table')
+    # launch_experiment(max_idf_goal=1e-10, table_score=0.0, no_model=True, out_file_path='idf')
 
 if __name__ == '__main__': main()

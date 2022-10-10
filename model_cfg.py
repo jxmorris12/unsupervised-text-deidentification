@@ -50,7 +50,7 @@ model_paths_dict["model_9_ls0.1"] = '/home/jxm3/research/deidentification/unsupe
 
 # model_2_1 is roberta-tapas, no masking
 #   wandb.ai/jack-morris/deid-wikibio-4/runs/1tu650oe
-model_paths_dict["model_2_1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__e3072__ls0.1/deid-wikibio-4_default/1tu650oe_747/checkpoints/epoch=63-step=145727-idf_total.ckpt'
+model_paths_dict["model_2_1"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__roberta__tapas__e3072__ls0.1/deid-wikibio-4_default/1tu650oe_747/checkpoints/last.ckpt'
 
 # model_2_2 is pmlm-a-tapas, uniformly sampled idf masking
 #   wandb.ai/jack-morris/deid-wikibio-4/runs/3fyovpn7
