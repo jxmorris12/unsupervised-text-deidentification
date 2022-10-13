@@ -1,7 +1,7 @@
 from deidentify import main as deidentify_main
 
 class ExperimentArgs:
-    n = 200
+    n = 1000
     num_examples_offset = 0
     model = "model_3_4"
     beam_width = 1
@@ -46,25 +46,32 @@ def launch_experiment(**kwargs):
         no_model=args.no_model,
         fuzzy_ratio=args.fuzzy_ratio,
         max_idf_goal=args.max_idf_goal,
+        table_score=args.table_score,
         do_reid=args.do_reid,
     )
 
 
 def main():
+    ##################################################################
     # NN DeID (Biencoder)
-    # launch_experiment(max_idf_goal=None, model="model_3_4", table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder_table')
-    # launch_experiment(max_idf_goal=None, model="model_3_4", table_score=0.0, no_model=False, out_file_path='nn_deid_biencoder')
+    launch_experiment(max_idf_goal=None, model="model_3_4", table_score=100.0, no_model=False, out_file_path='nn_deid_biencoder_table')
 
     # NN DeID (Cross-encoder)
     launch_experiment(max_idf_goal=None, model="cross_encoder", table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder_table')
-    launch_experiment(max_idf_goal=None, model="cross_encoder", table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder')
     launch_experiment(max_idf_goal=None, model="cross_encoder_10", table_score=100.0, no_model=False, out_file_path='nn_deid_crossencoder10_table')
+
+    # IDF
+    launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')
+
+    ##################################################################
+    # NN DeID (Biencoder)
+    launch_experiment(max_idf_goal=None, model="model_3_4", table_score=0.0, no_model=False, out_file_path='nn_deid_biencoder')
+
+    # NN DeID (Cross-encoder)
+    launch_experiment(max_idf_goal=None, model="cross_encoder", table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder')
     launch_experiment(max_idf_goal=None, model="cross_encoder_10", table_score=0.0, no_model=False, out_file_path='nn_deid_crossencoder10')
 
-    # IDF (Table Scoring)
-    # launch_experiment(max_idf_goal=1e-10, table_score=100.0, no_model=True, out_file_path='idf_table')
-
-    # IDF (No Table Scoring)
-    # launch_experiment(max_idf_goal=1e-10, table_score=0.0, no_model=True, out_file_path='idf')
+    # IDF
+    launch_experiment(max_idf_goal=1e-10, table_score=0.0, no_model=True, out_file_path='idf')
 
 if __name__ == '__main__': main()

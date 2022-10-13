@@ -44,7 +44,7 @@ class ChangeClassificationToBelowTopKClasses(textattack.goal_functions.Classific
         self.most_recent_profile_words = [] # Set asynchronously by the dataset. (I know this is a bad pattern. TODO: fix this pattern.)
 
         idf_file_path = os.path.join(
-            os.path.dirname(__file__), os.pardir, 'test_val_train_100_idf.p') # ['test_val_100_idf_dates', 'test_val_100_idf.p', 'test_val_train_100_idf_dates.p', 'test_val_train_100_idf.p']
+            os.path.dirname(__file__), os.pardir, 'idf', 'test_val_train_100_idf.p') # ['test_val_100_idf_dates', 'test_val_100_idf.p', 'test_val_train_100_idf_dates.p', 'test_val_train_100_idf.p']
         self.idf = pickle.load(open(idf_file_path, 'rb'))
         self.mean_idf = 11.437707231811393  # mean IDF for test+val corpus
         self.max_idf = 12.176724504431347   # max IDF for test+val corpus

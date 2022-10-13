@@ -141,7 +141,7 @@ def remove_words_val_idf(document: str, p: float, mask_token: str) -> str:
     global val_idf
     if val_idf is None:
         current_folder = os.path.dirname(os.path.abspath(__file__))
-        val_idf_file_path = os.path.join(current_folder, 'val_100_idf.p')
+        val_idf_file_path = os.path.join(current_folder, 'idf', 'val_100_idf.p')
         val_idf = pickle.load(open(val_idf_file_path, 'rb'))
     return redact(document=document, p=p, idf=val_idf, mask_token=mask_token)
     

@@ -1,5 +1,5 @@
 import sys
-sys.path.append('..')
+sys.path.append('/home/jxm3/research/deidentification/unsupervised-deidentification')
 
 from typing import Iterable
 
@@ -18,14 +18,14 @@ from utils.analysis import load_baselines_csv
 
 def get_experiments() -> Iterable[str]:
     """Gets path to finished experiments in the experiments/ folder."""
-    exp_files = glob.glob('../experiments/*/*.p')
+    exp_files = glob.glob('./experiments/*/*.p')
     for filename in exp_files:
         filename_re = re.search(r'(experiments/.+/)(.+)_examples.p', filename)
         folder_name, exp_name = filename_re.group(1), filename_re.group(2)
         yield folder_name, exp_name
 
 def main():
-    experiments = list(get_experiments())
+    experiments = list(get_experiments())[::-1]
     print(f'Testing {len(experiments)} experiments: {experiments}')
 
     baselines_csv = load_baselines_csv(max_num_samples=10)
@@ -33,11 +33,14 @@ def main():
 
     all_results = []
 
+    base_folder = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), os.pardir
+    )
     for exp_folder, exp_name in tqdm.tqdm(experiments):
-        for percentage in np.arange(0.00, 1.05, 0.05):
+        for percentage in np.arange(0.00, 1.05, 0.05)[::-1]:
             print('-->', exp_folder, exp_name, percentage)
             r = get_experimental_results(
-                exp_folder=os.path.join(os.pardir, exp_folder), exp_name=exp_name,
+                exp_folder=os.path.join(base_folder, exp_folder), exp_name=exp_name,
                 percentage=percentage, use_cache=True
             )   
             all_results.append((exp_folder, exp_name, percentage, r))

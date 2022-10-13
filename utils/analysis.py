@@ -5,6 +5,7 @@ import pickle
 import re
 
 import datasets
+import numpy as np
 import pandas as pd
 import torch
 import tqdm
@@ -20,7 +21,8 @@ datasets.utils.logging.set_verbosity_error()
 num_cpus = len(os.sched_getaffinity(0))
 words_from_text_re = re.compile(r'\b\w+\b')
 
-REID_MODEL_KEYS = ['model_3_1', 'model_3_2', 'model_3_3', 'model_3_3__idf', 'model_3_4__idf']
+# REID_MODEL_KEYS = ['model_3_1', 'model_3_2', 'model_3_3', 'model_3_3__idf', 'model_3_4__idf']
+REID_MODEL_KEYS = ['model_3_1', 'model_3_2', 'model_3_3', 'model_3_3__idf', 'model_3_4', 'model_3_4__idf']
 
 
 def load_baselines_csv(max_num_samples: int = 100) -> pd.DataFrame:
@@ -98,7 +100,9 @@ def load_baselines_csv(max_num_samples: int = 100) -> pd.DataFrame:
 
 
 def get_exp_cache_path(exp_folder: str, exp_name: str, percentage: float) -> str:
-    return os.path.join(exp_folder, f'{exp_name}__data_{percentage}.cache')
+    return os.path.abspath(
+        os.path.join(exp_folder, f'{exp_name}__data_{percentage}.cache')
+    )
 
 
 def words_from_text(s: str) -> List[str]:
@@ -140,7 +144,9 @@ def get_predictions_from_model(model_key: str, data: List[str], max_seq_length: 
         sample_spans=False,
     )
 
-    all_profile_embeddings = get_profile_embeddings(model_key=model_key, use_train_profiles=False).cuda()
+    all_profile_embeddings = get_profile_embeddings(
+        model_key=model_key,
+        use_train_profiles=True).cuda()
 
     model.document_model.eval()
     model.document_model.cuda()
@@ -155,6 +161,10 @@ def get_predictions_from_model(model_key: str, data: List[str], max_seq_length: 
     pbar = tqdm.tqdm(total=len(data), leave=False, desc='Making predictions...')
     while i < len(data):
         ex = data[i:i+batch_size]
+        ex = [
+            ex.replace('[MASK]', '<mask>').replace('<mask>', dm.mask_token)
+            for ex in ex
+        ]
         test_batch = dm.document_tokenizer.batch_encode_plus(
             ex,
             max_length=max_seq_length,
@@ -213,7 +223,7 @@ def get_reidentified_data_at_masking_percentage_uncached(exp_folder: str, exp_na
         preds = get_predictions_from_model(model_key=model_key, data=masked_inputs)
         all_predictions.append(preds)
     df = pd.DataFrame(list(zip(*all_predictions)), columns=REID_MODEL_KEYS)
-    input_was_reidentified =  (df == 0).apply(lambda row: row.values.any(), axis=1)
+    input_was_reidentified =  (df == 0).apply(lambda row: row.tolist(), axis=1)
     return list(zip(masked_inputs, input_was_reidentified))
 
 
@@ -230,13 +240,56 @@ def get_experimental_results(exp_folder: str, exp_name: str, percentage: float, 
     """
     assert 0 <= percentage <= 1
     cache_path = get_exp_cache_path(exp_folder=exp_folder, exp_name=exp_name, percentage=percentage)
-    print(f'cache_path = {cache_path}')
     if not (use_cache and os.path.exists(cache_path)):
         data = get_reidentified_data_at_masking_percentage_uncached(exp_folder=exp_folder, exp_name=exp_name, percentage=percentage)
         if use_cache:
             pickle.dump(data, open(cache_path, 'wb'))
+            print(f'saved to cache_path = {cache_path}')
     else:
         data = pickle.load(open(cache_path, 'rb'))
     return data
 
 
+def get_baseline_results_uncached() -> List[Tuple[str, bool]]:
+    # 1. Load all results
+    n = 1000
+    samples = load_baselines_csv(max_num_samples=n)
+    # 2. Reidentify results with each model
+    masked_inputs = []
+    baseline_names = []
+    all_predictions = []
+    for _ in range(len(REID_MODEL_KEYS)): all_predictions.append([])
+    for baseline_name in samples['model_name'].unique():
+        baseline_masked_inputs = samples[samples['model_name'] == baseline_name]['perturbed_text'].tolist()
+        assert len(baseline_masked_inputs) > 0
+        masked_inputs.extend(baseline_masked_inputs)
+        baseline_names.extend([baseline_name] * len(baseline_masked_inputs))
+        for i, model_key in enumerate(REID_MODEL_KEYS):
+            preds = get_predictions_from_model(model_key=model_key, data=baseline_masked_inputs)
+            all_predictions[i].extend(preds)
+    df = pd.DataFrame(list(zip(*all_predictions)), columns=REID_MODEL_KEYS)
+    input_was_reidentified = (df == 0).apply(lambda row: row.values.any(), axis=1)
+    return list(zip(masked_inputs, baseline_names, input_was_reidentified))
+
+
+def get_baseline_results(use_cache: bool) -> List[Tuple[str, str, bool]]:
+    """Loads reidentified data results from a given experiment at a certain masking rate.
+
+    Args:
+        use_cache (bool): whether or not to cache/load cached results
+    Returns List[Tuple[str, bool]]:
+        Each masked sample from all baselines alongside its key and whether it was reidentified.
+    """
+    cache_path = get_exp_cache_path(exp_folder='', exp_name='baseline', percentage=0)
+    if not (use_cache and os.path.exists(cache_path)):
+        data = get_baseline_results_uncached()
+        if use_cache:
+            pickle.dump(data, open(cache_path, 'wb'))
+            print(f'saved baseline results to cache_path = {cache_path}')
+    else:
+        print(f'loaded baseline results from cache_path = {cache_path}')
+        data = pickle.load(open(cache_path, 'rb'))
+    df = pd.DataFrame(data, columns=['text', 'experiment_name', 'was_reidentified'])
+    
+    df['masking_percentage'] = df['text'].map(lambda t: count_masks(t) / count_words(t))
+    return df

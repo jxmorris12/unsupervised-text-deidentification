@@ -10,5 +10,6 @@ experiments/
 lightning_logs/
 logs/
 nearest_neighbors/
+notebooks/*.cache
 saves/
 wandb/
