@@ -46,7 +46,7 @@ def make_pareto_plot(df: pd.DataFrame, pdf_filename: str):
     assert {'experiment_name', 'masking_percentage'} <= set(df.columns), f'invalid columns {df.columns}'
 
     sns.set(style="white", font_scale = 1.4)
-    plt.figure(figsize=(9,6))
+    plt.figure(figsize=(8, 6))
     plt.xlabel(xlabel, fontweight='bold')
     plt.ylabel(ylabel, fontweight='bold')
     
@@ -89,6 +89,7 @@ def make_pareto_plot(df: pd.DataFrame, pdf_filename: str):
     handles, labels = plt.gca().get_legend_handles_labels()
     order = [ordered_group_names.index(label) for label in labels]
     handles, labels = [handles[idx] for idx in order], [labels[idx] for idx in order]
-    plt.legend(handles, labels, bbox_to_anchor=(0.84, 1.05), framealpha=1.0)
+    plt.legend(handles, labels, bbox_to_anchor=(1.05, 1.05), framealpha=1.0)
     plt.tight_layout()
+    print('hi')
     plt.savefig(pdf_filename, dpi=300)

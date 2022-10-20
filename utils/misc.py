@@ -13,7 +13,7 @@ import transformers
 from model import ContrastiveModel, ContrastiveCrossAttentionModel, CoordinateAscentModel
 
 
-@functools.cache
+@functools.lru_cache(max_size=None)
 def fuzz_ratio(s1: str, s2: str) -> bool:
     return fuzzywuzzy.fuzz.ratio(s1, s2)
 

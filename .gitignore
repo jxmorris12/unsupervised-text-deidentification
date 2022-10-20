@@ -11,5 +11,6 @@ lightning_logs/
 logs/
 nearest_neighbors/
 notebooks/*.cache
+notebooks/
 saves/
 wandb/
