@@ -12,5 +12,6 @@ logs/
 nearest_neighbors/
 notebooks/*.cache
 notebooks/
+results/
 saves/
 wandb/
