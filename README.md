@@ -41,6 +41,65 @@ Other notable files include `masking_tokenizing_dataset.py`, which implements a 
 
 There are a bunch of useful scripts in `scripts/`, including code for generating nearest-neighbors, uploading models to the HuggingFace hub, doing probing on embeddings to measure retainment of profile information such as birth dates and months, and deidentifying data using TextAttack.
 
+## models
+
+The models used for reidentification and identification are available through HuggingFace. All models were trained with this codebase and the hyperparameters specified in the paper.
+
+- `[jxm/wikibio_roberta_tapas_vanilla](https://huggingface.co/jxm/wikibio_roberta_tapas_vanilla)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents without any masking
+- `[jxm/wikibio_roberta_tapas](https://huggingface.co/jxm/wikibio_roberta_tapas)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with uniform random masking
+- `[jxm/wikibio_roberta_tapas_idf](https://huggingface.co/jxm/wikibio_roberta_tapas_idf)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
+
+- `[jxm/wikibio_pmlm_tapas](https://huggingface.co/jxm/wikibio_pmlm_tapas)`: vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with uniform random masking
+- `[jxm/wikibio_pmlm_tapas_idf](https://huggingface.co/jxm/wikibio_pmlm_tapas_idf)`: vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
+
+- `[jxm/wikibio_roberta_roberta](https://huggingface.co/jxm/wikibio_roberta_roberta)`: vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with uniform random masking
+- `[jxm/wikibio_roberta_roberta_idf](https://huggingface.co/jxm/wikibio_roberta_roberta_idf)`: vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with IDF-weighted random masking
+
+
+### example model-running command
+
+Here's an example of how you'd load a pre-trained model, in addition to the WikiBio dataloader. First you have to clone the repository to download the model:
+```bash
+!git clone https://huggingface.co/jxm/wikibio_roberta_roberta
+```
+
+Then run the following code.
+
+```python
+
+from datamodule import WikipediaDataModule
+from model import CoordinateAscentModel
+
+
+num_cpus = len(os.sched_getaffinity(0))
+
+checkpoint_path = "/content/unsupervised-deid/wikibio_roberta_roberta/model.ckpt"
+model = CoordinateAscentModel.load_from_checkpoint(checkpoint_path)
+dm = WikipediaDataModule(
+    document_model_name_or_path=model.document_model_name_or_path,
+    profile_model_name_or_path=model.profile_model_name_or_path,
+    dataset_name='wiki_bio',
+    dataset_train_split='train[:10%]',
+    dataset_val_split='val[:20%]',
+    dataset_version='1.2.0',
+    num_workers=1,
+    train_batch_size=64,
+    eval_batch_size=64,
+    max_seq_length=128,
+    sample_spans=False,
+)
+```
+
+### example model-training command
+
+This is an example of how to train the RoBERTa-TAPAS example from above (uniform random masking). All of the other models can be trained with a very similar command.
+
+```bash
+python main.py --epochs 60 --batch_size 128 --max_seq_length 128 --word_dropout_ratio 1.0 --word_dropout_perc -1.0 --document_model_name roberta --profile_model_name tapas --dataset_train_split="train[:100%]" --learning_rate 1e-4 --num_validations_per_epoch 1 --loss coordinate_ascent --e 3072 --label_smoothing 0.01
+```
+
+## analysis example
+
 
 ### Citation
 
