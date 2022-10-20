@@ -45,15 +45,15 @@ There are a bunch of useful scripts in `scripts/`, including code for generating
 
 The models used for reidentification and identification are available through HuggingFace. All models were trained with this codebase and the hyperparameters specified in the paper.
 
-- `[jxm/wikibio_roberta_tapas_vanilla](https://huggingface.co/jxm/wikibio_roberta_tapas_vanilla)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents without any masking
-- `[jxm/wikibio_roberta_tapas](https://huggingface.co/jxm/wikibio_roberta_tapas)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with uniform random masking
-- `[jxm/wikibio_roberta_tapas_idf](https://huggingface.co/jxm/wikibio_roberta_tapas_idf)`: vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
+- [`jxm/wikibio_roberta_tapas_vanilla`](https://huggingface.co/jxm/wikibio_roberta_tapas_vanilla): vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents without any masking
+- [`jxm/wikibio_roberta_tapas`](https://huggingface.co/jxm/wikibio_roberta_tapas): vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with uniform random masking
+- [`jxm/wikibio_roberta_tapas_idf`](https://huggingface.co/jxm/wikibio_roberta_tapas_idf): vanilla biencoder, trained with RoBERTa document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
 
-- `[jxm/wikibio_pmlm_tapas](https://huggingface.co/jxm/wikibio_pmlm_tapas)`: vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with uniform random masking
-- `[jxm/wikibio_pmlm_tapas_idf](https://huggingface.co/jxm/wikibio_pmlm_tapas_idf)`: vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
+- [`jxm/wikibio_pmlm_tapas`](https://huggingface.co/jxm/wikibio_pmlm_tapas): vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with uniform random masking
+- [`jxm/wikibio_pmlm_tapas_idf`](https://huggingface.co/jxm/wikibio_pmlm_tapas_idf): vanilla biencoder, trained with PMLM document encoder and TAPAS profile encoder on documents with IDF-weighted random masking
 
-- `[jxm/wikibio_roberta_roberta](https://huggingface.co/jxm/wikibio_roberta_roberta)`: vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with uniform random masking
-- `[jxm/wikibio_roberta_roberta_idf](https://huggingface.co/jxm/wikibio_roberta_roberta_idf)`: vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with IDF-weighted random masking
+- [`jxm/wikibio_roberta_roberta`](https://huggingface.co/jxm/wikibio_roberta_roberta): vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with uniform random masking
+- [`jxm/wikibio_roberta_roberta_idf`](https://huggingface.co/jxm/wikibio_roberta_roberta_idf): vanilla biencoder, trained with RoBERTa document encoder and RoBERTa profile encoder on documents with IDF-weighted random masking
 
 
 ### example model-running command
