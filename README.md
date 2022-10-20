@@ -10,7 +10,7 @@
 
 <b>Official code for 2022 paper, "Unsupervised Text Deidentification".</b> Our method, NN DeID can anonymize text without any prior notion of what constitutes personal information (i.e. without guidelines or labeled data). 
 
-This repository all the code for training reidentification models and deidentifying data. The main tools & frameworks used are [PyTorch](https://pytorch.org/), [PyTorch Lightning](https://github.com/Lightning-AI/lightning) (for model-training), and [TextAttack](https://github.com/QData/TextAttack) (for deidentification via greedy inference). The main dataset used is the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/), [loaded through HuggingFace datasets](https://huggingface.co/datasets/wiki_bio). The models that comprise the biencoder are [TAPAS](https://github.com/google-research/tapas) and [RoBERTa](https://ai.facebook.com/blog/roberta-an-optimized-method-for-pretraining-self-supervised-nlp-systems/).
+This repository all the code for training reidentification models and deidentifying data. The main tools & frameworks used are [PyTorch](https://pytorch.org/), [PyTorch Lightning](https://github.com/Lightning-AI/lightning) (for model-training), and [TextAttack](https://github.com/QData/TextAttack) (for deidentification via greedy inference). The main dataset used is the [wikibio dataset](https://rlebret.github.io/wikipedia-biography-dataset/), [loaded through HuggingFace datasets](https://huggingface.co/datasets/wiki_bio). The models that comprise the biencoder are [TAPAS](https://github.com/google-research/tapas) and [RoBERTa](https://ai.facebook.com/blog/roberta-an-optimized-method-for-pretraining-self-supervised-nlp-systems/) (or [PMLM](https://arxiv.org/abs/2004.11579)).
 
 
 ## folder structure
