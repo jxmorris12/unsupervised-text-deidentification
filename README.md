@@ -105,8 +105,15 @@ python main.py --epochs 60 --batch_size 128 --max_seq_length 128 --word_dropout_
 
 If this package is useful for you, please cite the following!
 
-```r
-@article{morris2022deid,
-  year = {2022},
+```
+@misc{https://doi.org/10.48550/arxiv.2210.11528,
+  doi = {10.48550/ARXIV.2210.11528},
+  url = {https://arxiv.org/abs/2210.11528},
+  author = {Morris, John X. and Chiu, Justin T. and Zabih, Ramin and Rush, Alexander M.},
+  keywords = {Computation and Language (cs.CL), FOS: Computer and information sciences, FOS: Computer and information sciences},
+  title = {Unsupervised Text Deidentification},
+  publisher = {arXiv},
+  year = {2022}, 
+  copyright = {arXiv.org perpetual, non-exclusive license}
 }
 ```
