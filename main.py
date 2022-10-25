@@ -16,11 +16,12 @@ from transformers import AutoTokenizer
 from datamodule import WikipediaDataModule
 from utils import model_cls_dict
 
-USE_WANDB = True
+USE_WANDB = False
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-num_cpus = len(os.sched_getaffinity(0))
+# num_cpus = len(os.sched_getaffinity(0))
+num_cpus = 1
 
 
 def get_args() -> argparse.Namespace:
@@ -33,16 +34,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--checkpoint_vnum', type=str, default='')
 
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
-        choices=['coordinate_ascent', 'contrastive_cross_attention', 'contrastive'],
-        default='coordinate_ascent',
-        help='loss function to use for training'
-    )
+                        choices=['coordinate_ascent', 'contrastive_cross_attention', 'contrastive'],
+                        default='coordinate_ascent',
+                        help='loss function to use for training'
+                        )
 
-    parser.add_argument('--limit_val_batches', type=float, default=1.0,
-        help='\% of validation to use. ONLY reduce this for debugging.')
+    parser.add_argument('--limit_val_batches', type=float, default=0.0,
+                        help='\% of validation to use. ONLY reduce this for debugging.')
 
     parser.add_argument('--num_validations_per_epoch', type=int, default=1,
-        help='number of times to validate per epoch')
+                        help='number of times to validate per epoch')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=256)
@@ -51,62 +52,62 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--grad_norm_clip', type=float, default=10.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
     # parser.add_argument('--precision', type=int, default=32)
-    
+
     parser.add_argument('--num_nearest_neighbors', '--n', type=int, default=0,
-        help='number of negative samples for contrastive loss'
-    )
+                        help='number of negative samples for contrastive loss'
+                        )
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
-        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
+                        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
     parser.add_argument('--profile_model_name', '--profile_model', type=str,
-        default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
+                        default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
 
     parser.add_argument('--shared_embedding_dim', '--e', type=int, default=768,
-        help='size of shared embeddings')
-    
+                        help='size of shared embeddings')
+
     parser.add_argument('--word_dropout_ratio', type=float, default=0.0,
-        help='percentage of the time to apply word dropout')
+                        help='percentage of the time to apply word dropout')
     parser.add_argument('--word_dropout_perc', type=float, default=0.5,
-        help='when word dropout is applied, percentage of words to apply it to')
+                        help='when word dropout is applied, percentage of words to apply it to')
     parser.add_argument('--profile_row_dropout_perc', type=float,
-        default=0.0, help='\% of rows to dropout')
+                        default=0.0, help='\% of rows to dropout')
     parser.add_argument('--pretrained_profile_encoder', '--freeze_profile_encoder',
-        action='store_true', default=False,
-        help=('whether to fix profile encoder and just train document encoder. ' 
-            '[if false, does coordinate ascent alternating models across epochs]')
-    )
-    
+                        action='store_true', default=False,
+                        help=('whether to fix profile encoder and just train document encoder. '
+                              '[if false, does coordinate ascent alternating models across epochs]')
+                        )
+
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.4,
-        help='factor to decrease learning rate by on drop')
+                        help='factor to decrease learning rate by on drop')
     parser.add_argument('--lr_scheduler_patience', type=int, default=6,
-        help='patience for lr scheduler [unit: epochs]')
+                        help='patience for lr scheduler [unit: epochs]')
     parser.add_argument('--model_ckpt_save_top_k', type=int, default=1,
-        help=('number of models to save total for each checkpoint monitored. 1 means '
-            'every model will be overwritten and only the best one will stay. -1 means '
-            'to retain all models from all checkpoints.'))
+                        help=('number of models to save total for each checkpoint monitored. 1 means '
+                              'every model will be overwritten and only the best one will stay. -1 means '
+                              'to retain all models from all checkpoints.'))
 
     parser.add_argument('--sample_spans', action='store_true',
-        default=False, help='sample spans from the document randomly during training')
-    parser.add_argument('--adversarial_masking', '--adv_k', 
-        default=False, action='store_true', help='whether to do adversarial masking'
-    )
+                        default=False, help='sample spans from the document randomly during training')
+    parser.add_argument('--adversarial_masking', '--adv_k',
+                        default=False, action='store_true', help='whether to do adversarial masking'
+                        )
     parser.add_argument('--idf_masking', default=False, action='store_true',
-        help='whether to do idf-based masking (via bm25)'
-    )
+                        help='whether to do idf-based masking (via bm25)'
+                        )
 
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
     parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
-    parser.add_argument('--dataset_version', type=str, default='1.2.0')
+    # parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
-        help='run id for weights & biases')
+                        help='run id for weights & biases')
 
     args = parser.parse_args()
 
     if args.checkpoint_path and args.checkpoint_vnum:
         raise ValueError('cannot provide both checkpoint_path and checkpoint_vnum')
-    
+
     if args.checkpoint_vnum:
         checkpoint_paths = glob.glob(f'saves/*/*/*{args.checkpoint_vnum}/checkpoints/*.ckpt')
         if not checkpoint_paths:
@@ -115,12 +116,12 @@ def get_args() -> argparse.Namespace:
             args.checkpoint_path = checkpoint_paths[-1]
             print("loading model from", args.checkpoint_path)
 
-
     if args.loss_function == 'contrastive_cross_attention':
         # TODO: implement contrastive with just in-batch negatives
         assert args.num_nearest_neighbors > 0, "nead nearest-neighbors for contrastive learning"
 
     return args
+
 
 def transformers_name_from_name(name: str) -> str:
     if name == 'roberta':
@@ -138,13 +139,14 @@ def transformers_name_from_name(name: str) -> str:
     else:
         return f'unsupported model name {name}'
 
+
 def main(args: argparse.Namespace):
-    assert torch.cuda.is_available(), "need CUDA for training!"
+    # assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
-    
+
     dm = WikipediaDataModule(
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
@@ -152,7 +154,7 @@ def main(args: argparse.Namespace):
         dataset_name=args.dataset_name,
         dataset_train_split=args.dataset_train_split,
         dataset_val_split=args.dataset_val_split,
-        dataset_version=args.dataset_version,
+        # dataset_version=args.dataset_version,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
         profile_row_dropout_perc=args.profile_row_dropout_perc,
@@ -161,7 +163,8 @@ def main(args: argparse.Namespace):
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        num_workers=round(num_cpus / torch.cuda.device_count()),
+        num_workers = 1,
+        # num_workers=round(num_cpus / torch.cuda.device_count()),
         num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
@@ -244,17 +247,17 @@ def main(args: argparse.Namespace):
 
         wandb_logger = WandbLogger(
             name=exp_name,
-            project=wandb_project, 
+            project=wandb_project,
             config=vars(args),
             job_type='train',
             entity='jack-morris',
-            id=args.wandb_run_id # None, or set to a str for resuming a run
+            id=args.wandb_run_id  # None, or set to a str for resuming a run
         )
         wandb_logger.watch(model, log_graph=False)
         loggers.append(
             wandb_logger
         )
-    
+
     from pytorch_lightning.loggers import CSVLogger
     # TODO set experiment name same as W&B run name?
     # TODO make this show up, I don't think it does 
@@ -302,21 +305,21 @@ def main(args: argparse.Namespace):
         ]
 
     callbacks = [
-        LearningRateMonitor(logging_interval='epoch'),
-        # 
-        # 
-        # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
-        #
-    ] + checkpoints
+                    LearningRateMonitor(logging_interval='epoch'),
+                    #
+                    #
+                    # EarlyStopping(monitor=val_metric, min_delta=0.00, patience=early_stopping_patience, verbose=True, mode="min")
+                    #
+                ] + checkpoints
 
     print("creating Trainer")
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
-        val_check_interval=1/args.num_validations_per_epoch,
+        val_check_interval=0.0 / args.num_validations_per_epoch,
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
-        # limit_train_batches=1.0, # change this to make training faster (1.0 = full train set)
+        limit_train_batches=1.0, # change this to make training faster (1.0 = full train set),
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
         gpus=torch.cuda.device_count(),
@@ -330,6 +333,7 @@ def main(args: argparse.Namespace):
         datamodule=dm,
         ckpt_path=checkpoint_path
     )
+
 
 if __name__ == '__main__':
     main(get_args())

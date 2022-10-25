@@ -75,11 +75,11 @@ class WikipediaDataModule(LightningDataModule):
         document_model_name_or_path: str,
         profile_model_name_or_path: str,
         max_seq_length: int,
-        dataset_name: str = "wiki_bio",
-        dataset_train_split: str = "train[:10%]",
-        dataset_val_split: str = "val[:20%]",
-        dataset_test_split: str = "test[:256]",
-        dataset_version: str = "1.2.0",
+        dataset_name: str = "/Users/anneliese.mm/PycharmProjects/unsupervised-text-deidentification",
+        dataset_train_split: str = "train",
+        dataset_val_split: str = "val",
+        dataset_test_split: str = "test",
+        # dataset_version: str = "1.2.0",
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         num_workers: int = 1,
@@ -94,8 +94,8 @@ class WikipediaDataModule(LightningDataModule):
         **kwargs,
     ):
         super().__init__()
-        assert dataset_name == "wiki_bio"
-        assert datasets.__version__[0] == '2', "need datasets v2 for datamodule"
+        assert dataset_name == "/Users/anneliese.mm/PycharmProjects/unsupervised-text-deidentification"
+        #assert datasets.__version__[0] == '2', "need datasets v2 for datamodule"
         assert "train" in dataset_train_split
         assert "val" in dataset_val_split
         assert "test" in dataset_test_split
@@ -119,7 +119,7 @@ class WikipediaDataModule(LightningDataModule):
         self.dataset_train_split = dataset_train_split
         self.dataset_val_split = dataset_val_split
         self.dataset_test_split = dataset_test_split
-        self.dataset_version = dataset_version
+        # self.dataset_version = dataset_version
 
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
@@ -141,26 +141,28 @@ class WikipediaDataModule(LightningDataModule):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
 
         # wiki_bio train size: 582,659
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
-        self.train_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
+        print(f"loading {self.dataset_name} split {self.dataset_train_split}")
+        data_files = {"train": "/Users/anneliese.mm/PycharmProjects/unsupervised-text-deidentification/wiki_train.json",
+                      "test": "/Users/anneliese.mm/PycharmProjects/unsupervised-text-deidentification/wiki_test.json"}
+        self.train_dataset = datasets.load_dataset("json", data_files =
+                                                   data_files, split=self.dataset_train_split)
 
-         # wiki_bio val size: 72,831
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
-        self.val_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
-        )
+        #  # wiki_bio val size: 72,831
+        # print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
+        # self.val_dataset = datasets.load_dataset(
+        #     self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
+        # )
         
         # wiki_bio test size: 72,831
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_test_split}")
-        self.test_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
+        print(f"loading {self.dataset_name} split {self.dataset_test_split}")
+        self.test_dataset = datasets.load_dataset("json", data_files=
+            data_files, split=self.dataset_test_split
         )
 
         self.train_dataset = self.train_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)
-        self.val_dataset = self.val_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+        # self.val_dataset = self.val_dataset.map(
+        #     create_document_and_profile_from_wikibio, num_proc=1)
         self.test_dataset = self.test_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)
         
@@ -179,11 +181,11 @@ class WikipediaDataModule(LightningDataModule):
         # Lexical (word overlap) redaction
         lexical_redact_func = functools.partial(
             remove_overlapping_words, mask_token=self.mask_token)
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(
-                redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
-                num_proc=1,
-        )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(
+        #         redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
+        #         num_proc=1,
+        # )
         self.test_dataset = self.test_dataset.map(
             lambda ex: redact_example(
                 redact_func=lexical_redact_func, example=ex, suffix='redact_lexical', include_profile=True),
@@ -201,11 +203,11 @@ class WikipediaDataModule(LightningDataModule):
         spacy_ner_redact_func = functools.partial(
             remove_named_entities_spacy_batch, mask_token=self.mask_token
         )
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(redact_func=spacy_ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
-            batched=True,
-            num_proc=1,
-        )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(redact_func=spacy_ner_redact_func, example=ex, suffix='redact_ner', include_profile=False),
+        #     batched=True,
+        #     num_proc=1,
+        # )
 
         # BERT-NER redaction
         if self.do_bert_ner_redaction:
@@ -226,29 +228,29 @@ class WikipediaDataModule(LightningDataModule):
         # BM25/IDF-based redaction  (20%, 40%, 60%, 80%)
         idf_redact_func = lambda p: functools.partial(
             remove_words_val_idf, p=p, mask_token=self.mask_token)
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(
-                redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False
-            ),
-            num_proc=1,
-        )
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(
-                redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
-            num_proc=1,
-        )
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(
-                redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False
-            ),
-            num_proc=1,
-        )
-        self.val_dataset = self.val_dataset.map(
-            lambda ex: redact_example(
-                redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False
-            ),
-            num_proc=1,
-        )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(
+        #         redact_func=idf_redact_func(0.2), example=ex, suffix='redact_idf_20', include_profile=False
+        #     ),
+        #     num_proc=1,
+        # )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(
+        #         redact_func=idf_redact_func(0.4), example=ex, suffix='redact_idf_40', include_profile=False),
+        #     num_proc=1,
+        # )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(
+        #         redact_func=idf_redact_func(0.6), example=ex, suffix='redact_idf_60', include_profile=False
+        #     ),
+        #     num_proc=1,
+        # )
+        # self.val_dataset = self.val_dataset.map(
+        #     lambda ex: redact_example(
+        #         redact_func=idf_redact_func(0.8), example=ex, suffix='redact_idf_80', include_profile=False
+        #     ),
+        #     num_proc=1,
+        # )
 
         # Pre-tokenize profiles
         def tokenize_profile_ex(ex: Dict) -> Dict:
@@ -263,10 +265,10 @@ class WikipediaDataModule(LightningDataModule):
             tokenize_profile_ex,
             num_proc=max(1, self.num_workers),
         )
-        self.val_dataset = self.val_dataset.map(
-            tokenize_profile_ex,
-            num_proc=max(1, self.num_workers),
-        )
+        # self.val_dataset = self.val_dataset.map(
+        #     tokenize_profile_ex,
+        #     num_proc=max(1, self.num_workers),
+        # )
         self.test_dataset = self.test_dataset.map(
             tokenize_profile_ex,
             num_proc=max(1, self.num_workers),
@@ -277,19 +279,19 @@ class WikipediaDataModule(LightningDataModule):
         self.train_dataset = self.train_dataset.add_column(
             "text_key_id", list(range(len(self.train_dataset)))
         )
-        self.val_dataset = self.val_dataset.add_column(
-            "text_key_id", list(range(len(self.val_dataset)))
-        )
+        # self.val_dataset = self.val_dataset.add_column(
+        #     "text_key_id", list(range(len(self.val_dataset)))
+        # )
         self.test_dataset = self.test_dataset.add_column(
             "text_key_id", list(range(len(self.test_dataset)))
         )
 
-        # Truncate length of adv_val_dataset if it's too long. We need the profiles
-        # from self.val_dataset to evaluate it.
-        val_n = len([i for i in range(len(self.adv_val_dataset)) if i < len(self.val_dataset)])
-        adv_val_dataset_dict = self.adv_val_dataset.to_dict()
-        adv_val_dataset_dict = { k: v[:val_n] for k,v in adv_val_dataset_dict.items() }
-        self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset_dict)
+        # # Truncate length of adv_val_dataset if it's too long. We need the profiles
+        # # from self.val_dataset to evaluate it.
+        # val_n = len([i for i in range(len(self.adv_val_dataset)) if i < len(self.val_dataset)])
+        # adv_val_dataset_dict = self.adv_val_dataset.to_dict()
+        # adv_val_dataset_dict = { k: v[:val_n] for k,v in adv_val_dataset_dict.items() }
+        # self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset_dict)
 
         # Load nearest-neighbors to train set, if requested.
         if self.num_nearest_neighbors > 0:
@@ -306,57 +308,57 @@ class WikipediaDataModule(LightningDataModule):
             self.train_dataset = self.train_dataset.add_column(
                 "nearest_neighbor_idxs", train_nearest_neighbors
             )
-            # Load val nearest-neighbors
-            # embeddings/profile/model_3_3/val_nn.p
-            val_nn_file_path = os.path.join(base_folder, 'embeddings', 'profile', 'model_3_3', 'val_nn.p')
-            # val_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
-            assert os.path.exists(val_nn_file_path)
-            print("Loading val nearest-neighbors from:", val_nn_file_path)
-            val_nearest_neighbors = pickle.load(open(val_nn_file_path, 'rb'))
-            assert len(val_nearest_neighbors) >= len(self.val_dataset)
-            val_nearest_neighbors = val_nearest_neighbors[:len(self.val_dataset)]
-            self.val_dataset = self.val_dataset.add_column(
-                "nearest_neighbor_idxs", val_nearest_neighbors
-            )
-            # Load neighbors into adv_val_dataset too
-            adv_val_nearest_neighbors = val_nearest_neighbors[:len(self.adv_val_dataset)]
-            self.adv_val_dataset = self.adv_val_dataset.add_column(
-                "nearest_neighbor_idxs", adv_val_nearest_neighbors
-            )
+            # # Load val nearest-neighbors
+            # # embeddings/profile/model_3_3/val_nn.p
+            # val_nn_file_path = os.path.join(base_folder, 'embeddings', 'profile', 'model_3_3', 'val_nn.p')
+            # # val_nn_file_path = os.path.join(base_folder, 'nearest_neighbors', f'nn__{self.dataset_val_split}__256.p')
+            # assert os.path.exists(val_nn_file_path)
+            # print("Loading val nearest-neighbors from:", val_nn_file_path)
+            # val_nearest_neighbors = pickle.load(open(val_nn_file_path, 'rb'))
+            # assert len(val_nearest_neighbors) >= len(self.val_dataset)
+            # val_nearest_neighbors = val_nearest_neighbors[:len(self.val_dataset)]
+            # self.val_dataset = self.val_dataset.add_column(
+            #     "nearest_neighbor_idxs", val_nearest_neighbors
+            # )
+            # # Load neighbors into adv_val_dataset too
+            # adv_val_nearest_neighbors = val_nearest_neighbors[:len(self.adv_val_dataset)]
+            # self.adv_val_dataset = self.adv_val_dataset.add_column(
+            #     "nearest_neighbor_idxs", adv_val_nearest_neighbors
+            # )
         
         # Now disable parallelism
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
             
 
-    def _load_adv_val_data(self):
-        # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
-        # dataset don't have adversarial examples.
-        adv_idxs = list(
-            map(
-                int, 
-                open(os.path.join(self.base_folder, 'all_adv_csvs', 'adv_csvs/model_1/results_idx.txt')).readlines()
-                )
-        )[:1000]
-        adv_val_dataset = { "text_key_id": adv_idxs }
-
-        # Load CSV files with adversarial examples generated at different values of k.
-        for k in [1, 10, 100, 1000]:
-            df = pd.read_csv(os.path.join(self.base_folder, 'all_adv_csvs', f'adv_csvs/model_1/results_{k}_1000.csv'))
-            perturbed_text = df['perturbed_text'].map(
-                lambda t: (
-                    t
-                    .replace('<mask>', self.mask_token)
-                    .replace('<SPLIT>', '\n')
-                    .replace('-lrb- ', '(').replace(' -rrb-', ')')
-                    .strip()
-                )
-            )
-            adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
-
-        self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
+    # def _load_adv_val_data(self):
+    #     # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
+    #     # dataset don't have adversarial examples.
+    #     adv_idxs = list(
+    #         map(
+    #             int,
+    #             open(os.path.join(self.base_folder, 'all_adv_csvs', 'adv_csvs/model_1/results_idx.txt')).readlines()
+    #             )
+    #     )[:1000]
+    #     adv_val_dataset = { "text_key_id": adv_idxs }
+    #
+    #     # Load CSV files with adversarial examples generated at different values of k.
+    #     for k in [1, 10, 100, 1000]:
+    #         df = pd.read_csv(os.path.join(self.base_folder, 'all_adv_csvs', f'adv_csvs/model_1/results_{k}_1000.csv'))
+    #         perturbed_text = df['perturbed_text'].map(
+    #             lambda t: (
+    #                 t
+    #                 .replace('<mask>', self.mask_token)
+    #                 .replace('<SPLIT>', '\n')
+    #                 .replace('-lrb- ', '(').replace(' -rrb-', ')')
+    #                 .strip()
+    #             )
+    #         )
+    #         adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
+    #
+    #     self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
 
     def setup(self, stage: str) -> None:
-        self._load_adv_val_data()
+        # self._load_adv_val_data()
         self._load_train_and_val_data()
 
     def train_dataloader(self) -> DataLoader:

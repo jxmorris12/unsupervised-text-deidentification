@@ -13,7 +13,7 @@ import transformers
 from model import ContrastiveModel, ContrastiveCrossAttentionModel, CoordinateAscentModel
 
 
-@functools.lru_cache(max_size=None)
+@functools.lru_cache()
 def fuzz_ratio(s1: str, s2: str) -> bool:
     return fuzzywuzzy.fuzz.ratio(s1, s2)
 
@@ -31,7 +31,7 @@ def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
 def name_from_table_rows(table_rows: List[str]) -> str:
     """gets person's name from rows of a Wikipedia infobox"""
     try:
-        row = find_row_from_key(table_rows, key='name')
+        row = find_row_from_key(table_rows, key='PATIENT_NAME')
     except AssertionError:
         # a few articles have this key instead of a 'name' key
         row = find_row_from_key(table_rows, key='article_title')

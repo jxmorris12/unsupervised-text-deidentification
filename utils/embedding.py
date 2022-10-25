@@ -9,8 +9,8 @@ from tqdm import tqdm
 from model_cfg import model_paths_dict
 
 
-num_cpus = len(os.sched_getaffinity(0))
-
+# num_cpus = len(os.sched_getaffinity(0))
+num_cpus =1
 
 def get_profile_embeddings_dir_by_model_key(model_key: str) -> str:
     current_folder = os.path.dirname(os.path.abspath(__file__))
