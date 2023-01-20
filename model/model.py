@@ -417,28 +417,29 @@ class Model(LightningModule, abc.ABC):
         if torch.cuda.device_count() > 1:
             print(f'skipping validation on {torch.cuda.device_count()} gpus :)')
             return
-        val_outputs, adv_val_outputs = output_list
+        # val_outputs, adv_val_outputs = output_list
+        val_outputs = output_list
         text_key_id = torch.cat(
             [o['text_key_id'] for o in val_outputs], axis=0)
         profile_embeddings = torch.cat(
             [o['profile_embeddings'] for o in val_outputs], axis=0)
         # Compute loss on adversarial documents.
-        for k in [1, 10, 100, 1000]:
-            document_redact_adversarial_embeddings = torch.cat(
-                [o[f"adv_document_{k}"] for o in adv_val_outputs], axis=0)
-            # There may be far fewer adversarial documents than total profiles, so we only want to compare
-            # for the 'text_key_id' that we have adversarial profiles for.
-            adv_text_key_id = torch.cat([o['adv_text_key_id'] for o in adv_val_outputs], axis=0)
-            if adv_text_key_id.max().item() > len(profile_embeddings):
-                # If the validation set is too small, this will throw an error bc
-                # the corresponding profiles for the adversarially-masked documents
-                # aren't in the val set. In this case, just skip to the next run of
-                # the loop.
-                continue
-            self._compute_loss_exact(
-                document_redact_adversarial_embeddings.cuda(), profile_embeddings.cuda(), adv_text_key_id.cuda(),
-                metrics_key=f'val/document_redact_adversarial_{k}'
-            )
+        # for k in [1, 10, 100, 1000]:
+        #     document_redact_adversarial_embeddings = torch.cat(
+        #         [o[f"adv_document_{k}"] for o in adv_val_outputs], axis=0)
+        #     # There may be far fewer adversarial documents than total profiles, so we only want to compare
+        #     # for the 'text_key_id' that we have adversarial profiles for.
+        #     adv_text_key_id = torch.cat([o['adv_text_key_id'] for o in adv_val_outputs], axis=0)
+        #     if adv_text_key_id.max().item() > len(profile_embeddings):
+        #         # If the validation set is too small, this will throw an error bc
+        #         # the corresponding profiles for the adversarially-masked documents
+        #         # aren't in the val set. In this case, just skip to the next run of
+        #         # the loop.
+        #         continue
+        #     self._compute_loss_exact(
+        #         document_redact_adversarial_embeddings.cuda(), profile_embeddings.cuda(), adv_text_key_id.cuda(),
+        #         metrics_key=f'val/document_redact_adversarial_{k}'
+        #     )
 
         # Compute losses on regular + redacted documents.
         # TODO - make work on multi-gpu: https://github.com/Lightning-AI/lightning/issues/4175
@@ -474,6 +475,8 @@ class Model(LightningModule, abc.ABC):
             )
             doc_redact_idf_loss_total += doc_redact_idf_loss.item()
         self.log('val/document_redact_idf_total/loss', doc_redact_idf_loss_total)
+
+        print("doc_redact_idf_loss_total =", doc_redact_idf_loss_total)
 
         # Comment this part to disable scheduler in favor of manual scheduling
         # If there are multiple LR schedulers, call step() on all of them.

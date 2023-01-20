@@ -16,7 +16,7 @@ from transformers import AutoTokenizer
 from datamodule import WikipediaDataModule
 from utils import model_cls_dict
 
-USE_WANDB = False
+USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -39,7 +39,7 @@ def get_args() -> argparse.Namespace:
                         help='loss function to use for training'
                         )
 
-    parser.add_argument('--limit_val_batches', type=float, default=0.0,
+    parser.add_argument('--limit_val_batches', type=float, default=1.0,
                         help='\% of validation to use. ONLY reduce this for debugging.')
 
     parser.add_argument('--num_validations_per_epoch', type=int, default=1,
@@ -98,7 +98,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
     parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
-    # parser.add_argument('--dataset_version', type=str, default='1.2.0')
+    parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
                         help='run id for weights & biases')
@@ -141,7 +141,7 @@ def transformers_name_from_name(name: str) -> str:
 
 
 def main(args: argparse.Namespace):
-    # assert torch.cuda.is_available(), "need CUDA for training!"
+    assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
 
     document_model = transformers_name_from_name(args.document_model_name)
@@ -154,7 +154,7 @@ def main(args: argparse.Namespace):
         dataset_name=args.dataset_name,
         dataset_train_split=args.dataset_train_split,
         dataset_val_split=args.dataset_val_split,
-        # dataset_version=args.dataset_version,
+        dataset_version=args.dataset_version,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
         profile_row_dropout_perc=args.profile_row_dropout_perc,
@@ -163,8 +163,7 @@ def main(args: argparse.Namespace):
         sample_spans=args.sample_spans,
         train_batch_size=args.batch_size,
         eval_batch_size=args.batch_size,
-        num_workers = 1,
-        # num_workers=round(num_cpus / torch.cuda.device_count()),
+        num_workers=round(num_cpus / torch.cuda.device_count()),
         num_nearest_neighbors=args.num_nearest_neighbors,
     )
     dm.setup("fit")
@@ -241,7 +240,7 @@ def main(args: argparse.Namespace):
         import wandb
         from pytorch_lightning.loggers import WandbLogger
 
-        wandb_project = 'deid-wikibio-5'
+        wandb_project = 'deid-wikibio-6'
         if args.loss_function == 'contrastive_cross_attention':
             wandb_project += '-cross-encoder'
 
@@ -313,13 +312,14 @@ def main(args: argparse.Namespace):
                 ] + checkpoints
 
     print("creating Trainer")
+    breakpoint()
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
-        val_check_interval=0.0 / args.num_validations_per_epoch,
+        val_check_interval=(1.0 / args.num_validations_per_epoch),
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
-        limit_train_batches=1.0, # change this to make training faster (1.0 = full train set),
+        limit_train_batches=10, # change this to make training faster (1.0 = full train set),
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
         gpus=torch.cuda.device_count(),

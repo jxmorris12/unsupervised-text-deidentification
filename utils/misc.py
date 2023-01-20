@@ -5,7 +5,6 @@ import functools
 import itertools
 import re
 
-import fuzzywuzzy.fuzz
 import pandas as pd
 import torch
 import transformers
@@ -15,6 +14,7 @@ from model import ContrastiveModel, ContrastiveCrossAttentionModel, CoordinateAs
 
 @functools.lru_cache()
 def fuzz_ratio(s1: str, s2: str) -> bool:
+    import fuzzywuzzy.fuzz
     return fuzzywuzzy.fuzz.ratio(s1, s2)
 
 
@@ -31,7 +31,7 @@ def find_row_from_key(table_rows: List[str], key: str) -> Tuple[str, str]:
 def name_from_table_rows(table_rows: List[str]) -> str:
     """gets person's name from rows of a Wikipedia infobox"""
     try:
-        row = find_row_from_key(table_rows, key='PATIENT_NAME')
+        row = find_row_from_key(table_rows, key='name')
     except AssertionError:
         # a few articles have this key instead of a 'name' key
         row = find_row_from_key(table_rows, key='article_title')

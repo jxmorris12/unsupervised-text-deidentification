@@ -1,6 +1,7 @@
 __pycache__/
 notebooks/.ipynb_checkpoints/
 
+.idea/
 *.zip
 
 checkpoints/
