@@ -163,7 +163,7 @@ class Model(LightningModule, abc.ABC):
         """
         assert len(document_embeddings.shape) == len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         assert document_embeddings.shape[1] == profile_embeddings.shape[1] # embedding dims must match
-        assert len(document_idxs.shape) == 1
+        assert len(document_idxs.shape) == 2
         batch_size = len(document_embeddings)
         # Normalize embeddings before computing similarity
         # Commented-out because the DPR paper ("Dense Passage Retrieval for Open-Domain Question Answering") reports
@@ -173,13 +173,14 @@ class Model(LightningModule, abc.ABC):
         # Match documents to profiles
         document_to_profile_sim = torch.matmul(document_embeddings, profile_embeddings.T)
         document_to_profile_sim *= self.temperature.exp()
+
         loss = torch.nn.functional.cross_entropy(
             document_to_profile_sim, document_idxs, label_smoothing=self.label_smoothing
         )
         self.log(f"{metrics_key}/loss", loss)
 
-        # Also track a boolean mask for which things were correct.
-        is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs)
+        # Also track a boolean mask for which things were correct (ish...).
+        is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs.argmax(dim=1))
 
         # Log top-k accuracies.
         # for k in [1, 5, 10, 50, 100, 500, 1000]:
@@ -414,6 +415,9 @@ class Model(LightningModule, abc.ABC):
         return output
 
     def validation_epoch_end(self, output_list: List[List[Dict[str, torch.Tensor]]]) -> torch.Tensor:
+        """Compute losses on regular + redacted documents.
+        TODO - make work on multi-gpu: https://github.com/Lightning-AI/lightning/issues/4175
+        """
         if torch.cuda.device_count() > 1:
             print(f'skipping validation on {torch.cuda.device_count()} gpus :)')
             return
@@ -421,62 +425,45 @@ class Model(LightningModule, abc.ABC):
         val_outputs = output_list
         text_key_id = torch.cat(
             [o['text_key_id'] for o in val_outputs], axis=0)
+
+        labels = (
+            text_key_id[:, None] == text_key_id[None, :]
+        ).float().softmax(dim=1)
+
         profile_embeddings = torch.cat(
             [o['profile_embeddings'] for o in val_outputs], axis=0)
-        # Compute loss on adversarial documents.
-        # for k in [1, 10, 100, 1000]:
-        #     document_redact_adversarial_embeddings = torch.cat(
-        #         [o[f"adv_document_{k}"] for o in adv_val_outputs], axis=0)
-        #     # There may be far fewer adversarial documents than total profiles, so we only want to compare
-        #     # for the 'text_key_id' that we have adversarial profiles for.
-        #     adv_text_key_id = torch.cat([o['adv_text_key_id'] for o in adv_val_outputs], axis=0)
-        #     if adv_text_key_id.max().item() > len(profile_embeddings):
-        #         # If the validation set is too small, this will throw an error bc
-        #         # the corresponding profiles for the adversarially-masked documents
-        #         # aren't in the val set. In this case, just skip to the next run of
-        #         # the loop.
-        #         continue
-        #     self._compute_loss_exact(
-        #         document_redact_adversarial_embeddings.cuda(), profile_embeddings.cuda(), adv_text_key_id.cuda(),
-        #         metrics_key=f'val/document_redact_adversarial_{k}'
-        #     )
-
-        # Compute losses on regular + redacted documents.
-        # TODO - make work on multi-gpu: https://github.com/Lightning-AI/lightning/issues/4175
+        
         document_embeddings = torch.cat(
             [o['document_embeddings'] for o in val_outputs], axis=0)
         _, doc_loss = self._compute_loss_exact(
-            document_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
+            document_embeddings.cuda(), profile_embeddings.cuda(), labels,
             metrics_key='val/document'
         )
 
         document_redact_ner_embeddings = torch.cat(
             [o['document_redact_ner_embeddings'] for o in val_outputs], axis=0)
         _, doc_redact_ner_loss = self._compute_loss_exact(
-            document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
+            document_redact_ner_embeddings.cuda(), profile_embeddings.cuda(), labels,
             metrics_key='val/document_redact_ner'
         )
 
         document_redact_lexical_embeddings = torch.cat(
             [o['document_redact_lexical_embeddings'] for o in val_outputs], axis=0)
         _, doc_redact_lexical_loss = self._compute_loss_exact(
-            document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
+            document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), labels,
             metrics_key='val/document_redact_lexical'
         )
-
 
         doc_redact_idf_loss_total = 0.0
         for n in [20, 40, 60, 80]:
             document_redact_idf_embeddings = torch.cat(
                 [o[f'document_redact_idf_{n}_embeddings'] for o in val_outputs], axis=0)
             _, doc_redact_idf_loss = self._compute_loss_exact(
-                document_redact_idf_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
+                document_redact_idf_embeddings.cuda(), profile_embeddings.cuda(), labels,
                 metrics_key=f'val/document_redact_idf_{n}'
             )
             doc_redact_idf_loss_total += doc_redact_idf_loss.item()
         self.log('val/document_redact_idf_total/loss', doc_redact_idf_loss_total)
-
-        print("doc_redact_idf_loss_total =", doc_redact_idf_loss_total)
 
         # Comment this part to disable scheduler in favor of manual scheduling
         # If there are multiple LR schedulers, call step() on all of them.

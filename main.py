@@ -13,10 +13,10 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from transformers import AutoTokenizer
 
-from datamodule import WikipediaDataModule
+from datamodule import WikipediaDataModule, DalioDataModule
 from utils import model_cls_dict
 
-USE_WANDB = True
+USE_WANDB = False
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -246,7 +246,8 @@ def main(args: argparse.Namespace):
         import wandb
         from pytorch_lightning.loggers import WandbLogger
 
-        wandb_project = 'deid-wikibio-6'
+        # wandb_project = 'deid-wikibio-6'
+        wandb_project = 'deid-dalio-1'
         if args.loss_function == 'contrastive_cross_attention':
             wandb_project += '-cross-encoder'
 
@@ -269,12 +270,11 @@ def main(args: argparse.Namespace):
     # (maybe because I usually kill runs before they finish?).
     loggers.append(CSVLogger("logs"))
 
-    # TODO: argparse for val_metric?
-    # val_metric = "val/document/loss"
+    val_metric = "val/document/loss"
     # val_metric = "val/document_redact_lexical/loss"
     # val_metric = "val/document_redact_ner/loss"
     # val_metric = "val/document_redact_adversarial_100/loss"
-    val_metric = "val/document_redact_idf_total/loss"
+    # val_metric = "val/document_redact_idf_total/loss"
     # val_metric = "train/loss"
     early_stopping_patience = (args.lr_scheduler_patience * 50 * args.num_validations_per_epoch)
 
@@ -289,14 +289,21 @@ def main(args: argparse.Namespace):
                 save_on_train_epoch_end=True,
             ),
             # ModelCheckpoint(monitor="val/document_redact_adversarial_100/loss", mode="min", filename="{epoch}-{step}-adv100_loss", save_last=True, save_top_k=args.model_ckpt_save_top_k),
+            # ModelCheckpoint(
+            #     monitor="val/document_redact_idf_total/loss",
+            #     mode="min",
+            #     filename="{epoch}-{step}-idf_total",
+            #     save_last=True,
+            #     save_top_k=args.model_ckpt_save_top_k,
+            #     save_on_train_epoch_end=True
+            # )
             ModelCheckpoint(
-                monitor="val/document_redact_idf_total/loss",
-                mode="min",
-                filename="{epoch}-{step}-idf_total",
+                monitor=None,
+                filename="{epoch}-{step}",
                 save_last=True,
                 save_top_k=args.model_ckpt_save_top_k,
-                save_on_train_epoch_end=True
-            )
+                save_on_train_epoch_end=True,
+            ),
         ]
     else:
         checkpoints = [
@@ -318,7 +325,6 @@ def main(args: argparse.Namespace):
                 ] + checkpoints
 
     print("creating Trainer")
-    breakpoint()
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
         val_check_interval=(1.0 / args.num_validations_per_epoch),
@@ -339,6 +345,7 @@ def main(args: argparse.Namespace):
         datamodule=dm,
         ckpt_path=checkpoint_path
     )
+    print("training finished.")
 
 
 if __name__ == '__main__':

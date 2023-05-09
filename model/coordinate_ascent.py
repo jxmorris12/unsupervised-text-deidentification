@@ -13,7 +13,9 @@ class CoordinateAscentModel(Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.train_document_embeddings = None
+        self.train_document_idxs = None
         self.train_profile_embeddings = None
+        self.train_profile_idxs = None
     
     def _precompute_profile_embeddings(self):
         self.profile_model.to(self.device)
@@ -23,12 +25,15 @@ class CoordinateAscentModel(Model):
         self.profile_model.train()
         self.profile_embed.train()
         # print(f'Precomputing profile embeddings at epoch {self.current_epoch}...')
-        self.train_profile_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+        self.train_profile_embeddings = []
+        train_profile_idxs = []
         for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing profile embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 profile_embeddings = self.forward_profile(batch=train_batch)
-            self.train_profile_embeddings[train_batch["text_key_id"]] = profile_embeddings.cpu()
-        self.train_profile_embeddings = torch.tensor(self.train_profile_embeddings, dtype=torch.float32)
+            self.train_profile_embeddings.append(profile_embeddings.cpu())
+            train_profile_idxs.extend(train_batch["text_key_id"].cpu())
+        self.train_profile_embeddings = torch.cat(self.train_profile_embeddings, dim=0)
+        self.train_profile_idxs = torch.stack(train_profile_idxs, dim=0)
     
     def _precompute_document_embeddings(self):
         self.document_model.to(self.device)
@@ -36,12 +41,15 @@ class CoordinateAscentModel(Model):
         # self.document_model.eval()
         self.document_model.train()
         # print(f'Precomputing document embeddings at epoch {self.current_epoch}...')
-        self.train_document_embeddings = np.zeros((len(self.trainer.datamodule.train_dataset), self.shared_embedding_dim))
+        train_document_idxs = []
+        self.train_document_embeddings = []
         for train_batch in tqdm.tqdm(self.trainer.train_dataloader.loaders, desc="Precomputing document embeddings", colour="magenta", leave=False):
             with torch.no_grad():
                 document_embeddings = self.forward_document(batch=train_batch, document_type='document')
-            self.train_document_embeddings[train_batch["text_key_id"]] = document_embeddings.cpu()
-        self.train_document_embeddings = torch.tensor(self.train_document_embeddings, dtype=torch.float32)
+            self.train_document_embeddings.append(document_embeddings.cpu())
+            train_document_idxs.extend(train_batch["text_key_id"].cpu())
+        self.train_document_embeddings = torch.cat(self.train_document_embeddings, dim=0)
+        self.train_document_idxs = torch.stack(train_document_idxs, dim=0)
         self.document_model.train()
 
     def on_train_epoch_start(self):
@@ -51,6 +59,7 @@ class CoordinateAscentModel(Model):
             self.train_document_embeddings = None
             self._precompute_profile_embeddings()
             self.train_profile_embeddings = self.train_profile_embeddings.to(self.device)
+            self.train_profile_idxs = self.train_profile_idxs.to(self.device)
             # 
             self.document_model.to(self.device)
             self.document_model.train()
@@ -64,6 +73,7 @@ class CoordinateAscentModel(Model):
             self.train_profile_embeddings = None
             self._precompute_document_embeddings()
             self.train_document_embeddings = self.train_document_embeddings.to(self.device)
+            self.train_document_idxs = self.train_document_idxs.to(self.device)
             # 
             self.document_model.cpu()
             self.document_embed.cpu()
@@ -112,8 +122,11 @@ class CoordinateAscentModel(Model):
             batch=batch, document_type='document', return_inputs=True
         )
 
+        labels = (
+            batch['text_key_id'][:, None] == self.train_profile_idxs[None, :]
+        ).float().softmax(dim=1)
         is_correct, loss = self._compute_loss_exact(
-            document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
+            document_embeddings, self.train_profile_embeddings, labels,
             metrics_key='train'
         )
 
@@ -129,8 +142,11 @@ class CoordinateAscentModel(Model):
         """One step of training where training is supposed to update  `self.profile_model`."""
         profile_embeddings = self.forward_profile(batch=batch)
 
+        labels = (
+            batch['text_key_id'][:, None] == self.train_profile_idxs[None, :]
+        ).float().softmax(dim=1)
         is_correct, loss = self._compute_loss_exact(
-            profile_embeddings, self.train_document_embeddings, batch['text_key_id'],
+            profile_embeddings, self.train_document_embeddings, labels,
             metrics_key='train'
         )
 

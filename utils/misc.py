@@ -121,25 +121,25 @@ def create_document_and_profile_from_dalio(ex: Dict[str, str],) -> Dict[str, str
        'address_1', 'address_2', 'city', 'state', 'zip', 'county',
         # missing: name...
     ]
-    profile_values = [ex[key] for key in profile_keys]
+    profile_values = [str(ex[key]).strip() for key in profile_keys]
 
     table_rows = list(zip(profile_keys, profile_values))
     table_text = '\n'.join([' || '.join(row) for row in table_rows])
 
-    fixed_target_text = ex['note_text\n'].srip()
+    note_text = ex['note_text\n'].strip()
 
     # return example: transformed table + first paragraph
     return {
-        'name': ex[''],
-        'document': fixed_target_text,                          # First paragraph of biography
+        'name': str(ex['person_id']),
+        'document': note_text,                          # First paragraph of biography
         'profile': table_text,                                  # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,      # Table with name removed
         'profile_keys': '||'.join(profile_keys),                # Keys in profile box
         'profile_values': '||'.join(profile_values),            # Values in profile box
-        'text_key': ex['target_text'] + ' ' + table_text,       # (document, profile) str key
-        'text_key_id': int(person_id),                          # The ID of the person
-                                                        # (careful! this will be used 
-                                                        #           for optimization!)
+        'text_key': note_text + ' ' + table_text,               # (document, profile) str key
+        'text_key_id': int(ex['person_id']),                    # The ID of the person
+                                                                #   (careful! this will be used 
+                                                                #    for optimization!)
     }
 
 

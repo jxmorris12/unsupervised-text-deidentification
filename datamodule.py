@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, List, Union, Tuple
 
 # import cPickle as pickle
 import pickle
@@ -430,7 +430,7 @@ class DalioDataModule(WikipediaDataModule):
         csv_path = '/home/jxm3/research/deidentification/unsupervised-deidentification/test_dalio.csv'
 
         df = pd.read_csv(csv_path)
-        dataset = load_dataset("csv", data_files=csv_path)
+        dataset = datasets.load_dataset("csv", data_files=csv_path)["train"]
         dataset_dict = dataset.train_test_split(test_size=0.1)
 
         train_dataset = dataset_dict["train"]
