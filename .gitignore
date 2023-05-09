@@ -16,3 +16,4 @@ notebooks/
 results/
 saves/
 wandb/
+*.csv
