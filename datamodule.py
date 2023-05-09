@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
 from redact import remove_named_entities_bert_batch, remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
-from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
+from utils import create_document_and_profile_from_dalio, create_document_and_profile_from_wikibio, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
 
 # 
 # TODO: Consider filtering data to have > 10 words or something? And maybe a certain
@@ -136,31 +136,49 @@ class WikipediaDataModule(LightningDataModule):
         self.mask_token = self.document_tokenizer.mask_token
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
+    
 
-    def _load_train_and_val_data(self):
-        version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
-
+    def _load_datasets(self) -> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
-        self.train_dataset = datasets.load_dataset(
+        train_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
 
          # wiki_bio val size: 72,831
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
-        self.val_dataset = datasets.load_dataset(
+        val_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
         )
         # wiki_bio test size: 72,831
         print(f"loading {self.dataset_name} split {self.dataset_test_split}")
-        self.test_dataset = datasets.load_dataset(
+        test_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
         )
 
-        self.train_dataset = self.train_dataset.map(
+        train_dataset = train_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)
-        self.val_dataset = self.val_dataset.map(
+        val_dataset = val_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)
-        self.test_dataset = self.test_dataset.map(
+        test_dataset = test_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)
+
+        # Add index column to dataset, so that we can track which profiles match to which
+        # documents from precomputed embeddings.
+        train_dataset = self.train_dataset.add_column(
+            "text_key_id", list(range(len(self.train_dataset)))
+        )
+        val_dataset = self.val_dataset.add_column(
+            "text_key_id", list(range(len(self.val_dataset)))
+        )
+        test_dataset = self.test_dataset.add_column(
+            "text_key_id", list(range(len(self.test_dataset)))
+        )
+        return (train_dataset, val_dataset, test_dataset)
+
+
+    def _load_train_and_val_data(self):
+        version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
+
+        self.train_dataset, self.val_dataset, self.test_dataset = self._load_datasets()
         
         def redact_example(
                 redact_func: Callable,
@@ -270,18 +288,6 @@ class WikipediaDataModule(LightningDataModule):
             num_proc=max(1, self.num_workers),
         )
 
-        # Add index column to dataset, so that we can track which profiles match to which
-        # documents from precomputed embeddings.
-        self.train_dataset = self.train_dataset.add_column(
-            "text_key_id", list(range(len(self.train_dataset)))
-        )
-        self.val_dataset = self.val_dataset.add_column(
-            "text_key_id", list(range(len(self.val_dataset)))
-        )
-        self.test_dataset = self.test_dataset.add_column(
-            "text_key_id", list(range(len(self.test_dataset)))
-        )
-
         # # Truncate length of adv_val_dataset if it's too long. We need the profiles
         # # from self.val_dataset to evaluate it.
         # val_n = len([i for i in range(len(self.adv_val_dataset)) if i < len(self.val_dataset)])
@@ -324,34 +330,6 @@ class WikipediaDataModule(LightningDataModule):
         
         # Now disable parallelism
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            
-
-    # def _load_adv_val_data(self):
-    #     # Load column with indices of adversarial examples, since it's not just 0-1000, some examples in the
-    #     # dataset don't have adversarial examples.
-    #     adv_idxs = list(
-    #         map(
-    #             int,
-    #             open(os.path.join(self.base_folder, 'all_adv_csvs', 'adv_csvs/model_1/results_idx.txt')).readlines()
-    #             )
-    #     )[:1000]
-    #     adv_val_dataset = { "text_key_id": adv_idxs }
-    #
-    #     # Load CSV files with adversarial examples generated at different values of k.
-    #     for k in [1, 10, 100, 1000]:
-    #         df = pd.read_csv(os.path.join(self.base_folder, 'all_adv_csvs', f'adv_csvs/model_1/results_{k}_1000.csv'))
-    #         perturbed_text = df['perturbed_text'].map(
-    #             lambda t: (
-    #                 t
-    #                 .replace('<mask>', self.mask_token)
-    #                 .replace('<SPLIT>', '\n')
-    #                 .replace('-lrb- ', '(').replace(' -rrb-', ')')
-    #                 .strip()
-    #             )
-    #         )
-    #         adv_val_dataset[f"adv_document_{k}"] = perturbed_text.tolist()
-    #
-    #     self.adv_val_dataset = datasets.Dataset.from_dict(adv_val_dataset)
 
     def setup(self, stage: str) -> None:
         # self._load_adv_val_data()
@@ -373,13 +351,8 @@ class WikipediaDataModule(LightningDataModule):
             document_types=["document"],
             is_train_dataset=True
         )
-        # sampler = torch.utils.data.RandomSampler(
-        #     train_tokenizing_dataset, replacement=True,
-        #     num_samples=len(self.train_dataset)
-        # )
         return DataLoader(
             train_tokenizing_dataset,
-            # sampler=sampler,
             persistent_workers=(self.num_workers > 0),
             batch_size=self.train_batch_size,
             num_workers=self.num_workers,
@@ -395,8 +368,6 @@ class WikipediaDataModule(LightningDataModule):
             "document_redact_idf_20",  "document_redact_idf_40",
             "document_redact_idf_60",  "document_redact_idf_80"
         ]
-        # if self.do_bert_ner_redaction:
-            # document_types += ["document_redact_ner_bert"]
         
         val_tokenizing_dataset = MaskingTokenizingDataset(
             self.val_dataset,
@@ -413,20 +384,6 @@ class WikipediaDataModule(LightningDataModule):
             document_types=document_types,
             is_train_dataset=False
         )
-        # adv_val_tokenizing_dataset = MaskingTokenizingDataset(
-        #     self.adv_val_dataset,
-        #     document_tokenizer=self.document_tokenizer,
-        #     profile_tokenizer=None,
-        #     max_seq_length=self.max_seq_length,
-        #     word_dropout_ratio=0.0,
-        #     word_dropout_perc=0.0,
-        #     profile_row_dropout_perc=0.0,
-        #     sample_spans=False,
-        #     adversarial_masking=False,
-        #     idf_masking=False,
-        #     document_types=["adv_document_1", "adv_document_10", "adv_document_100", "adv_document_1000"],
-        #     is_train_dataset=False
-        # )
         return DataLoader(
             val_tokenizing_dataset,
             batch_size=self.eval_batch_size,
@@ -435,24 +392,6 @@ class WikipediaDataModule(LightningDataModule):
             pin_memory=True,
             shuffle=False
         )
-        # return [
-        #     DataLoader(
-        #         val_tokenizing_dataset,
-        #         batch_size=self.eval_batch_size,
-        #         num_workers=min(self.num_workers, 8),
-        #         persistent_workers=(self.num_workers > 0),
-        #         pin_memory=True,
-        #         shuffle=False
-        #     ),
-        #     DataLoader(
-        #         adv_val_tokenizing_dataset,
-        #         batch_size=self.eval_batch_size,
-        #         num_workers=min(self.num_workers, 8),
-        #         persistent_workers=(self.num_workers > 0),
-        #         pin_memory=True,
-        #         shuffle=False
-        #     )
-        # ]
 
     def test_dataloader(self) -> DataLoader:
         document_types = [
@@ -484,3 +423,25 @@ class WikipediaDataModule(LightningDataModule):
             pin_memory=True,
             shuffle=False
         )
+
+
+class DalioDataModule(WikipediaDataModule):
+    def _load_datasets(self) -> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
+        csv_path = '/home/jxm3/research/deidentification/unsupervised-deidentification/test_dalio.csv'
+
+        df = pd.read_csv(csv_path)
+        dataset = load_dataset("csv", data_files=csv_path)
+        dataset_dict = dataset.train_test_split(test_size=0.1)
+
+        train_dataset = dataset_dict["train"]
+        val_dataset = dataset_dict["test"]
+        test_dataset = dataset_dict["test"]
+
+        train_dataset = train_dataset.map(
+            create_document_and_profile_from_dalio, num_proc=1)
+        val_dataset = val_dataset.map(
+            create_document_and_profile_from_dalio, num_proc=1)
+        test_dataset = test_dataset.map(
+            create_document_and_profile_from_dalio, num_proc=1)
+
+        return (train_dataset, val_dataset, test_dataset)

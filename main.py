@@ -20,8 +20,13 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# num_cpus = len(os.sched_getaffinity(0))
-num_cpus = 1
+num_cpus = len(os.sched_getaffinity(0))
+
+
+DATAMODULE_CLS = {
+    'wiki_bio': WikipediaDataModule,
+    'dalio':    DalioDataModule,
+}
 
 
 def get_args() -> argparse.Namespace:
@@ -51,7 +56,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--grad_norm_clip', type=float, default=10.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
-    # parser.add_argument('--precision', type=int, default=32)
 
     parser.add_argument('--num_nearest_neighbors', '--n', type=int, default=0,
                         help='number of negative samples for contrastive loss'
@@ -100,6 +104,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
+    parser.add_argument('--datamodule', type=str, choices=('wiki_bio', 'dalio'))
+
     parser.add_argument('--wandb_run_id', type=str, default=None,
                         help='run id for weights & biases')
 
@@ -147,7 +153,7 @@ def main(args: argparse.Namespace):
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
 
-    dm = WikipediaDataModule(
+    dm = DATAMODULE_CLS[args.datamodule](
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         max_seq_length=args.max_seq_length,

@@ -66,6 +66,7 @@ def wikibio_example_has_non_redacted_rows(ex: Dict[str, str]) -> bool:
     table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
     return len(set(table_column_header) - set(redacted_headers)) > 0
 
+
 def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
@@ -103,6 +104,42 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, s
         'profile_keys': '||'.join(profile_keys),                # Keys in profile box
         'profile_values': '||'.join(profile_values),            # Values in profile box
         'text_key': ex['target_text'] + ' ' + table_text,       # (document, profile) str key
+    }
+
+
+def create_document_and_profile_from_dalio(ex: Dict[str, str],) -> Dict[str, str]:
+    """
+    transforms dalio example into (document, profile) pair
+    """
+    profile_keys = [
+       # 'index', 
+        'person_id', 
+       # 'note_id', 'note_date', 'note_datetime', 
+       # 'note_type', 'note_class', 'note_words'
+       'empi_id', 'mrn', 'gender', 'year_of_birth', 'month_of_birth',
+       'day_of_birth', 'race', 'ethnicity', 'death_date', 'death_datetime',
+       'address_1', 'address_2', 'city', 'state', 'zip', 'county',
+        # missing: name...
+    ]
+    profile_values = [ex[key] for key in profile_keys]
+
+    table_rows = list(zip(profile_keys, profile_values))
+    table_text = '\n'.join([' || '.join(row) for row in table_rows])
+
+    fixed_target_text = ex['note_text\n'].srip()
+
+    # return example: transformed table + first paragraph
+    return {
+        'name': ex[''],
+        'document': fixed_target_text,                          # First paragraph of biography
+        'profile': table_text,                                  # Table re-printed as a string
+        # 'profile_without_name': table_text_without_name,      # Table with name removed
+        'profile_keys': '||'.join(profile_keys),                # Keys in profile box
+        'profile_values': '||'.join(profile_values),            # Values in profile box
+        'text_key': ex['target_text'] + ' ' + table_text,       # (document, profile) str key
+        'text_key_id': int(person_id),                          # The ID of the person
+                                                        # (careful! this will be used 
+                                                        #           for optimization!)
     }
 
 
