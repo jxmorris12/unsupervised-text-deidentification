@@ -6,3 +6,4 @@ pytorch-lightning
 tokenizers
 torch
 transformers
+nltk
