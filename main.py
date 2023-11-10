@@ -318,7 +318,7 @@ def main(args: argparse.Namespace):
                 ] + checkpoints
 
     print("creating Trainer")
-    breakpoint()
+    # breakpoint()
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
         val_check_interval=(1.0 / args.num_validations_per_epoch),
