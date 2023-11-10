@@ -109,6 +109,16 @@ Solution : Install "en_core_web_sm" using the following command
 
 [Similar command might work for other models as well]
 
+#### ERROR Error while calling W&B API: project not found (<Response [404]>)
+
+Solution : Make sure you have a project on wandb that you want to use for this experiment. Add that project name to the command line arguments using the following flag:
+```--wandb_project_name <project_name>```
+
+Also, make sure you provide an eentity which can access that project. You can do this by using the following flag:
+```--wandb_entity <entity>```
+
+Also, make sure the wandb API_key provided corresponds to the user of which the project is used.
+
 
 ### Citation
 
