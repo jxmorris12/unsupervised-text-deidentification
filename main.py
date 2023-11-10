@@ -30,7 +30,8 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument('--checkpoint_path', type=str, default='./models_weights/model.ckpt')
+    parser.add_argument('--checkpoint_path', type=str, default='')
+    parser.add_argument('--save_path', type=str, default='')
     parser.add_argument('--checkpoint_vnum', type=str, default='')
 
     parser.add_argument('--loss_function', '--loss_fn', '--loss', type=str,
@@ -338,7 +339,7 @@ def main(args: argparse.Namespace):
     trainer.fit(
         model=model,
         datamodule=dm,
-        ckpt_path=checkpoint_path
+        ckpt_path=args.save_path
     )
 
 
