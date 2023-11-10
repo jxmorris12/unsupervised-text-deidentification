@@ -328,7 +328,7 @@ def main(args: argparse.Namespace):
         limit_train_batches=10, # change this to make training faster (1.0 = full train set),
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
-        gpus=torch.cuda.device_count(),
+        num_nodes=torch.cuda.device_count(),
         logger=loggers,
         num_sanity_val_steps=0,
         strategy=('ddp' if torch.cuda.device_count() > 1 else None),
