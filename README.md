@@ -100,6 +100,15 @@ python main.py --epochs 60 --batch_size 128 --max_seq_length 128 --word_dropout_
 
 ## analysis example
 
+## Troubleshooting
+
+#### OSError: [E050] Can't find model 'en_core_web_sm'. It doesn't seem to be a Python package or a valid path to a data directory.
+
+Solution : Install "en_core_web_sm" using the following command
+```python -m spacy download en_core_web_sm```
+
+[Similar command might work for other models as well]
+
 
 ### Citation
 
