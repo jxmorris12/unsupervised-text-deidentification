@@ -102,6 +102,11 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
                         help='run id for weights & biases')
+    
+    parser.add_argument('--wandb_project_name', type=str, default='deid-wikibio-6',
+                        help='project name for weights & biases')
+    
+    parser.add_argument('--wandb_entity', type=str, default='jack-morris', help='entity which have access for weights & biases')
 
     args = parser.parse_args()
 
@@ -240,7 +245,8 @@ def main(args: argparse.Namespace):
         import wandb
         from pytorch_lightning.loggers import WandbLogger
 
-        wandb_project = 'deid-wikibio-6'
+        wandb_project = args.wandb_project_name
+        wandb_entity = args.wandb_entity
         if args.loss_function == 'contrastive_cross_attention':
             wandb_project += '-cross-encoder'
 
@@ -249,7 +255,7 @@ def main(args: argparse.Namespace):
             project=wandb_project,
             config=vars(args),
             job_type='train',
-            entity='jack-morris',
+            entity=wandb_entity,
             id=args.wandb_run_id  # None, or set to a str for resuming a run
         )
         wandb_logger.watch(model, log_graph=False)
