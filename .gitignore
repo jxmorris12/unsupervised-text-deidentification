@@ -17,3 +17,4 @@ results/
 saves/
 wandb/
 *.csv
+models_weights/
