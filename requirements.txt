@@ -8,3 +8,4 @@ torch
 transformers
 nltk
 spacy
+wandb
