@@ -331,7 +331,7 @@ def main(args: argparse.Namespace):
         num_nodes=torch.cuda.device_count(),
         logger=loggers,
         num_sanity_val_steps=0,
-        strategy=('ddp' if torch.cuda.device_count() > 1 else None),
+        strategy=('ddp' if torch.cuda.device_count() > 1 else 'auto'),
         # precision=args.precision
     )
     trainer.fit(
