@@ -143,17 +143,19 @@ class WikipediaDataModule(LightningDataModule):
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
         self.train_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
-
+        print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
         self.val_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
         )
+        print(f"val_dataset size: {len(self.val_dataset)}")
         # wiki_bio test size: 72,831
         print(f"loading {self.dataset_name} split {self.dataset_test_split}")
         self.test_dataset = datasets.load_dataset(
             self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
         )
+        print(f"test_dataset size: {len(self.test_dataset)}")
 
         self.train_dataset = self.train_dataset.map(
             create_document_and_profile_from_wikibio, num_proc=1)

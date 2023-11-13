@@ -102,6 +102,11 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
                         help='run id for weights & biases')
+    
+    parser.add_argument('--wandb_project_name', type=str, default='deid-wikibio-6',
+                        help='project name for weights & biases')
+    
+    parser.add_argument('--wandb_entity', type=str, default='jack-morris', help='entity which have access for weights & biases')
 
     args = parser.parse_args()
 
@@ -240,7 +245,8 @@ def main(args: argparse.Namespace):
         import wandb
         from pytorch_lightning.loggers import WandbLogger
 
-        wandb_project = 'deid-wikibio-6'
+        wandb_project = args.wandb_project_name
+        wandb_entity = args.wandb_entity
         if args.loss_function == 'contrastive_cross_attention':
             wandb_project += '-cross-encoder'
 
@@ -249,7 +255,7 @@ def main(args: argparse.Namespace):
             project=wandb_project,
             config=vars(args),
             job_type='train',
-            entity='jack-morris',
+            entity=wandb_entity,
             id=args.wandb_run_id  # None, or set to a str for resuming a run
         )
         wandb_logger.watch(model, log_graph=False)
@@ -312,7 +318,7 @@ def main(args: argparse.Namespace):
                 ] + checkpoints
 
     print("creating Trainer")
-    breakpoint()
+    # breakpoint()
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
         val_check_interval=(1.0 / args.num_validations_per_epoch),
@@ -322,10 +328,11 @@ def main(args: argparse.Namespace):
         limit_train_batches=10, # change this to make training faster (1.0 = full train set),
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
-        gpus=torch.cuda.device_count(),
+        devices=torch.cuda.device_count(),
+        accelerator='gpu',
         logger=loggers,
         num_sanity_val_steps=0,
-        strategy=('ddp' if torch.cuda.device_count() > 1 else None),
+        strategy=('ddp' if torch.cuda.device_count() > 1 else 'auto'),
         # precision=args.precision
     )
     trainer.fit(
