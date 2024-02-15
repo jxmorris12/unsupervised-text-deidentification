@@ -100,6 +100,25 @@ python main.py --epochs 60 --batch_size 128 --max_seq_length 128 --word_dropout_
 
 ## analysis example
 
+## Troubleshooting
+
+#### OSError: [E050] Can't find model 'en_core_web_sm'. It doesn't seem to be a Python package or a valid path to a data directory.
+
+Solution : Install "en_core_web_sm" using the following command
+```python -m spacy download en_core_web_sm```
+
+[Similar command might work for other models as well]
+
+#### ERROR Error while calling W&B API: project not found (<Response [404]>)
+
+Solution : Make sure you have a project on wandb that you want to use for this experiment. Add that project name to the command line arguments using the following flag:
+```--wandb_project_name <project_name>```
+
+Also, make sure you provide an eentity which can access that project. You can do this by using the following flag:
+```--wandb_entity <entity>```
+
+Also, make sure the wandb API_key provided corresponds to the user of which the project is used.
+
 
 ### Citation
 
