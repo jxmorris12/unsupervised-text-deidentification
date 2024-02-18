@@ -13,7 +13,7 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from transformers import AutoTokenizer
 
-from datamodule import WikipediaDataModule
+from datamodule import DataModule
 from utils import model_cls_dict
 
 USE_WANDB = True
@@ -94,7 +94,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--idf_masking', default=False, action='store_true',
                         help='whether to do idf-based masking (via bm25)'
                         )
-
+    
+    parser.add_argument('--dataset_source', type=str, default='huggingface', help='Source of the dataset?', choices=['huggingface', 'parquet'])
+    parser.add_argument('--local_data_path', type=str, default='', help='Only required if data needs to be loaded from a local directory')
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
     parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
@@ -152,7 +154,9 @@ def main(args: argparse.Namespace):
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
 
-    dm = WikipediaDataModule(
+    dm = DataModule(
+        local_data_path=args.local_data_path,
+        dataset_source=args.dataset_source,
         document_model_name_or_path=document_model,
         profile_model_name_or_path=profile_model,
         max_seq_length=args.max_seq_length,
