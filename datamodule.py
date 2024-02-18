@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
 from redact import remove_named_entities_bert_batch, remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
-from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
+from utils import create_document_and_profile, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
 
 # 
 # TODO: Consider filtering data to have > 10 words or something? And maybe a certain
@@ -33,7 +33,7 @@ from utils import create_document_and_profile_from_wikibio, dict_union, tokenize
 datasets.utils.logging.set_verbosity_error()
 
 
-class WikipediaDataModule(LightningDataModule):
+class DataModule(LightningDataModule):
     dataset_name: str
     dataset_version: str
 
@@ -75,6 +75,8 @@ class WikipediaDataModule(LightningDataModule):
         document_model_name_or_path: str,
         profile_model_name_or_path: str,
         max_seq_length: int,
+        local_data_path:str = "",
+        dataset_source: str = "wiki_bio",
         dataset_name: str = "wiki_bio",
         dataset_train_split: str = "train",
         dataset_val_split: str = "val",
@@ -114,7 +116,9 @@ class WikipediaDataModule(LightningDataModule):
         self.idf_masking = idf_masking
         self.adversarial_masking = adversarial_masking
         self.num_nearest_neighbors = num_nearest_neighbors
-
+        
+        self.dataset_source = dataset_source 
+        self.local_data_path = local_data_path
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
         self.dataset_val_split = dataset_val_split
@@ -141,29 +145,28 @@ class WikipediaDataModule(LightningDataModule):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
 
         print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
-        self.train_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
+        self.train_dataset = datasets.Dataset.from_parquet(
+            self.local_data_path)#, split=self.dataset_train_split, version=self.dataset_version
+        #) if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
         print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
-        self.val_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
-        )
-        print(f"val_dataset size: {len(self.val_dataset)}")
+        #print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
+        self.val_dataset = datasets.Dataset.from_parquet(
+            self.local_data_path)#, split=self.dataset_val_split, version=self.dataset_version
+        #) if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
+        #print(f"val_dataset size: {len(self.val_dataset)}")
         # wiki_bio test size: 72,831
-        print(f"loading {self.dataset_name} split {self.dataset_test_split}")
-        self.test_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
-        )
-        print(f"test_dataset size: {len(self.test_dataset)}")
-
+        #print(f"loading {self.dataset_name} split {self.dataset_test_split}")
+        self.test_dataset = datasets.Dataset.from_parquet(
+            self.local_data_path)#, split=self.dataset_test_split, version=self.dataset_version
+        #) if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
+        #print(f"test_dataset size: {len(self.test_dataset)}")
         self.train_dataset = self.train_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.val_dataset = self.val_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.test_dataset = self.test_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
-        
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         def redact_example(
                 redact_func: Callable,
                 example: Dict,
