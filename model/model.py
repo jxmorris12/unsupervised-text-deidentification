@@ -182,18 +182,18 @@ class Model(LightningModule, abc.ABC):
         is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs)
 
         # Log top-k accuracies.
-        # for k in [1, 5, 10, 50, 100, 500, 1000]:
-        #     if k >= batch_size: # can't compute top-k accuracy here.
-        #         continue
-        #     top_k_acc = (
-        #         document_to_profile_sim.topk(k=k, dim=1)
-        #             .indices
-        #             .eq(document_idxs[:, None])
-        #             .any(dim=1)
-        #             .float()
-        #             .mean()
-        #     )
-        #     self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+        for k in [1, 5, 10, 50, 100, 500, 1000]:
+            if k >= batch_size: # can't compute top-k accuracy here.
+                continue
+            top_k_acc = (
+                document_to_profile_sim.topk(k=k, dim=1)
+                    .indices
+                    .eq(document_idxs[:, None])
+                    .any(dim=1)
+                    .float()
+                    .mean()
+            )
+            self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
         return is_correct, loss
     
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
