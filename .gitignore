@@ -18,3 +18,4 @@ saves/
 wandb/
 *.csv
 models_weights/
+deid_on_weill/
