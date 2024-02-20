@@ -44,7 +44,7 @@ class Model(LightningModule, abc.ABC):
         warmup_steps: int = 0,
         train_batch_size: int = 32,
         shared_embedding_dim: int = 768,
-        warmup_epochs: float = 0.2,
+        warmup_epochs: float = 0.8,
         label_smoothing: float = 0.0,
         pretrained_profile_encoder: bool = False,
         **kwargs,
