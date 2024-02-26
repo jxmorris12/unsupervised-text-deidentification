@@ -99,7 +99,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--local_data_path', type=str, default='', help='Only required if data needs to be loaded from a local directory')
     parser.add_argument('--dataset_name', type=str, default='wiki_bio')
     parser.add_argument('--dataset_train_split', type=str, default='train[:100%]')
-    parser.add_argument('--dataset_val_split', type=str, default='val[:10%]')
+    parser.add_argument('--dataset_val_split', type=str, default='val[:100%]')
+    parser.add_argument('--dataset_test_split', type=str, default='test[:100%]')
     parser.add_argument('--dataset_version', type=str, default='1.2.0')
 
     parser.add_argument('--wandb_run_id', type=str, default=None,
@@ -150,7 +151,6 @@ def transformers_name_from_name(name: str) -> str:
 def main(args: argparse.Namespace):
     assert torch.cuda.is_available(), "need CUDA for training!"
     seed_everything(42)
-
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
 
@@ -163,6 +163,7 @@ def main(args: argparse.Namespace):
         dataset_name=args.dataset_name,
         dataset_train_split=args.dataset_train_split,
         dataset_val_split=args.dataset_val_split,
+        dataset_test_split=args.dataset_test_split,
         dataset_version=args.dataset_version,
         word_dropout_ratio=args.word_dropout_ratio,
         word_dropout_perc=args.word_dropout_perc,
