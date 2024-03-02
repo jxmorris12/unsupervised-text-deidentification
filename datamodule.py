@@ -148,8 +148,7 @@ class DataModule(LightningDataModule):
         train_percent = float(self.dataset_train_split.split(":")[-1].split("%")[0]) # example form of dataset_train_split = "train[:100%]"
         val_percent = float(self.dataset_val_split.split(":")[-1].split("%")[0])
         test_percent = 100 - train_percent - val_percent
-        self.dataset = datasets.Dataset.from_parquet(self.local_data_path).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
-        print(":::self.dataset_train_split", self.dataset_train_split)
+        self.dataset = datasets.Dataset.from_parquet(self.local_data_path).select(range(100)).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
         self.train_dataset = self.dataset['train'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
         print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831

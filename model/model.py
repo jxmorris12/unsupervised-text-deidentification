@@ -177,7 +177,7 @@ class Model(LightningModule, abc.ABC):
             document_to_profile_sim, document_idxs, label_smoothing=self.label_smoothing
         )
         self.log(f"{metrics_key}/loss", loss)
-
+        breakpoint()
         # Also track a boolean mask for which things were correct.
         is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs)
 
