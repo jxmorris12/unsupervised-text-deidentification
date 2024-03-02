@@ -1,3 +1,4 @@
+
 __pycache__/
 notebooks/.ipynb_checkpoints/
 
@@ -21,3 +22,7 @@ models_weights/
 deid_on_weill/
 nohupScripts.sh
 nohup.out
+docHuggingFace
+docParquet
+profileHuggingFace
+profileParquet
