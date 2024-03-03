@@ -141,6 +141,12 @@ class DataModule(LightningDataModule):
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
 
+    def transform_parquet_data_structure_into_huggingface_data_structure(self, ex, column_header=None):
+        ex['target_text'] = ex['note_text\n']
+        ex['input_text'] = {'table': {'column_header': column_header, 'row_number': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 'content': [str(ex[column_header[i]]) for i in range(len(column_header))]}, 'context': str(ex['person_id'])}
+
+        return ex
+
     def _load_train_and_val_data(self):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
 
@@ -148,7 +154,7 @@ class DataModule(LightningDataModule):
         train_percent = float(self.dataset_train_split.split(":")[-1].split("%")[0]) # example form of dataset_train_split = "train[:100%]"
         val_percent = float(self.dataset_val_split.split(":")[-1].split("%")[0])
         test_percent = 100 - train_percent - val_percent
-        self.dataset = datasets.Dataset.from_parquet(self.local_data_path).select(range(100)).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
+        self.dataset = datasets.Dataset.from_parquet(self.local_data_path).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
         self.train_dataset = self.dataset['train'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
         print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831
@@ -160,12 +166,21 @@ class DataModule(LightningDataModule):
         #print(f"loading {self.dataset_name} split {self.dataset_test_split}")
         self.test_dataset = self.val_test_dataset['test'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_test_split, version=self.dataset_version)
         print(f"test_dataset size: {len(self.test_dataset)}")
+             
+        if self.dataset_source == 'parquet':
+            column_header = ['level_0', 'index', 'person_id', 'note_id', 'note_date', 'note_datetime', 'note_type', 'note_class', 'Unnamed: 7', 'empi_id', 'mrn', 'gender', 'year_of_birth', 'month_of_birth', 'day_of_birth', 'race', 'ethnicity', 'death_date', 'death_datetime', 'address_1', 'address_2', 'city', 'state', 'zip', 'county', 'note_words']
+            self.train_dataset = self.train_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+            self.val_dataset = self.val_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+            self.test_dataset = self.test_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+
         self.train_dataset = self.train_dataset.map(
             create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.val_dataset = self.val_dataset.map(
             create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.test_dataset = self.test_dataset.map(
             create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
+
+
         def redact_example(
                 redact_func: Callable,
                 example: Dict,

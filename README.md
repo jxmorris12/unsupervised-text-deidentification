@@ -120,6 +120,10 @@ Also, make sure you provide an eentity which can access that project. You can do
 Also, make sure the wandb API_key provided corresponds to the user of which the project is used.
 
 
+#### Debugging issue : pdb debugger too slow
+
+Solution : Please type this command in the terminal before rerunning the program - 'export CUDA_VISIBLE_DEVICES=0'
+
 ### Citation
 
 If this package is useful for you, please cite the following!

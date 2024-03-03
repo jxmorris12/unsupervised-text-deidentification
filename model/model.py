@@ -147,8 +147,8 @@ class Model(LightningModule, abc.ABC):
 
     def _compute_loss_exact(
             self,
-            document_embeddings: torch.Tensor,
-            profile_embeddings: torch.Tensor,
+            document_embeddings: torch.Tensor, # Please note that this may not be document_embeddings always. It may be profile embeddings. See the _training_step_profile function in model/coordinate_ascent.py.
+            profile_embeddings: torch.Tensor,  # Please note that this may not be profile_embeddings always. It may be document embeddings. See the _training_step_profile function in model/coordinate_ascent.py
             document_idxs: torch.Tensor,
             metrics_key: str
         ) -> torch.Tensor:
@@ -177,7 +177,6 @@ class Model(LightningModule, abc.ABC):
             document_to_profile_sim, document_idxs, label_smoothing=self.label_smoothing
         )
         self.log(f"{metrics_key}/loss", loss)
-        # breakpoint()
         # Also track a boolean mask for which things were correct.
         is_correct = (document_to_profile_sim.argmax(dim=1) == document_idxs)
 
