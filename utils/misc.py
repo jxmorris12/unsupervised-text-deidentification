@@ -143,6 +143,7 @@ def tokenize_profile(
         max_seq_length: int,
         use_redacted_profile: bool = False
     ) -> Dict[str, torch.Tensor]:
+    #breakpoint()
     prefix = "redacted_" if use_redacted_profile else ""
     if isinstance(tokenizer, transformers.TapasTokenizer):
         prof_keys = ex[f"{prefix}profile_keys"].split("||")

@@ -217,6 +217,7 @@ class Model(LightningModule, abc.ABC):
         if torch.cuda.is_available(): assert self.document_model_device.type == 'cuda'
         inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
         doc_embeddings = self.forward_document_inputs(inputs=inputs)
+        # breakpoint()
         if return_inputs:
             return inputs, doc_embeddings
         else:
@@ -240,6 +241,7 @@ class Model(LightningModule, abc.ABC):
                 (batch_size, -1, self.bottleneck_embedding_dim)
             ).mean(dim=1)
         ) # (batch_size, sequence_length, profile_emb_dim) -> (batch_size, shared_embedding_dim)
+        # breakpoint()
         return self.profile_embed(profile_embeddings)
 
     @abc.abstractmethod
