@@ -27,3 +27,5 @@ docParquet
 profileHuggingFace
 profileParquet
 do_not_upload/
+junk/
+result_visualization.py

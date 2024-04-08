@@ -50,6 +50,7 @@ class Model(LightningModule, abc.ABC):
         **kwargs,
     ):
         super().__init__()
+        self.profile_ids = []
         self.save_hyperparameters()
         self.document_model_name_or_path = document_model_name_or_path
         self.profile_model_name_or_path = profile_model_name_or_path
@@ -193,8 +194,20 @@ class Model(LightningModule, abc.ABC):
                     .mean()
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+            #### TO GET CORRECTLY AND INCORRECTLY IDENTIFIED DOCUMENTS'S PERSON IDs
+            #if metrics_key == "val/document" and k == 1:
+            #    print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+            #    bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
+            #    true_positives = np.array(self.profile_ids)[bools.flatten()]
+            #    false_positives = np.array(self.profile_ids)[~bools.flatten()]
+                # false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+            #    breakpoint()
+            #    print("true positives : ", true_positives)
+            #    print("false positives : ", false_positives)
+                # print("false positives GT : ", false_positives_GT)
         return is_correct, loss
     
+
     def forward_document_inputs(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         # We track the word IDs for documents in case we need them to do
         # subword pooling or anything like that. But the document doesn't take
@@ -217,7 +230,6 @@ class Model(LightningModule, abc.ABC):
         if torch.cuda.is_available(): assert self.document_model_device.type == 'cuda'
         inputs = self._get_inputs_from_prefix(batch=batch, prefix=document_type)
         doc_embeddings = self.forward_document_inputs(inputs=inputs)
-        # breakpoint()
         if return_inputs:
             return inputs, doc_embeddings
         else:
@@ -405,8 +417,12 @@ class Model(LightningModule, abc.ABC):
         assert not self.document_embed.training
         assert not self.profile_model.training
         assert not self.profile_embed.training
-
+         
         assert dataloader_idx in [0, 1]
+        if batch['person_id'][0] not in self.profile_ids:
+            self.profile_ids.extend(batch['person_id'])
+        else:
+            assert self.profile_ids[self.profile_ids.index(batch['person_id'][0]) : self.profile_ids.index(batch['person_id'][-1]) + 1] == batch['person_id'], "Are person_ids shuffled at any step? They should not"
         with torch.no_grad():
             if dataloader_idx == 0:
                 output = self._process_validation_batch(batch=batch, batch_idx=batch_idx)

@@ -55,7 +55,7 @@ def precompute_profile_embeddings(
     train_profile_embeddings = torch.tensor(train_profile_embeddings, dtype=torch.float32)
 
     val_profile_embeddings = np.zeros((len(dm.val_dataset), model.shared_embedding_dim))
-    for val_batch in tqdm(dm.val_dataloader()[0], desc="Precomputing val profile embeddings", colour="green", leave=False):
+    for val_batch in tqdm(dm.val_dataloader(), desc="Precomputing val profile embeddings", colour="green", leave=False): # If this causes error, maybe change val_dataloader() with val_dataloader()[0]
         with torch.no_grad():
             profile_embeddings = model.forward_profile(batch=val_batch)
         val_profile_embeddings[val_batch["text_key_id"]] = profile_embeddings.cpu()
@@ -74,12 +74,12 @@ def precompute_profile_embeddings(
 
 
 def precompute_profile_embeddings_for_model_key(model_key: str):
-    from datamodule import WikipediaDataModule
+    from datamodule import DataModule
     from model import CoordinateAscentModel
 
     checkpoint_path = model_paths_dict[model_key]
     model = CoordinateAscentModel.load_from_checkpoint(checkpoint_path)
-    dm = WikipediaDataModule(
+    dm = DataModule(
         document_model_name_or_path=model.document_model_name_or_path,
         profile_model_name_or_path=model.profile_model_name_or_path,
         dataset_name='wiki_bio',

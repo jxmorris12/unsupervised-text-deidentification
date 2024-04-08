@@ -10,7 +10,7 @@ import pandas as pd
 import torch
 import tqdm
 
-from datamodule import WikipediaDataModule
+from datamodule import DataModule
 from model import CoordinateAscentModel
 from model_cfg import model_paths_dict
 from utils import get_profile_embeddings
@@ -129,7 +129,7 @@ def get_predictions_from_model(model_key: str, data: List[str], max_seq_length: 
     model = CoordinateAscentModel.load_from_checkpoint(
         checkpoint_path
     )
-    dm = WikipediaDataModule(
+    dm = DataModule(
         document_model_name_or_path=model.document_model_name_or_path,
         profile_model_name_or_path=model.profile_model_name_or_path,
         dataset_name='wiki_bio',
@@ -143,7 +143,6 @@ def get_predictions_from_model(model_key: str, data: List[str], max_seq_length: 
         max_seq_length=128,
         sample_spans=False,
     )
-
     all_profile_embeddings = get_profile_embeddings(
         model_key=model_key,
         use_train_profiles=True).cuda()
@@ -188,7 +187,6 @@ def get_predictions_from_model(model_key: str, data: List[str], max_seq_length: 
                 (document_to_profile_logits.argsort(dim=1).flip(1) == correct_idxs[:, None]).nonzero()[:, 1]
             )
             true_profile_idxs.append(batch_true_profile_idxs)
-
         i += batch_size
         pbar.update(batch_size)
     
@@ -270,7 +268,6 @@ def get_baseline_results_uncached() -> List[Tuple[str, bool]]:
     df = pd.DataFrame(list(zip(*all_predictions)), columns=REID_MODEL_KEYS)
     input_was_reidentified = (df == 0).apply(lambda row: row.values.any(), axis=1)
     return list(zip(masked_inputs, baseline_names, input_was_reidentified))
-
 
 def get_baseline_results(use_cache: bool) -> List[Tuple[str, str, bool]]:
     """Loads reidentified data results from a given experiment at a certain masking rate.
