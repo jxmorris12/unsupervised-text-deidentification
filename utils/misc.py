@@ -66,7 +66,7 @@ def wikibio_example_has_non_redacted_rows(ex: Dict[str, str]) -> bool:
     table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
     return len(set(table_column_header) - set(redacted_headers)) > 0
 
-def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, str]:
+def create_document_and_profile(ex: Dict[str, str], dataset_source="huggingface") -> Dict[str, str]:
     """
     transforms wiki_bio example into (document, profile) pair
 
@@ -83,11 +83,11 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, s
     # replace weird textual artifacts: -lrb- with ( and -rrb- with )
     fixed_target_text = ex['target_text'].replace('-rrb-', ')').replace('-lrb-', '(')
     # transform table to str
-    table_info = ex['input_text']['table']
-    table_column_header, table_content = list(table_info['column_header']), list(table_info['content'])
+    table_info = ex['input_text']['table'] 
+    table_column_header, table_content = (list(table_info['column_header'])), (list(table_info['content']))
 
-    profile_keys = list(map(lambda s: s.strip().replace('|', ''), table_column_header))
-    profile_values = list(map(lambda s: s.strip().replace('|', ''), table_content))
+    profile_keys = list(map(lambda s: str(s).strip().replace('|', ''), table_column_header))
+    profile_values = list(map(lambda s: str(s).strip().replace('|', ''), table_content))
     table_rows = list(zip(profile_keys, profile_values))
     table_text = '\n'.join([' || '.join(row) for row in table_rows])
     # table_text_without_name = (
@@ -95,14 +95,15 @@ def create_document_and_profile_from_wikibio(ex: Dict[str, str],) -> Dict[str, s
     # )
 
     # return example: transformed table + first paragraph
+    # breakpoint()
     return {
-        'name': name_from_table_rows(table_rows),
+#        'name': name_from_table_rows(table_rows),
         'document': fixed_target_text,                          # First paragraph of biography
         'profile': table_text,                                  # Table re-printed as a string
         # 'profile_without_name': table_text_without_name,      # Table with name removed
         'profile_keys': '||'.join(profile_keys),                # Keys in profile box
         'profile_values': '||'.join(profile_values),            # Values in profile box
-        'text_key': ex['target_text'] + ' ' + table_text,       # (document, profile) str key
+        'text_key': (ex['target_text']) + ' ' + table_text,       # (document, profile) str key
     }
 
 
@@ -142,6 +143,7 @@ def tokenize_profile(
         max_seq_length: int,
         use_redacted_profile: bool = False
     ) -> Dict[str, torch.Tensor]:
+    #breakpoint()
     prefix = "redacted_" if use_redacted_profile else ""
     if isinstance(tokenizer, transformers.TapasTokenizer):
         prof_keys = ex[f"{prefix}profile_keys"].split("||")

@@ -96,6 +96,8 @@ model_paths_dict["model_3_4__idf"] = '/home/jxm3/research/deidentification/unsup
 #   **trained on lexically redacted data**
 model_paths_dict["model_3_5__epoch47"] = '/home/jxm3/research/deidentification/unsupervised-deidentification/saves/ca__pmlm-a__tapas__dropout_-1.0_1.0_0.0__e3072__ls0.1/deid-wikibio-4_lightning_logs/2lslhb53_41/checkpoints/epoch=47-step=27360.ckpt'
 
+model_paths_dict["1qw9di20"] = '/prj0124_gpu/akr4007/unsupervised-text-deidentification/deid_on_weill/1qw9di20/checkpoints/epoch=607-step=6080.ckpt'
+
 
 #
 # cross-encoders

@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 
 from masking_tokenizing_dataset import MaskingTokenizingDataset
 from redact import remove_named_entities_bert_batch, remove_named_entities_spacy_batch, remove_overlapping_words, remove_words_val_idf
-from utils import create_document_and_profile_from_wikibio, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
+from utils import create_document_and_profile, dict_union, tokenize_profile, wikibio_example_has_non_redacted_rows
 
 # 
 # TODO: Consider filtering data to have > 10 words or something? And maybe a certain
@@ -33,7 +33,7 @@ from utils import create_document_and_profile_from_wikibio, dict_union, tokenize
 datasets.utils.logging.set_verbosity_error()
 
 
-class WikipediaDataModule(LightningDataModule):
+class DataModule(LightningDataModule):
     dataset_name: str
     dataset_version: str
 
@@ -75,6 +75,8 @@ class WikipediaDataModule(LightningDataModule):
         document_model_name_or_path: str,
         profile_model_name_or_path: str,
         max_seq_length: int,
+        local_data_path:str = "",
+        dataset_source: str = "wiki_bio",
         dataset_name: str = "wiki_bio",
         dataset_train_split: str = "train",
         dataset_val_split: str = "val",
@@ -114,7 +116,9 @@ class WikipediaDataModule(LightningDataModule):
         self.idf_masking = idf_masking
         self.adversarial_masking = adversarial_masking
         self.num_nearest_neighbors = num_nearest_neighbors
-
+        
+        self.dataset_source = dataset_source 
+        self.local_data_path = local_data_path
         self.dataset_name = dataset_name
         self.dataset_train_split = dataset_train_split
         self.dataset_val_split = dataset_val_split
@@ -137,33 +141,44 @@ class WikipediaDataModule(LightningDataModule):
         print(f'Initializing WikipediaDataModule with num_workers = {self.num_workers} and mask token `{self.mask_token}`')
         self.base_folder = os.path.dirname(os.path.abspath(__file__))
 
+    def transform_parquet_data_structure_into_huggingface_data_structure(self, ex, column_header=None):
+        ex['target_text'] = ex['note_text\n']
+        ex['input_text'] = {'table': {'column_header': [header  for header in column_header], 'row_number': [1 for _ in range(len(column_header))], 'content': [str(ex[column_header[i]]) for i in range(len(column_header))]}, 'context': str(ex['person_id'])}
+        return ex
+
     def _load_train_and_val_data(self):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
 
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_train_split}")
-        self.train_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
+        print(f"loading {self.dataset_source if self.dataset_source == 'parquet' else self.dataset_name}[{'' if self.dataset_source == 'parquet' else self.dataset_version}] split {self.dataset_train_split}")
+        train_percent = float(self.dataset_train_split.split(":")[-1].split("%")[0]) # example form of dataset_train_split = "train[:100%]"
+        val_percent = float(self.dataset_val_split.split(":")[-1].split("%")[0])
+        test_percent = 100 - train_percent - val_percent
+        self.dataset = datasets.Dataset.from_parquet(self.local_data_path, keep_in_memory=True).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
+        self.train_dataset = self.dataset['train'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
         print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831
-        print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
-        self.val_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_val_split, version=self.dataset_version
-        )
+        #print(f"loading {self.dataset_name}[{self.dataset_version}] split {self.dataset_val_split}")
+        self.val_test_dataset = self.dataset['test'].train_test_split(test_size=float(test_percent / (test_percent + val_percent))) if self.dataset_source == "parquet" else None
+        self.val_dataset = self.val_test_dataset['train'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_val_split, version=self.dataset_version)
         print(f"val_dataset size: {len(self.val_dataset)}")
         # wiki_bio test size: 72,831
-        print(f"loading {self.dataset_name} split {self.dataset_test_split}")
-        self.test_dataset = datasets.load_dataset(
-            self.dataset_name, split=self.dataset_test_split, version=self.dataset_version
-        )
+        #print(f"loading {self.dataset_name} split {self.dataset_test_split}")
+        self.test_dataset = self.val_test_dataset['test'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_test_split, version=self.dataset_version)
         print(f"test_dataset size: {len(self.test_dataset)}")
-
+             
+        if self.dataset_source == 'parquet':
+            column_header = [name for name in self.train_dataset.column_names if name != "note_text\n"] # I know it should be named as "column_headers" instead, but keeping it like this since this name is maybe used way too many times in the future
+            self.train_dataset = self.train_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+            self.val_dataset = self.val_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+            self.test_dataset = self.test_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
         self.train_dataset = self.train_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.val_dataset = self.val_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.test_dataset = self.test_dataset.map(
-            create_document_and_profile_from_wikibio, num_proc=1)
-        
+            create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
+
+
         def redact_example(
                 redact_func: Callable,
                 example: Dict,

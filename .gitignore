@@ -1,3 +1,4 @@
+
 __pycache__/
 notebooks/.ipynb_checkpoints/
 
@@ -18,3 +19,13 @@ saves/
 wandb/
 *.csv
 models_weights/
+deid_on_weill/
+nohupScripts.sh
+*.out
+docHuggingFace
+docParquet
+profileHuggingFace
+profileParquet
+do_not_upload/
+junk/
+result_visualization.py
