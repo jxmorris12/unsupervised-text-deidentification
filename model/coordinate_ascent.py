@@ -111,7 +111,7 @@ class CoordinateAscentModel(Model):
         document_inputs, document_embeddings = self.forward_document(
             batch=batch, document_type='document', return_inputs=True
         )
-
+        # breakpoint()
         is_correct, loss = self._compute_loss_exact(
             document_embeddings, self.train_profile_embeddings, batch['text_key_id'],
             metrics_key='train'
@@ -128,7 +128,7 @@ class CoordinateAscentModel(Model):
     def _training_step_profile(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """One step of training where training is supposed to update  `self.profile_model`."""
         profile_embeddings = self.forward_profile(batch=batch)
-
+        # breakpoint()
         is_correct, loss = self._compute_loss_exact(
             profile_embeddings, self.train_document_embeddings, batch['text_key_id'],
             metrics_key='train'

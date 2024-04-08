@@ -81,10 +81,10 @@ def create_document_and_profile(ex: Dict[str, str], dataset_source="huggingface"
         Dict[str, str] of important fields like name, document, profile.
     """
     # replace weird textual artifacts: -lrb- with ( and -rrb- with )
-    fixed_target_text = (ex['target_text'] if dataset_source == "huggingface" else ex['note_text\n']).replace('-rrb-', ')').replace('-lrb-', '(')
+    fixed_target_text = ex['target_text'].replace('-rrb-', ')').replace('-lrb-', '(')
     # transform table to str
-    table_info = (ex['input_text']['table'] if dataset_source == "huggingface" else dict([(column, ex[column]) for column in ex.keys() if column != "note_text\n"]))
-    table_column_header, table_content = (list(table_info['column_header']) if dataset_source == "huggingface" else table_info.keys()), (list(table_info['content'])if dataset_source == "huggingface" else list(table_info.values()))
+    table_info = ex['input_text']['table'] 
+    table_column_header, table_content = (list(table_info['column_header'])), (list(table_info['content']))
 
     profile_keys = list(map(lambda s: str(s).strip().replace('|', ''), table_column_header))
     profile_values = list(map(lambda s: str(s).strip().replace('|', ''), table_content))
@@ -95,6 +95,7 @@ def create_document_and_profile(ex: Dict[str, str], dataset_source="huggingface"
     # )
 
     # return example: transformed table + first paragraph
+    # breakpoint()
     return {
 #        'name': name_from_table_rows(table_rows),
         'document': fixed_target_text,                          # First paragraph of biography
@@ -102,7 +103,7 @@ def create_document_and_profile(ex: Dict[str, str], dataset_source="huggingface"
         # 'profile_without_name': table_text_without_name,      # Table with name removed
         'profile_keys': '||'.join(profile_keys),                # Keys in profile box
         'profile_values': '||'.join(profile_values),            # Values in profile box
-        'text_key': (ex['target_text'] if dataset_source == "huggingface" else ex['note_text\n']) + ' ' + table_text,       # (document, profile) str key
+        'text_key': (ex['target_text']) + ' ' + table_text,       # (document, profile) str key
     }
 
 
@@ -142,6 +143,7 @@ def tokenize_profile(
         max_seq_length: int,
         use_redacted_profile: bool = False
     ) -> Dict[str, torch.Tensor]:
+    #breakpoint()
     prefix = "redacted_" if use_redacted_profile else ""
     if isinstance(tokenizer, transformers.TapasTokenizer):
         prof_keys = ex[f"{prefix}profile_keys"].split("||")

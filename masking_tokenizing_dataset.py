@@ -211,11 +211,12 @@ class MaskingTokenizingDataset(Dataset):
     
     def _tokenize_profile(self, ex: Dict[str, str]) -> Dict[str, torch.Tensor]:
         """Tokenizes a profile, either with Tapas (dataframe-based) or as a single string."""
-        return tokenize_profile(
+        res = tokenize_profile(
             tokenizer=self.profile_tokenizer,
             ex=ex,
             max_seq_length=self.max_seq_length
         )
+        return res
     
     def _get_tokenized_profile(self, idx: int) -> Dict[str, torch.Tensor]:
         ex = self.dataset[idx]
@@ -333,8 +334,11 @@ class MaskingTokenizingDataset(Dataset):
             # learning algorithm.
             if self.num_nearest_neighbors > 0:
                 out_ex = dict_union(out_ex, self._get_nearest_neighbors(idx=idx, ex=ex))
-
-        return out_ex
+        k_list = ex['profile_keys'].split("||")
+        v_list = ex['profile_values'].split("||")
+        person_id = v_list[k_list.index('person_id')]
+        # person_id is needed to get true and false positives person_ids at the point when metrics are pushed to wandb, to visualize the results. For a new dataset, replace this with whatever relevant id is.
+        return out_ex | {"person_id" : person_id} 
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         if self.is_train_dataset:
