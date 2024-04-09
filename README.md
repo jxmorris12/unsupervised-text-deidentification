@@ -102,6 +102,10 @@ python main.py --epochs 60 --batch_size 128 --max_seq_length 128 --word_dropout_
 
 ## Troubleshooting
 
+#### pyarrow error : Cannot import datasets - ValueError: pyarrow.lib.IpcWriteOptions size changed, may indicate binary incompatibility
+
+Solution : See this : https://github.com/huggingface/datasets/issues/5923
+
 #### OSError: [E050] Can't find model 'en_core_web_sm'. It doesn't seem to be a Python package or a valid path to a data directory.
 
 Solution : Install "en_core_web_sm" using the following command
