@@ -28,3 +28,4 @@ profileHuggingFace
 profileParquet
 do_not_upload/
 junk/
+.nfs*
