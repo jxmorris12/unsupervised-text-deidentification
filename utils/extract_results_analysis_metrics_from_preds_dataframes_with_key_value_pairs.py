@@ -1,10 +1,15 @@
+######
+# This script takes in two kinds of dataframes : One for person_ids which were correctly identified, and other which were incorrectly identified
+# For each dataframe, we output two kinds of data, one that shows distribution of profile keys in the note_texts of those dataframes, and the other one shows distribution of profile (key, value) pairs in the note_texts of those dataframes
+#####
 import pandas as pd
 import ast
 import sys
 from collections import Counter
 import os
 
-def for_key_without_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path):
+def for_key_without_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path): # To get distribution of profile keys
+    # Basic processing below
     correct_preds_with_found_key_value_pairs = pd.read_csv(correct_preds_with_found_key_value_pairs_path)
     correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
     correct_preds_with_found_key_value_pairs_keys = []
@@ -26,10 +31,11 @@ def for_key_without_value(correct_preds_with_found_key_value_pairs_path, incorre
     final_df["incorrect_count"] = [Counter(incorrect_preds_with_found_key_value_pairs_keys)[key] for key in final_df["keys"]]
     final_df["incorrect_count_percentage"] = final_df["incorrect_count"] / final_df["incorrect_count"].sum() * 100
     final_df["ratio_correct_count_to_incorrect_count"] = final_df["correct_count"] / final_df["incorrect_count"]
-    final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False)
+    final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False) # We want to see for which keys is the document most correctly identified
     final_df.to_csv(os.path.join(result_analysis_folder_path, "total_without_nan_key_distribution.csv"), index=False)
 
-def for_key_with_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path):
+def for_key_with_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path): # To get distribution of profile (key, value) pairs
+    # Basic processing below
     correct_preds_with_found_key_value_pairs = pd.read_csv(correct_preds_with_found_key_value_pairs_path)
     correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
     correct_preds_with_found_key_value_pairs_counter = Counter()
@@ -54,7 +60,7 @@ def for_key_with_value(correct_preds_with_found_key_value_pairs_path, incorrect_
         final_df.loc[ind, "incorrect_count"] = incorrect_preds_with_found_key_value_pairs_counter[(final_df.iloc[ind]["keys"], final_df.iloc[ind]["values"])]
     final_df["incorrect_count_percentage"] = final_df["incorrect_count"] / final_df["incorrect_count"].sum() * 100
     final_df["ratio_correct_count_to_incorrect_count"] = final_df["correct_count"] / final_df["incorrect_count"]  
-    final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False)
+    final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False) # We want to see for while profile (key, value) pairs are the documents/notes most correctly identified
     final_df.to_csv(os.path.join(result_analysis_folder_path, "total_without_nan_key_with_value_distribution.csv"), index=False)
 
 

@@ -1,3 +1,6 @@
+########
+# This script takes true positive and false positive person_ids in the form of numpy arrays and returns dataframe containing full document and profiles for those person_ids
+#######
 import pandas as pd
 import os
 import datasets
@@ -29,8 +32,8 @@ def save_preds():
 
     tpDirList = true_positives_path.split("/") # directories of true positives' path
     fpDirList = false_positives_path.split("/") # directories of false positives' path
-    tpNewPath = os.path.join("/".join(tpDirList[:-1]), tpDirList[-1].split(".")[-2] + "_full.csv")
-    fpNewPath = os.path.join("/".join(fpDirList[:-1]), fpDirList[-1].split(".")[-2] + "_full.csv")
+    tpNewPath = os.path.join("/".join(tpDirList[:-1]), tpDirList[-1].split(".")[-2] + "_full.csv") # loc of the new file
+    fpNewPath = os.path.join("/".join(fpDirList[:-1]), fpDirList[-1].split(".")[-2] + "_full.csv") # loc of the new file
  
     p_data_df_correct.reset_index(drop=True).to_csv(tpNewPath, index_label=False)
     p_data_df_incorrect.reset_index(drop=True).to_csv(fpNewPath, index_label=False)

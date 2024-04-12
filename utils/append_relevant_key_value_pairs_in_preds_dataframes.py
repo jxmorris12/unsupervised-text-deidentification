@@ -18,10 +18,10 @@ def main():
    
     relevant_keys = ["person_id", "note_id", "note_date", "note_datetime", "note_type", "empi_id", "mrn", "year_of_birth", "death_date", "death_datetime", 'address_1', 'address_2', 'city', 'state', 'zip'] # keys whose value we find in note_text  
  
-    def get_with_nan_key_value_found_dict(row):
+    def get_with_nan_key_value_found_dict(row): # Returns key, values pairs(in form of a dict) such that the values are found in the document(or note_text)
         return dict([(key, row[key])  for key in relevant_keys if str(row[key]) in str(row['note_text\n'])]) 
     
-    def get_without_nan_key_value_found_dict(row):     
+    def get_without_nan_key_value_found_dict(row): # Same as previous function, but excludes the pairs when values are 'nan'
         return dict([(key, row[key])  for key in relevant_keys if str(row[key]) != "nan" and str(row[key]) in str(row['note_text\n'])])
     
     relevant_keys = ["person_id", "note_id", "note_date", "note_datetime", "note_type", "empi_id", "mrn", "year_of_birth", "death_date", "death_datetime", 'address_1', 'address_2', 'city', 'state', 'zip']
@@ -34,8 +34,8 @@ def main():
 
     cDirList = correct_preds_path.split("/")
     iDirList = incorrect_preds_path.split("/")
-    cNewPath = os.path.join("/".join(cDirList[:-1]), cDirList[-1].split(".")[-2] + "_with_found_key_value_pairs.csv")
-    iNewPath = os.path.join("/".join(iDirList[:-1]), iDirList[-1].split(".")[-2] + "_with_found_key_value_pairs.csv")
+    cNewPath = os.path.join("/".join(cDirList[:-1]), cDirList[-1].split(".")[-2] + "_with_found_key_value_pairs.csv") # Loc of new file
+    iNewPath = os.path.join("/".join(iDirList[:-1]), iDirList[-1].split(".")[-2] + "_with_found_key_value_pairs.csv") # Loc of new file
 
     c.to_csv(cNewPath, index_label=False)
     i.to_csv(iNewPath, index_label=False)
