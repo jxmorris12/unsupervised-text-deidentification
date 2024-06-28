@@ -20,9 +20,9 @@ USE_WANDB = True
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# num_cpus = len(os.sched_getaffinity(0))
-num_cpus = 1
-
+# num_cpus = len(os.sched_getaffinity(0)) # starts a bunch of processes(cumbersome to manage) without any improvement in speed
+# num_cpus = 4 * torch.cuda.device_count() # starts a single process and so easier to manage
+num_cpus = 1 # increasing count isn't helping
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -58,7 +58,7 @@ def get_args() -> argparse.Namespace:
                         )
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
-                        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
+                        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a', 'longformer'])
     parser.add_argument('--profile_model_name', '--profile_model', type=str,
                         default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
 
@@ -135,6 +135,7 @@ def transformers_name_from_name(name: str) -> str:
     if name == 'roberta':
         return 'roberta-base'
     elif name == 'tapas':
+        #return 'google/tapas-base-finetuned-wtq'
         return 'google/tapas-base'
     elif name == 'bert':
         return 'bert-base-uncased'
@@ -144,6 +145,8 @@ def transformers_name_from_name(name: str) -> str:
         return 'jxm/u-PMLM-R'
     elif name == 'pmlm-a':
         return 'jxm/u-PMLM-A'
+    elif name == 'longformer':
+        return 'allenai/longformer-base-4096'
     else:
         return f'unsupported model name {name}'
 
@@ -153,6 +156,8 @@ def main(args: argparse.Namespace):
     seed_everything(42)
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
+    print("document_model :", document_model)
+    print("profile_model :", profile_model)
 
     dm = DataModule(
         local_data_path=args.local_data_path,
@@ -323,14 +328,14 @@ def main(args: argparse.Namespace):
                 ] + checkpoints
 
     print("creating Trainer")
-    # breakpoint()
     trainer = Trainer(
         default_root_dir=f"saves/{exp_name}",
         val_check_interval=(1.0 / args.num_validations_per_epoch),
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
-        limit_train_batches=10, # change this to make training faster (1.0 = full train set),
+        # limit_train_batches=10, # change this to make training faster (1.0 = full train set),
+        limit_train_batches=1.0,
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
         devices=torch.cuda.device_count(),
