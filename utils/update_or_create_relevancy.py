@@ -6,7 +6,11 @@ import datasets
 import transformers
 import sys
 
-print("THIS FILE OVERWRITES THE GIVEN ORIGINAL FILE, MAKE SURE YOU ARE OKAY WITH IT!")
+print("THIS FILE OVERWRITES THE GIVEN ORIGINAL FILE, ARE YOU OKAY WITH IT? Type 'Y' or 'N'")
+response = input()
+if response != 'Y' and response != 'N':
+    print("Invalid Input.")
+    exit(0)
 
 # Configuration variables
 input_filepath = sys.argv[1]
