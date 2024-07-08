@@ -32,7 +32,7 @@ if tp_or_fp not in ['tp', 'TP', 'fp', 'FP']:
 tp_or_fp_gt_path = sys.argv[2]
 if tp_or_fp in ['fp', 'FP']:
    # path to csv having false positive preds notes with demos. 
-   fp_preds_path = sys.argv[3]
+   fp_preds_note_with_demo_from_GT_path = sys.argv[3]
 # Path where result/output of this program is stored
 review_results_path = convert_path(tp_or_fp_gt_path)
 
@@ -40,7 +40,7 @@ print('review_results path generated : ', review_results_path)
 
 tp_or_fp_gt = pd.read_csv(tp_or_fp_gt_path)
 if tp_or_fp in ['fp', 'FP']:
-  fp_preds = pd.read_csv(fp_preds_path)
+  fp_preds_note_with_demo_from_GT = pd.read_csv(fp_preds_note_with_demo_from_GT_path)
 
 # Update results file if exists, else create a new one
 if os.path.exists(review_results_path):
@@ -52,7 +52,7 @@ if os.path.exists(review_results_path):
 else:
     print("Creating new result review file, as it does not exist.")
     # 'note_id_preds' needed since it might give some insights why mapping was done
-    review_results = pd.DataFrame(columns = ['note_id_gt', 'note_id_preds', 'reason']) if tp_or_fp in ["FP", "fp"] else pd.DataFrame(columns = ['note_id', 'reason'])
+    review_results = pd.DataFrame(columns = ['note_id_gt', 'reason']) if tp_or_fp in ["FP", "fp"] else pd.DataFrame(columns = ['note_id', 'reason'])
 
 # random sampling to prevent bias
 sample_tp_or_fp_gt = tp_or_fp_gt.sample(n=100)
@@ -71,10 +71,10 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           print(str(row[['note_text\n']].iloc[0]))
           print(str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
           if tp_or_fp in ['fp', 'FP']:
-            breakpoint()
             print("\n\nPreds note : \n")
-            print(fp_preds['note_text\n'])
-          print("for investigation...")
+            print(fp_preds_note_with_demo_from_GT.iloc[index]['note_text\n'])
+            print(fp_preds_note_with_demo_from_GT.iloc[index]['Relevance_dict(handle None values properly)'])
+          print("\nfor investigation...\n\n")
           reason = input("Possible factors contributing to the mapping: ")
-          review_results.loc[len(review_results)] = [row['note_id'], reason] if tp_or_fp not in ['fp', 'FP'] else [row['note_id'], fp_preds[fp_preds['note_id'] == row['note_id']]['note_id'], reason]
+          review_results.loc[len(review_results)] = [row['note_id'], reason]
           review_results.to_csv(review_results_path, index=False)
