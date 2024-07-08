@@ -6,16 +6,6 @@ import datasets
 import transformers
 import sys
 
-print("THIS FILE OVERWRITES THE GIVEN ORIGINAL FILE, ARE YOU OKAY WITH IT? Type 'Y' or 'N'")
-response = input()
-if response != 'Y' and response != 'N':
-    print("Invalid Input.")
-    exit(0)
-
-# Configuration variables
-input_filepath = sys.argv[1]
-print("input_filepath : ", input_filepath)
-
 # Function to process your data
 # @ profile
 def process_data(df):
@@ -129,6 +119,16 @@ def process_data(df):
     
     return df
 
-df = pd.read_csv(input_filepath)
-processed_df = process_data(df)
-processed_df.to_csv(input_filepath)
+if __name__ == "__main__":
+    print("THIS FILE OVERWRITES THE GIVEN ORIGINAL FILE, ARE YOU OKAY WITH IT? Type 'Y' or 'N'")
+    response = input()
+    if response != 'Y' and response != 'N':
+        print("Invalid Input.")
+        exit(0)
+    
+    # Configuration variables
+    input_filepath = sys.argv[1]
+    print("input_filepath : ", input_filepath)
+    df = pd.read_csv(input_filepath)
+    processed_df = process_data(df)
+    processed_df.to_csv(input_filepath)
