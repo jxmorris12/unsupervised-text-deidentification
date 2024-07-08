@@ -33,6 +33,9 @@ def save_preds():
     p_data_df_incorrect_GT = p_data_df[p_data_df['person_id'].isin(listIndsOfRowsIncorrectGT)] # those rows of p_data_df whose person_ids are incorrectly mapped i.e false positive GT
     p_data_df_indexes_for_values_of_false_positives_GT_to_preds_indices_dict = [p_data_df.index[p_data_df['person_id'] == false_positives_GT_to_preds_indices_dict[i]][0] for i in p_data_df_incorrect_GT['person_id']] # indices of those rows of p_data_df, whose person_ids are what incorrectly mapped person_ids are mapped to.
     p_data_df_incorrect_preds = p_data_df.loc[p_data_df_indexes_for_values_of_false_positives_GT_to_preds_indices_dict] # those rows of p_data_df, whose person_ids are what incorrectly mapped person_ids are mapped to.
+    p_data_df_incorrect_preds_note_text_with_GT_demo = pd.DataFrame(p_data_df_incorrect_GT) # demo of incorrect_GT with notes of incorrect_preds. notes are put in below. This DataFrame is useful when analyzing false positives.
+    p_data_df_incorrect_preds_note_text_with_GT_demo['note_text\n'] = list(p_data_df_incorrect_preds['note_text\n'])
+    p_data_df_incorrect_preds_note_text_with_GT_demo['original_note_text\n'] = list(p_data_df_incorrect_preds['original_note_text\n'])
 
     tpDirList = true_positives_path.split("/") # directories of true positives' path
     fpGTDirList = false_positives_GT_path.split("/") # directories of false positives' GT path
@@ -40,19 +43,23 @@ def save_preds():
     tpNewPath = os.path.join("/".join(tpDirList[:-1]), tpDirList[-1].split(".")[-2] + ".csv") # loc of the new file
     fpGTNewPath = os.path.join("/".join(fpGTDirList[:-1]), fpGTDirList[-1].split(".")[-2] + ".csv") # loc of the new file
     fpPredsNewPath = os.path.join("/".join(fpPredsDirList[:-1]), fpPredsDirList[-1].split(".")[-2] + ".csv") # loc of the new file
+    fpPredsNotesWithGTDemoPath = os.path.join("/".join(fpPredsDirList[:-1]), fpPredsDirList[-1].split(".")[-2] + "_notes_with_demo_of_GT.csv") # loc of the new file
 
     # Updating relevancy and relvance dicts of the dataframes just created
     p_data_df_correct = process_data(p_data_df_correct)
     p_data_df_incorrect_GT = process_data(p_data_df_incorrect_GT)
     p_data_df_incorrect_preds = process_data(p_data_df_incorrect_preds)
+    p_data_df_incorrect_preds_note_text_with_GT_demo = process_data(p_data_df_incorrect_preds_note_text_with_GT_demo)
  
     p_data_df_correct.reset_index(drop=True).to_csv(tpNewPath, index_label=False)
     p_data_df_incorrect_GT.reset_index(drop=True).to_csv(fpGTNewPath, index_label=False)
     p_data_df_incorrect_preds.reset_index(drop=True).to_csv(fpPredsNewPath, index_label=False)
+    p_data_df_incorrect_preds_note_text_with_GT_demo.reset_index(drop=True).to_csv(fpPredsNotesWithGTDemoPath, index_label=False)
  
-    print("Correct preds file new path : ", tpNewPath)
-    print("Incorrect preds GT file new path : ", fpGTNewPath)
-    print("Incorrect preds preds file new path : ", fpPredsNewPath)
+    print("Correct preds file's new path : ", tpNewPath)
+    print("Incorrect preds GT file's new path : ", fpGTNewPath)
+    print("Incorrect preds preds file's new path : ", fpPredsNewPath)
+    print("Incorrect preds preds notes with demo of GT file's new path : ", fpPredsNotesWithGTDemoPath)
 
 if __name__ == "__main__":
     save_preds()

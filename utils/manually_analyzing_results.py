@@ -68,7 +68,7 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           print(row.drop(['note_text\n', 'Relevance_dict(handle None values properly)']))
           if tp_or_fp in ['fp', 'FP']:
             print("\n\nGT note : \n")
-          print(str(row[['note_text\n']].iloc[0]), str(row[['note_text\n']].iloc[0]))
+          print(str(row[['note_text\n']].iloc[0]))
           print(str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
           if tp_or_fp in ['fp', 'FP']:
             breakpoint()
@@ -76,5 +76,5 @@ for index, row in sample_tp_or_fp_gt.iterrows():
             print(fp_preds['note_text\n'])
           print("for investigation...")
           reason = input("Possible factors contributing to the mapping: ")
-          review_results.loc[len(review_results_fp)] = [row['note_id'], reason] if tp_or_fp not in ['fp', 'FP'] else [row['note_id'], fp_preds[fp_preds['note_id'] == row['note_id']]['note_id'], reason]
+          review_results.loc[len(review_results)] = [row['note_id'], reason] if tp_or_fp not in ['fp', 'FP'] else [row['note_id'], fp_preds[fp_preds['note_id'] == row['note_id']]['note_id'], reason]
           review_results.to_csv(review_results_path, index=False)
