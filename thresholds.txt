@@ -1,0 +1,14 @@
+# Process of getting thresholds :
+## Ran the masking process using first 5 rows of the data.
+## Took the max prob of all the words, if max prob > 0.20
+## Took 10 percentiles on the list of all max probs. percentiles taken : 10, 20, 30 ---- 100
+0.47708251
+0.81687966
+0.90969874
+0.97747957
+0.99223828
+0.99697912
+0.99819379
+0.99897667
+0.9995078
+0.99977493
