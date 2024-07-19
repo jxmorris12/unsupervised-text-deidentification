@@ -7,15 +7,24 @@ import datasets
 import sys
 import numpy as np
 from update_or_create_relevancy_and_relevance_dict import process_data
+import argparse
 
-def save_preds():
+def get_arguments():
+    parser = argparse.ArgumentParser(description='Get arguments for the program.')
+    parser.add_argument('--tp_path', help="Give the path of the true positive file.", type=str, required=True)
+    parser.add_argument('--fp_GT_path', help="Give the path of the false positive's GT file.", type=str, required=True)
+    parser.add_argument('--fp_preds_path', help="Give the path of the false positive's preds file.", type=str, required=True)
+    parser.add_argument('--dataset_path', help="Give the path of dataset(in parquet) file.", type=str, required=True)
+    return parser.parse_args()
+
+def save_preds(args):
 
 #preds_df = pd.DataFrame(columns=["person_id", "note", "profile", "model's_prediction"])
     
-    true_positives_path = sys.argv[1] # path of .npy true positives file
-    false_positives_GT_path = sys.argv[2] # path of .npy false positives GT file
-    false_positives_preds_path = sys.argv[3] # path of .npy false positives preds file
-    dataset_path = sys.argv[4] # path of .parquet file containing the dataset of interest
+    true_positives_path = args.tp_path # path of .npy true positives file
+    false_positives_GT_path = args.fp_GT_path # path of .npy false positives GT file
+    false_positives_preds_path = args.fp_preds_path # path of .npy false positives preds file
+    dataset_path = args.dataset_path # path of .parquet file containing the dataset of interest
     print("true_positives_path given : ", true_positives_path)
     print("false_positives_GT_path given : ", false_positives_GT_path)
     print("false_positives_preds_path given : ", false_positives_preds_path)
@@ -62,4 +71,5 @@ def save_preds():
     print("Incorrect preds preds notes with demo of GT file's new path : ", fpPredsNotesWithGTDemoPath)
 
 if __name__ == "__main__":
-    save_preds()
+    args = get_arguments()
+    save_preds(args)
