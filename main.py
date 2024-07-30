@@ -30,6 +30,8 @@ def get_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    parser.add_argument("--debug_mode", action="store_true", 
+                    help="Take only first 100 rows of the dataset.") 
     parser.add_argument('--checkpoint_path', type=str, default='')
     parser.add_argument('--checkpoint_vnum', type=str, default='')
 
@@ -51,7 +53,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--learning_rate', type=float, default=2e-5)
     parser.add_argument('--grad_norm_clip', type=float, default=10.0)
     parser.add_argument('--label_smoothing', type=float, default=0.0)
-    # parser.add_argument('--precision', type=int, default=32)
+    parser.add_argument('--precision', type=int, default=32)
 
     parser.add_argument('--num_nearest_neighbors', '--n', type=int, default=0,
                         help='number of negative samples for contrastive loss'
@@ -156,32 +158,7 @@ def main(args: argparse.Namespace):
     seed_everything(42)
     document_model = transformers_name_from_name(args.document_model_name)
     profile_model = transformers_name_from_name(args.profile_model_name)
-    print("document_model :", document_model)
     print("profile_model :", profile_model)
-
-    dm = DataModule(
-        local_data_path=args.local_data_path,
-        dataset_source=args.dataset_source,
-        document_model_name_or_path=document_model,
-        profile_model_name_or_path=profile_model,
-        max_seq_length=args.max_seq_length,
-        dataset_name=args.dataset_name,
-        dataset_train_split=args.dataset_train_split,
-        dataset_val_split=args.dataset_val_split,
-        dataset_test_split=args.dataset_test_split,
-        dataset_version=args.dataset_version,
-        word_dropout_ratio=args.word_dropout_ratio,
-        word_dropout_perc=args.word_dropout_perc,
-        profile_row_dropout_perc=args.profile_row_dropout_perc,
-        adversarial_masking=args.adversarial_masking,
-        idf_masking=args.idf_masking,
-        sample_spans=args.sample_spans,
-        train_batch_size=args.batch_size,
-        eval_batch_size=args.batch_size,
-        num_workers=round(num_cpus / torch.cuda.device_count()),
-        num_nearest_neighbors=args.num_nearest_neighbors,
-    )
-    dm.setup("fit")
     model_cls = model_cls_dict[args.loss_function]
 
     # roberta-tapas trained on 0.5/0.5/0.5 dropout for 110 epochs /22 hours:
@@ -203,6 +180,7 @@ def main(args: argparse.Namespace):
             label_smoothing=args.label_smoothing,
             shared_embedding_dim=args.shared_embedding_dim,
         )
+        model.path_to_save_checkpoints = os.path.dirname(os.path.abspath(checkpoint_path))
     else:
         model = model_cls(
             document_model_name_or_path=document_model,
@@ -272,6 +250,34 @@ def main(args: argparse.Namespace):
         loggers.append(
             wandb_logger
         )
+        ckpt_save_path = os.path.join("./", wandb_logger.name, wandb_logger.version, "checkpoints")
+        if model.path_to_save_checkpoints == "":
+            model.path_to_save_checkpoints = os.path.abspath(ckpt_save_path)
+
+    dm = DataModule(
+        debug_mode = args.debug_mode if args.debug_mode else False,
+        local_data_path=args.local_data_path,
+        dataset_source=args.dataset_source,
+        document_model_name_or_path=document_model,
+        profile_model_name_or_path=profile_model,
+        max_seq_length=args.max_seq_length,
+        dataset_name=args.dataset_name,
+        dataset_train_split=args.dataset_train_split,
+        dataset_val_split=args.dataset_val_split,
+        dataset_test_split=args.dataset_test_split,
+        dataset_version=args.dataset_version,
+        word_dropout_ratio=args.word_dropout_ratio,
+        word_dropout_perc=args.word_dropout_perc,
+        profile_row_dropout_perc=args.profile_row_dropout_perc,
+        adversarial_masking=args.adversarial_masking,
+        idf_masking=args.idf_masking,
+        sample_spans=args.sample_spans,
+        train_batch_size=args.batch_size,
+        eval_batch_size=args.batch_size,
+        num_workers=round(num_cpus / torch.cuda.device_count()),
+        num_nearest_neighbors=args.num_nearest_neighbors,
+    )
+    dm.setup("fit")
 
     from pytorch_lightning.loggers import CSVLogger
     # TODO set experiment name same as W&B run name?
@@ -343,7 +349,7 @@ def main(args: argparse.Namespace):
         logger=loggers,
         num_sanity_val_steps=0,
         strategy=('ddp' if torch.cuda.device_count() > 1 else 'auto'),
-        # precision=args.precision
+        precision=args.precision
     )
     trainer.fit(
         model=model,

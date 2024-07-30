@@ -8,6 +8,7 @@ import transformers
 
 from pytorch_lightning import LightningModule
 from transformers import AutoModel
+import os
 
 
 class Model(LightningModule, abc.ABC):
@@ -31,6 +32,8 @@ class Model(LightningModule, abc.ABC):
     label_smoothing: float
 
     pretrained_profile_encoder: bool
+    
+    path_to_save_checkpoints: str = ""
 
     def __init__(
         self,
@@ -195,16 +198,20 @@ class Model(LightningModule, abc.ABC):
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
             #### TO GET CORRECTLY AND INCORRECTLY IDENTIFIED DOCUMENTS'S PERSON IDs
-            # if metrics_key == "val/document" and k == 1:
-            #     print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-            #     bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
-            #     true_positives = np.array(self.profile_ids)[bools.flatten()]
-            #     false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
-            #     false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
-            #     breakpoint()
-            #     print("true positives : ", true_positives)
-            #     print("false positives GT : ", false_positives_GT)
-            #     print("false positives preds : ", false_positives_preds)
+            if metrics_key == "val/document" and k == 1:
+                bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
+                true_positives = np.array(self.profile_ids)[bools.flatten()]
+                false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+                false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
+                assert round(top_k_acc.item(), 3) == round(len(true_positives) / (len(true_positives) + len(false_positives_GT)), 3)
+                if not os.path.exists(self.path_to_save_checkpoints):
+                    os.makedirs(self.path_to_save_checkpoints)
+                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_true_positives.npy"), true_positives)
+                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_false_positives_GT.npy"), false_positives_GT)
+                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_false_positives_preds.npy"), false_positives_preds)
+                # print("true positives : ", true_positives)
+                # print("false positives GT : ", false_positives_GT)
+                # print("false positives preds : ", false_positives_preds)
         return is_correct, loss
     
 

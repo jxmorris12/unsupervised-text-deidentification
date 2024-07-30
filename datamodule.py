@@ -74,6 +74,7 @@ class DataModule(LightningDataModule):
         self,
         document_model_name_or_path: str,
         profile_model_name_or_path: str,
+        debug_mode: bool,
         max_seq_length: int,
         local_data_path:str = "",
         dataset_source: str = "wiki_bio",
@@ -102,6 +103,7 @@ class DataModule(LightningDataModule):
         assert "val" in dataset_val_split
         assert "test" in dataset_test_split
 
+        self.debug_mode = debug_mode
         self.document_model_name_or_path = document_model_name_or_path
         self.profile_model_name_or_path = profile_model_name_or_path
         self.document_tokenizer = transformers.AutoTokenizer.from_pretrained(document_model_name_or_path, use_fast=True)
@@ -153,7 +155,10 @@ class DataModule(LightningDataModule):
         train_percent = float(self.dataset_train_split.split(":")[-1].split("%")[0]) # example form of dataset_train_split = "train[:100%]"
         val_percent = float(self.dataset_val_split.split(":")[-1].split("%")[0])
         test_percent = 100 - train_percent - val_percent
-        self.dataset = datasets.Dataset.from_parquet(self.local_data_path, keep_in_memory=True).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
+        if not self.debug_mode:
+            self.dataset = datasets.Dataset.from_parquet(self.local_data_path, keep_in_memory=True).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
+        else:
+            self.dataset = datasets.Dataset.from_parquet(self.local_data_path, keep_in_memory=True).select(range(100)).train_test_split(train_size=float(train_percent / 100)) if self.dataset_source == "parquet" else None
         self.train_dataset = self.dataset['train'] if self.dataset_source == "parquet" else datasets.load_dataset(self.dataset_name, split=self.dataset_train_split, version=self.dataset_version)
         print(f"train_dataset size: {len(self.train_dataset)}")
          # wiki_bio val size: 72,831
