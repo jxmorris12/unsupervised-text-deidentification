@@ -23,7 +23,7 @@ plt.plot(x1, y1, marker='o', label='EHR Data', linestyle='-', color='red')
 plt.plot(x2, y2, marker='s', label='Deidentify Data', linestyle='--', color='blue')
 
 # Adding titles and labels
-plt.title('Comparative Graph of Data 1 and Data 2')
+plt.title('Comparative Graph of EHR Tool and Deidentify Tool')
 plt.xlabel('% Text masked')
 plt.ylabel('Reidentification accuracy %')
 plt.legend()
