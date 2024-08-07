@@ -69,6 +69,7 @@ print('review_results path generated : ', review_results_path)
 
 tp_or_fp_gt = pd.read_csv(tp_or_fp_gt_path)
 if tp_or_fp in ['fp', 'FP']:
+  raise error("Need to modify program for fp")
   fp_preds = pd.read_csv(fp_preds_path)
   fp_preds_note_with_demo_from_GT = pd.read_csv(fp_preds_note_with_demo_from_GT_path)
 
@@ -82,7 +83,7 @@ if os.path.exists(review_results_path):
 else:
     print("Creating new result review file, as it does not exist.")
     # 'note_id_preds' needed since it might give some insights why mapping was done
-    review_results = pd.DataFrame(columns = ['note_id_gt', 'reason']) if tp_or_fp in ["FP", "fp"] else pd.DataFrame(columns = ['note_id', 'reason'])
+    review_results = pd.DataFrame(columns = ['note_id_gt', 'reason', 'conditional random probability']) if tp_or_fp in ["FP", "fp"] else pd.DataFrame(columns = ['note_id', 'reason', 'conditional random probability'])
 
 # random sampling to prevent bias
 sample_tp_or_fp_gt = tp_or_fp_gt.sample(n=100)
@@ -102,7 +103,8 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           print("Relevance Dict : ", str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
           print("Person Id : ", str(row[['person_id']].iloc[0]))
           print("Note Id : ", str(row[['note_id']].iloc[0]))
-          print("Conditional random prob taking superset relevant dicts into account : ", get_conditional_random_prob_taking_superset_relevant_dicts_into_account(tp_or_fp_gt, index))
+          CRP = get_conditional_random_prob_taking_superset_relevant_dicts_into_account(tp_or_fp_gt, index)
+          print("Conditional random prob taking superset relevant dicts into account : ", CRP)
           # breakpoint()
           if tp_or_fp in ['fp', 'FP']:
             print("\n\nPreds's demos : \n")
@@ -121,5 +123,5 @@ for index, row in sample_tp_or_fp_gt.iterrows():
             print("Note Id : ", str(fp_preds_note_with_demo_from_GT.iloc[index][['note_id']].iloc[0]))
           print("\nfor investigation...\n\n")
           reason = input(f"Possible factors contributing to the{' incorrect' if tp_or_fp in ['fp', 'FP'] else ' correct'} mapping: ")
-          review_results.loc[len(review_results)] = [row['note_id'], reason]
-          # review_results.to_csv(review_results_path, index=False)
+          review_results.loc[len(review_results)] = [row['note_id'], reason, CRP]
+          review_results.to_csv(review_results_path, index=False)
