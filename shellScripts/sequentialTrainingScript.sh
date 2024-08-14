@@ -14,11 +14,14 @@ if (( cuda_device_number < 0 )) || (( cuda_device_number > 1 )); then
   exit 1
 fi
 
-nohup_file_path="./nohupOuts/nohup_512_ehr_masked_cuda_device_number_${cuda_device_number}.out"
-
 ## Read the start and end lines from command line arguments
 start_line=$2
 end_line=$3
+
+## Read the name of the tool used for masking the training dataset
+masking_tool=$4 # Possible inputs : 'ehr', 'deidentify', 'philter'
+
+nohup_file_path="./nohupOuts/nohup_512_${masking_tool}_masked_cuda_device_number_${cuda_device_number}.out"
 
 # Check if the arguments are valid numbers
 if ! [[ "$start_line" =~ ^[0-9]+$ ]] || ! [[ "$end_line" =~ ^[0-9]+$ ]] || ! [[ "$cuda_device_number" =~ ^[0-9]+$  ]]; then
@@ -70,8 +73,25 @@ echo "Running training commands on cuda device number ${cuda_device_number} for 
 for (( i=start_line-1; i<end_line; i++ )); do
   line=${non_commented_lines[$i]}
 
+  if [[ $masking_tool == ehr ]]; then
+    local_data_path="/prj0124_gpu/akr4007/data/currently_relevant_data/ehr_data/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_threshold_${line}_ehr_masked.parquet"
+  fi
+
+  if [[ $masking_tool == deidentify ]]; then
+    local_data_path="/prj0124_gpu/sln4001/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_masked_till_20700_deidentify_threshold_${line}.parquet"
+  fi
+
+  if [[ $masking_tool == philter ]]; then
+    local_data_path="/prj0124_gpu/sln4001/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_masked_till_20700_philter_threshold_$(printf "%.8f" "$line").parquet"
+  fi
+
+  if [[ ! -f "$local_data_path" ]]; then
+    echo "Dataset file not found!" >> "$local_data_path"
+    exit 1
+  fi
+
   # Form commands to run
-  command_to_run="CUDA_VISIBLE_DEVICES=${cuda_device_number} python main.py --epochs 55 --batch_size 35 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path /prj0124_gpu/akr4007/data/currently_relevant_data/ehr_data/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_threshold_${line}_ehr_masked.parquet --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name deid_on_weill --wandb_entity deidentification --precision 16"
+  command_to_run="CUDA_VISIBLE_DEVICES=${cuda_device_number} python main.py --epochs 55 --batch_size 35 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path ${local_data_path}  --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name deid_on_weill --wandb_entity deidentification --precision 16"
   
   # Run the commands and redirect their output to nohup file
   echo "Command Running: $command_to_run" >> "$nohup_file_path"
