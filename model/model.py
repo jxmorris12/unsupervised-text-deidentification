@@ -162,6 +162,7 @@ class Model(LightningModule, abc.ABC):
         Returns:
             loss (float torch.Tensor) - the loss, a scalar
         """
+        print("in '_compute_loss_exact' with 'metrics_key' as ", metrics_key)
         assert len(document_embeddings.shape) == len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         assert document_embeddings.shape[1] == profile_embeddings.shape[1] # embedding dims must match
         assert len(document_idxs.shape) == 1
@@ -199,12 +200,12 @@ class Model(LightningModule, abc.ABC):
             #    print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
             #    bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
             #    true_positives = np.array(self.profile_ids)[bools.flatten()]
-            #    false_positives = np.array(self.profile_ids)[~bools.flatten()]
-                # false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+            #    false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+            #    false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
             #    breakpoint()
             #    print("true positives : ", true_positives)
-            #    print("false positives : ", false_positives)
-                # print("false positives GT : ", false_positives_GT)
+            #    print("false positives GT : ", false_positives_GT)
+            #    print("false positives preds : ", false_positives_preds)
         return is_correct, loss
     
 
