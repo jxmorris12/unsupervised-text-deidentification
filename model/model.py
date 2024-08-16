@@ -162,6 +162,7 @@ class Model(LightningModule, abc.ABC):
         Returns:
             loss (float torch.Tensor) - the loss, a scalar
         """
+        print("in '_compute_loss_exact' with 'metrics_key' as ", metrics_key)
         assert len(document_embeddings.shape) == len(profile_embeddings.shape) == 2 # [batch_dim, embedding_dim]
         assert document_embeddings.shape[1] == profile_embeddings.shape[1] # embedding dims must match
         assert len(document_idxs.shape) == 1
@@ -195,16 +196,16 @@ class Model(LightningModule, abc.ABC):
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
             #### TO GET CORRECTLY AND INCORRECTLY IDENTIFIED DOCUMENTS'S PERSON IDs
-            if metrics_key == "val/document" and k == 1:
-                print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-                bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
-                true_positives = np.array(self.profile_ids)[bools.flatten()]
-                false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
-                false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
-                breakpoint()
-                print("true positives : ", true_positives)
-                print("false positives GT : ", false_positives_GT)
-                print("false positives preds : ", false_positives_preds)
+            #if metrics_key == "val/document" and k == 1:
+            #    print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+            #    bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
+            #    true_positives = np.array(self.profile_ids)[bools.flatten()]
+            #    false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+            #    false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
+            #    breakpoint()
+            #    print("true positives : ", true_positives)
+            #    print("false positives GT : ", false_positives_GT)
+            #    print("false positives preds : ", false_positives_preds)
         return is_correct, loss
     
 
@@ -253,6 +254,7 @@ class Model(LightningModule, abc.ABC):
                 (batch_size, -1, self.bottleneck_embedding_dim)
             ).mean(dim=1)
         ) # (batch_size, sequence_length, profile_emb_dim) -> (batch_size, shared_embedding_dim)
+        # breakpoint()
         return self.profile_embed(profile_embeddings)
 
     @abc.abstractmethod
@@ -479,6 +481,7 @@ class Model(LightningModule, abc.ABC):
             document_redact_lexical_embeddings.cuda(), profile_embeddings.cuda(), text_key_id.cuda(),
             metrics_key='val/document_redact_lexical'
         )
+
 
         doc_redact_idf_loss_total = 0.0
         for n in [20, 40, 60, 80]:
