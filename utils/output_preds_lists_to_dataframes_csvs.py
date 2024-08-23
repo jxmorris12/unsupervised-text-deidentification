@@ -13,13 +13,13 @@ def save_preds():
 #preds_df = pd.DataFrame(columns=["person_id", "note", "profile", "model's_prediction"])
     
     true_positives_path = sys.argv[1] # path of .npy true positives file
-    false_positives_GT_path = sys.argv[2] # path of .npy false positives GT file
-    false_positives_preds_path = sys.argv[3] # path of .npy false positives preds file
-    dataset_path = sys.argv[4] # path of .parquet file containing the dataset of interest
+    false_positives_path = sys.argv[2] # path of .npy false positives file
+    # false_positives_GT_path = sys.argv[3] # path of .npy false positives file
+    dataset_path = sys.argv[3] # path of .parquet file containing the dataset of interest
     print("true_positives_path given : ", true_positives_path)
-    print("false_positives_GT_path given : ", false_positives_GT_path)
-    print("false_positives_preds_path given : ", false_positives_preds_path)
-    print("dataset_path(parquet format) given : ", dataset_path)
+    print("false_positives_path given : ", false_positives_path)
+    # print("false_positives_GT_path given : ", false_positives_GT_path)
+    print("dataset_path given : ", dataset_path )
     
     # Convert .npy list of person_ids to python list of person_ids    
     listIndsOfRowsCorrect = [int(i) for i in np.load(true_positives_path).tolist()]  # True postivies person_ids, in the form of python list
