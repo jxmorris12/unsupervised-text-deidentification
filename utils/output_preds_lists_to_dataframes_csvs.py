@@ -6,6 +6,7 @@ import os
 import datasets
 import sys
 import numpy as np
+from update_or_create_relevancy_and_relevance_dict import process_data
 
 def save_preds():
 
@@ -20,26 +21,45 @@ def save_preds():
     # print("false_positives_GT_path given : ", false_positives_GT_path)
     print("dataset_path given : ", dataset_path )
     
-    listIndsOfRowsCorrect = [int(i) for i in np.load(true_positives_path).tolist()] 
-    listIndsOfRowsIncorrect = [int(i) for i in np.load(false_positives_path).tolist()] 
-
+    # Convert .npy list of person_ids to python list of person_ids    
+    listIndsOfRowsCorrect = [int(i) for i in np.load(true_positives_path).tolist()]  # True postivies person_ids, in the form of python list
+    listIndsOfRowsIncorrectGT = [int(i) for i in np.load(false_positives_GT_path).tolist()] # False positives GT person_ids, in the form of python list
+    listIndsOfRowsIncorrectPreds = [int(i) for i in np.load(false_positives_preds_path).tolist()] # False positives Preds person_ids, in the form of python list
+    
+    false_positives_GT_to_preds_indices_dict = dict(zip(listIndsOfRowsIncorrectGT, listIndsOfRowsIncorrectPreds)) # Maps incorrect GT indexes to corresponding preds indexes
 
     p_data_df = datasets.Dataset.from_parquet(dataset_path).to_pandas()
-    p_data_df_correct = p_data_df[p_data_df['person_id'].isin(listIndsOfRowsCorrect)]
-    p_data_df_incorrect = p_data_df[p_data_df['person_id'].isin(listIndsOfRowsIncorrect)]
-
-
+    p_data_df_correct = p_data_df[p_data_df['person_id'].isin(listIndsOfRowsCorrect)] # those rows of p_data_df whose person ids are correctly mapped i.e true positive
+    p_data_df_incorrect_GT = p_data_df[p_data_df['person_id'].isin(listIndsOfRowsIncorrectGT)] # those rows of p_data_df whose person_ids are incorrectly mapped i.e false positive GT
+    p_data_df_indexes_for_values_of_false_positives_GT_to_preds_indices_dict = [p_data_df.index[p_data_df['person_id'] == false_positives_GT_to_preds_indices_dict[i]][0] for i in p_data_df_incorrect_GT['person_id']] # indices of those rows of p_data_df, whose person_ids are what incorrectly mapped person_ids are mapped to.
+    p_data_df_incorrect_preds = p_data_df.loc[p_data_df_indexes_for_values_of_false_positives_GT_to_preds_indices_dict] # those rows of p_data_df, whose person_ids are what incorrectly mapped person_ids are mapped to.
+    p_data_df_incorrect_preds_note_text_with_GT_demo = pd.DataFrame(p_data_df_incorrect_GT) # demo of incorrect_GT with notes of incorrect_preds. notes are put in below. This DataFrame is useful when analyzing false positives.
+    p_data_df_incorrect_preds_note_text_with_GT_demo['note_text\n'] = list(p_data_df_incorrect_preds['note_text\n'])
+    p_data_df_incorrect_preds_note_text_with_GT_demo['original_note_text\n'] = list(p_data_df_incorrect_preds['original_note_text\n'])
 
     tpDirList = true_positives_path.split("/") # directories of true positives' path
-    fpDirList = false_positives_path.split("/") # directories of false positives' path
-    tpNewPath = os.path.join("/".join(tpDirList[:-1]), tpDirList[-1].split(".")[-2] + "_full.csv") # loc of the new file
-    fpNewPath = os.path.join("/".join(fpDirList[:-1]), fpDirList[-1].split(".")[-2] + "_full.csv") # loc of the new file
+    fpGTDirList = false_positives_GT_path.split("/") # directories of false positives' GT path
+    fpPredsDirList = false_positives_preds_path.split("/") # directories of false positives' preds path
+    tpNewPath = os.path.join("/".join(tpDirList[:-1]), tpDirList[-1].split(".")[-2] + ".csv") # loc of the new file
+    fpGTNewPath = os.path.join("/".join(fpGTDirList[:-1]), fpGTDirList[-1].split(".")[-2] + ".csv") # loc of the new file
+    fpPredsNewPath = os.path.join("/".join(fpPredsDirList[:-1]), fpPredsDirList[-1].split(".")[-2] + ".csv") # loc of the new file
+    fpPredsNotesWithGTDemoPath = os.path.join("/".join(fpPredsDirList[:-1]), fpPredsDirList[-1].split(".")[-2] + "_notes_with_demo_of_GT.csv") # loc of the new file
+
+    # Updating relevancy and relvance dicts of the dataframes just created
+    p_data_df_correct = process_data(p_data_df_correct)
+    p_data_df_incorrect_GT = process_data(p_data_df_incorrect_GT)
+    p_data_df_incorrect_preds = process_data(p_data_df_incorrect_preds)
+    p_data_df_incorrect_preds_note_text_with_GT_demo = process_data(p_data_df_incorrect_preds_note_text_with_GT_demo)
  
     p_data_df_correct.reset_index(drop=True).to_csv(tpNewPath, index_label=False)
-    p_data_df_incorrect.reset_index(drop=True).to_csv(fpNewPath, index_label=False)
+    p_data_df_incorrect_GT.reset_index(drop=True).to_csv(fpGTNewPath, index_label=False)
+    p_data_df_incorrect_preds.reset_index(drop=True).to_csv(fpPredsNewPath, index_label=False)
+    p_data_df_incorrect_preds_note_text_with_GT_demo.reset_index(drop=True).to_csv(fpPredsNotesWithGTDemoPath, index_label=False)
  
-    print("Correct preds file new path : ", tpNewPath)
-    print("Incorrect preds file new path : ", fpNewPath)
+    print("Correct preds file's new path : ", tpNewPath)
+    print("Incorrect preds GT file's new path : ", fpGTNewPath)
+    print("Incorrect preds preds file's new path : ", fpPredsNewPath)
+    print("Incorrect preds preds notes with demo of GT file's new path : ", fpPredsNotesWithGTDemoPath)
 
 if __name__ == "__main__":
     save_preds()
