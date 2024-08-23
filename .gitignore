@@ -31,3 +31,4 @@ junk/
 .nfs*
 nohupOuts
 .env
+.env.swp

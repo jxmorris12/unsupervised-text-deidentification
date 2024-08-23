@@ -8,7 +8,8 @@ def get_arguments():
     parser.add_argument('--tp_or_fp', choices=['tp', 'fp', 'TP', 'FP'], help="Do you want to process the results for true positive mappings or false positive mappings?", type=str, required=True)
     parser.add_argument("--tp_path", type=str, help="Get path of the true positives results file in csv format.")
     parser.add_argument("--fp_gt_path", type=str, help="Get path of the false positives results file with ground truth notes, in csv format.")
-    parser.add_argument("--tp_fp_preds_with_gt_demo", type=str, help="Get path of the false positives results file with predicted notes and ground truth demographics, in csv format.")
+    parser.add_argument("--fp_preds_path", type=str, help="Get path of the false positives preds results file, in csv format.")
+    parser.add_argument("--fp_preds_with_gt_demo", type=str, help="Get path of the false positives results file with predicted notes and ground truth demographics, in csv format.")
     
     # Parse the argument list
     args = parser.parse_args()
@@ -46,8 +47,10 @@ if tp_or_fp in ["tp", 'TP']:
     tp_or_fp_gt_path = args.tp_path
 if tp_or_fp in ['fp', 'FP']:
     tp_or_fp_gt_path = args.fp_gt_path
-    # path to csv having false positive preds notes with demos. 
-    fp_preds_note_with_demo_from_GT_path = args.tp_fp_preds_with_gt_demo
+    # path to csv having false positive preds notes. 
+    fp_preds_path = args.fp_preds_path
+    # path to csv having false positive preds notes with demos of GT person_id. 
+    fp_preds_note_with_demo_from_GT_path = args.fp_preds_with_gt_demo
 # Path where result/output of this program is stored
 review_results_path = convert_path(tp_or_fp_gt_path)
 
@@ -55,6 +58,7 @@ print('review_results path generated : ', review_results_path)
 
 tp_or_fp_gt = pd.read_csv(tp_or_fp_gt_path)
 if tp_or_fp in ['fp', 'FP']:
+  fp_preds = pd.read_csv(fp_preds_path)
   fp_preds_note_with_demo_from_GT = pd.read_csv(fp_preds_note_with_demo_from_GT_path)
 
 # Update results file if exists, else create a new one
@@ -84,12 +88,25 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           if tp_or_fp in ['fp', 'FP']:
             print("\n\nGT note : \n")
           print(str(row[['note_text\n']].iloc[0]))
-          print(str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
+          print("Relevance Dict : ", str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
+          print("Person Id : ", str(row[['person_id']].iloc[0]))
+          print("Note Id : ", str(row[['note_id']].iloc[0]))
           if tp_or_fp in ['fp', 'FP']:
+            print("\n\nPreds's demos : \n")
+            print(fp_preds.iloc[index].drop(['note_text\n', 'Relevance_dict(handle None values properly)']))
+            print("\n\nPreds note : \n")
+            print(fp_preds.iloc[index]['note_text\n'])
+            print(fp_preds.iloc[index]['Relevance_dict(handle None values properly)'])
+            print("Person Id : ", str(fp_preds_note.iloc[index][['person_id']].iloc[0]))
+            print("Note Id : ", str(fp_preds_note.iloc[index][['note_id']].iloc[0]))
+            print("\n\nPreds's GT demos : \n")
+            print(fp_preds_note_with_demo_from_GT.iloc[index].drop(['note_text\n', 'Relevance_dict(handle None values properly)']))
             print("\n\nPreds note : \n")
             print(fp_preds_note_with_demo_from_GT.iloc[index]['note_text\n'])
             print(fp_preds_note_with_demo_from_GT.iloc[index]['Relevance_dict(handle None values properly)'])
+            print("Person Id : ", str(fp_preds_note_with_demo_from_GT.iloc[index][['person_id']].iloc[0]))
+            print("Note Id : ", str(fp_preds_note_with_demo_from_GT.iloc[index][['note_id']].iloc[0]))
           print("\nfor investigation...\n\n")
-          reason = input("Possible factors contributing to the mapping: ")
+          reason = input(f"Possible factors contributing to the{' incorrect' if tp_or_fp in ['fp', 'FP'] else ' correct'} mapping: ")
           review_results.loc[len(review_results)] = [row['note_id'], reason]
           review_results.to_csv(review_results_path, index=False)
