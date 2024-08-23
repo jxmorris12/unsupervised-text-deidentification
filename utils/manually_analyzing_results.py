@@ -1,4 +1,5 @@
 import pandas as pd
+import ast
 import sys
 import os
 import argparse
@@ -37,6 +38,16 @@ def convert_path(original_path):
         return new_path
     else:
         raise ValueError("The specified file is not a CSV file")
+
+def is_subdict(subdict, superdict):
+    return set(subdict.items()).issubset(set(superdict.items()))
+
+def get_conditional_random_prob_taking_superset_relevant_dicts_into_account(df, index):
+    relevance_dict_at_index = ast.literal_eval(df.loc[index]['Relevance_dict(handle None values properly)'])
+    all_relevant_dicts = list(df['Relevance_dict(handle None values properly)'].map(lambda x : ast.literal_eval(x)))
+    is_subdict_bool_list = list(map(lambda relevant_dict : is_subdict(relevance_dict_at_index, relevant_dict), all_relevant_dicts))
+    conditional_random_prob = 1 / is_subdict_bool_list.count(True)
+    return conditional_random_prob
 
 args = get_arguments()
 tp_or_fp = args.tp_or_fp
@@ -91,6 +102,8 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           print("Relevance Dict : ", str(row[['Relevance_dict(handle None values properly)']].iloc[0]))
           print("Person Id : ", str(row[['person_id']].iloc[0]))
           print("Note Id : ", str(row[['note_id']].iloc[0]))
+          print("Conditional random prob taking superset relevant dicts into account : ", get_conditional_random_prob_taking_superset_relevant_dicts_into_account(tp_or_fp_gt, index))
+          # breakpoint()
           if tp_or_fp in ['fp', 'FP']:
             print("\n\nPreds's demos : \n")
             print(fp_preds.iloc[index].drop(['note_text\n', 'Relevance_dict(handle None values properly)']))
@@ -109,4 +122,4 @@ for index, row in sample_tp_or_fp_gt.iterrows():
           print("\nfor investigation...\n\n")
           reason = input(f"Possible factors contributing to the{' incorrect' if tp_or_fp in ['fp', 'FP'] else ' correct'} mapping: ")
           review_results.loc[len(review_results)] = [row['note_id'], reason]
-          review_results.to_csv(review_results_path, index=False)
+          # review_results.to_csv(review_results_path, index=False)
