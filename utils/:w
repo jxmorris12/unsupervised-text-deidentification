@@ -1,0 +1,47 @@
+import matplotlib.pyplot as plt
+
+# Updated data
+# EHR
+BBN_data = [
+[0.2065, 0.07627],
+[0.0263, 0.4598],
+[0.2092, 0.0719],
+[0.0297, 0.4245],
+[0.2036, 0.07846],
+[0.9993, 0.02251],
+[0.0016, 0.9093],
+[0.1121, 0.2654],
+[0.1318, 0.2107],
+[0.0337, 0.4076],
+[0.0551, 0.3545],
+[0.1533, 0.1854],
+[0.0783, 0.3579],
+[0.1647, 0.1579],
+[0.0913, 0.352],
+[0.1958, 0.1038]]
+
+# Deidentify
+BLC_data = [
+    [1.27, 0.8132], [1.29, 0.819],[1.38, 0.7646], [1.71, 0.7971], [2.12, 0.7958], [2.49, 0.7504], 
+    [2.92, 0.7675], [3.80, 0.7298], [5.29, 0.7214], [7.47, 0.5472], 
+    [8.61, 0.5185], [11.28, 0.3752], [12.88, 0.3852], [14.76, 0.2551], [17.98, 0.1436]
+]
+
+# Extracting x and y values
+x1, y1 = zip(*BBN_data)
+x2, y2 = zip(*BLC_data)
+
+# Plotting the data
+plt.figure(figsize=(10, 6))
+plt.plot(x1, y1, marker='o', label='BBN Tool', linestyle='-', color='red')
+plt.plot(x2, y2, marker='s', label='BLC Tool', linestyle='--', color='blue')
+
+# Adding titles and labels
+plt.title('Comparative Graph of BBN Tool and BLC Tool')
+plt.xlabel('% Text masked')
+plt.ylabel('Reidentification accuracy %')
+plt.legend()
+
+# Display the plot
+plt.grid(True)
+plt.savefig("plot_masking_percentage_vs_val_acc_graph.png")
