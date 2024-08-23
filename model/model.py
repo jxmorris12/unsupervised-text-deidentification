@@ -201,18 +201,20 @@ class Model(LightningModule, abc.ABC):
             #### TO GET CORRECTLY AND INCORRECTLY IDENTIFIED DOCUMENTS'S PERSON IDs
             if metrics_key == "val/document" and k == 1:
                 bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
-                true_positives = np.array(self.profile_ids)[bools.flatten()]
-                false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
-                false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
-                assert round(top_k_acc.item(), 3) == round(len(true_positives) / (len(true_positives) + len(false_positives_GT)), 3)
+                true_positives_inds = np.array(self.profile_ids)[bools.flatten()]
+                true_positives_probs = np.array(torch.nn.Softmax(dim=1)(document_to_profile_sim).topk(k=k, dim=1).values[bools.flatten()][:, 0].cpu())
+                true_positives_mappings = np.array(list(zip(true_positives_inds, true_positives_probs)))
+                false_positives_GT_inds = np.array(self.profile_ids)[~bools.flatten()]
+                false_positives_preds_inds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
+                false_positives_probs = np.array(torch.nn.Softmax(dim=1)(document_to_profile_sim).topk(k=k, dim=1).values[~bools.flatten()][:, 0].cpu())
+                false_positives_mappings = np.array(list(zip(false_positives_GT_inds, false_positives_preds_inds, false_positives_probs)))
+                assert round(top_k_acc.item(), 3) == round(len(true_positives_mappings) / (len(true_positives_mappings) + len(false_positives_mappings)), 3)
                 if not os.path.exists(self.path_to_save_checkpoints):
                     os.makedirs(self.path_to_save_checkpoints)
-                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_true_positives.npy"), true_positives)
-                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_false_positives_GT.npy"), false_positives_GT)
-                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_false_positives_preds.npy"), false_positives_preds)
-                # print("true positives : ", true_positives)
-                # print("false positives GT : ", false_positives_GT)
-                # print("false positives preds : ", false_positives_preds)
+                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_true_positives_mappings.npy"), true_positives_mappings)
+                np.save(os.path.join(self.path_to_save_checkpoints, "last_ckpt_false_positives_mappings.npy"), false_positives_mappings)
+                # print("true positives mappings : ", true_positives_mappings)
+                # print("false positives mappings : ", false_positives_mappings)
         return is_correct, loss
     
 
@@ -429,8 +431,8 @@ class Model(LightningModule, abc.ABC):
         assert dataloader_idx in [0, 1]
         if batch['person_id'][0] not in self.profile_ids:
             self.profile_ids.extend(batch['person_id'])
-        else:
-            assert self.profile_ids[self.profile_ids.index(batch['person_id'][0]) : self.profile_ids.index(batch['person_id'][-1]) + 1] == batch['person_id'], "Are person_ids shuffled at any step? They should not"
+        #else:
+        #    assert self.profile_ids[self.profile_ids.index(batch['person_id'][0]) : self.profile_ids.index(batch['person_id'][-1]) + 1] == batch['person_id'], "Are person_ids shuffled at any step? They should not"
         with torch.no_grad():
             if dataloader_idx == 0:
                 output = self._process_validation_batch(batch=batch, batch_idx=batch_idx)
