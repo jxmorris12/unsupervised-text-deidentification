@@ -196,16 +196,16 @@ class Model(LightningModule, abc.ABC):
             )
             self.log(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
             #### TO GET CORRECTLY AND INCORRECTLY IDENTIFIED DOCUMENTS'S PERSON IDs
-#            if metrics_key == "val/document" and k == 1:
-#                print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
-#                bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
-#                true_positives = np.array(self.profile_ids)[bools.flatten()]
-#                false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
-#                false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
-#                breakpoint()
-#                print("true positives : ", true_positives)
-#                print("false positives GT : ", false_positives_GT)
-#                print("false positives preds : ", false_positives_preds)
+            # if metrics_key == "val/document" and k == 1:
+            #     print(f"{metrics_key}/acc_top_k/{k}", top_k_acc)
+            #     bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
+            #     true_positives = np.array(self.profile_ids)[bools.flatten()]
+            #     false_positives_GT = np.array(self.profile_ids)[~bools.flatten()]
+            #     false_positives_preds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
+            #     breakpoint()
+            #     print("true positives : ", true_positives)
+            #     print("false positives GT : ", false_positives_GT)
+            #     print("false positives preds : ", false_positives_preds)
         return is_correct, loss
     
 

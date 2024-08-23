@@ -1,7 +1,20 @@
 import pandas as pd
 import sys
 import os
+import argparse
 
+def get_arguments():
+    parser = argparse.ArgumentParser(description='Get arguments for the program', add_help=False)
+    parser.add_argument('--tp_or_fp', choices=['tp', 'fp', 'TP', 'FP'], help="Do you want to process the results for true positive mappings or false positive mappings?", type=str, required=True)
+    parser.add_argument("--tp_path", type=str, help="Get path of the true positives results file in csv format.")
+    parser.add_argument("--fp_gt_path", type=str, help="Get path of the false positives results file with ground truth notes, in csv format.")
+    parser.add_argument("--tp_fp_preds_with_gt_demo", type=str, help="Get path of the false positives results file with predicted notes and ground truth demographics, in csv format.")
+    
+    # Parse the argument list
+    args = parser.parse_args()
+    
+    return args
+    
 def convert_path(original_path):
     # Split the path into directory and filename
     dir_path, file_name = os.path.split(original_path)
@@ -24,15 +37,17 @@ def convert_path(original_path):
     else:
         raise ValueError("The specified file is not a CSV file")
 
-# dealing with true positives or false positives?
-tp_or_fp = sys.argv[1]
+args = get_arguments()
+tp_or_fp = args.tp_or_fp
 if tp_or_fp not in ['tp', 'TP', 'fp', 'FP']:
-   raise ValueError("Please specify the type of mapping you are dealine with as first argument. Possible answer : 'tp', 'TP', 'fp', 'FP'")
-# path to csv having false positive GT notes with demos
-tp_or_fp_gt_path = sys.argv[2]
+   raise ValueError("Please specify the type of mapping you are dealing with as first argument. Possible answer : 'tp', 'TP', 'fp', 'FP'")
+if tp_or_fp in ["tp", 'TP']:
+    # path to csv having false positive GT notes with demos
+    tp_or_fp_gt_path = args.tp_path
 if tp_or_fp in ['fp', 'FP']:
-   # path to csv having false positive preds notes with demos. 
-   fp_preds_note_with_demo_from_GT_path = sys.argv[3]
+    tp_or_fp_gt_path = args.fp_gt_path
+    # path to csv having false positive preds notes with demos. 
+    fp_preds_note_with_demo_from_GT_path = args.tp_fp_preds_with_gt_demo
 # Path where result/output of this program is stored
 review_results_path = convert_path(tp_or_fp_gt_path)
 
