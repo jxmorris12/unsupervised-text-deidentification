@@ -150,8 +150,7 @@ class DataModule(LightningDataModule):
 
     def _load_train_and_val_data(self):
         version_str = ''  # change this any time any of the data-loading changes (to regenerate fingerprints)
-
-        print(f"loading {self.dataset_source if self.dataset_source == 'parquet' else self.dataset_name}[{'' if self.dataset_source == 'parquet' else self.dataset_version}] split {self.dataset_train_split}")
+        print(f"loading {self.dataset_source if self.dataset_source == 'parquet' else self.dataset_name}[{'' if self.dataset_source == 'parquet' else self.dataset_version}] split {self.dataset_train_split}. Path of the data : {self.local_data_path}")
         train_percent = float(self.dataset_train_split.split(":")[-1].split("%")[0]) # example form of dataset_train_split = "train[:100%]"
         val_percent = float(self.dataset_val_split.split(":")[-1].split("%")[0])
         test_percent = 100 - train_percent - val_percent
@@ -172,10 +171,11 @@ class DataModule(LightningDataModule):
         print(f"test_dataset size: {len(self.test_dataset)}")
              
         if self.dataset_source == 'parquet':
-            column_header = [name for name in self.train_dataset.column_names if name != "note_text\n"] # I know it should be named as "column_headers" instead, but keeping it like this since this name is maybe used way too many times in the future
-            self.train_dataset = self.train_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
-            self.val_dataset = self.val_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
-            self.test_dataset = self.test_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=column_header + ['note_text\n'], fn_kwargs = {"column_header":column_header})
+            column_header = ['person_id', 'note_id', 'note_date', 'note_datetime', 'note_type', 'note_class', 'empi_id', 'mrn', 'gender', 'year_of_birth', 'month_of_birth', 'day_of_birth', 'race', 'ethnicity', 'death_date', 'death_datetime', 'address_1', 'address_2', 'city', 'state', 'zip'] # I know it should be named as "column_headers" instead, but keeping it like this since this name is maybe used way too many times in the future
+            columns_to_remove = [i for i in self.train_dataset.features.keys()] # Removing all the original columns as relevant columns will be create by the mapping function using the column_header
+            self.train_dataset = self.train_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=columns_to_remove, fn_kwargs = {"column_header":column_header})
+            self.val_dataset = self.val_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=columns_to_remove, fn_kwargs = {"column_header":column_header})
+            self.test_dataset = self.test_dataset.map(self.transform_parquet_data_structure_into_huggingface_data_structure, num_proc=1, remove_columns=columns_to_remove, fn_kwargs = {"column_header":column_header})
         self.train_dataset = self.train_dataset.map(
             create_document_and_profile, num_proc=1, fn_kwargs={"dataset_source" : self.dataset_source})
         self.val_dataset = self.val_dataset.map(
