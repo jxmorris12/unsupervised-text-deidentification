@@ -60,7 +60,7 @@ def get_args() -> argparse.Namespace:
                         )
 
     parser.add_argument('--document_model_name', '--document_model', type=str,
-                        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a'])
+                        default='roberta', choices=['distilbert', 'bert', 'roberta', 'pmlm-r', 'pmlm-a', 'longformer'])
     parser.add_argument('--profile_model_name', '--profile_model', type=str,
                         default='distilbert', choices=['distilbert', 'bert', 'roberta', 'tapas'])
 
@@ -146,6 +146,8 @@ def transformers_name_from_name(name: str) -> str:
         return 'jxm/u-PMLM-R'
     elif name == 'pmlm-a':
         return 'jxm/u-PMLM-A'
+    elif name == 'longformer':
+        return 'allenai/longformer-base-4096'
     else:
         return f'unsupported model name {name}'
 
@@ -338,7 +340,7 @@ def main(args: argparse.Namespace):
         callbacks=callbacks,
         max_epochs=args.epochs,
         log_every_n_steps=min(len(dm.train_dataloader()), 50),
-        limit_train_batches=10, # change this to make training faster (1.0 = full train set),
+        limit_train_batches=1.0, # change this to make training faster (1.0 = full train set),
         limit_test_batches=0,
         limit_val_batches=args.limit_val_batches,
         devices=torch.cuda.device_count(),
