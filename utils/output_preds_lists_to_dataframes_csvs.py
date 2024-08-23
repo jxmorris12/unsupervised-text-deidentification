@@ -26,9 +26,9 @@ def save_preds(args):
     false_positives_preds_path = args.fp_preds_path # path of .npy false positives preds file
     dataset_path = args.dataset_path # path of .parquet file containing the dataset of interest
     print("true_positives_path given : ", true_positives_path)
-    print("false_positives_GT_path given : ", false_positives_GT_path)
-    print("false_positives_preds_path given : ", false_positives_preds_path)
-    print("dataset_path(parquet format) given : ", dataset_path)
+    print("false_positives_path given : ", false_positives_path)
+    # print("false_positives_GT_path given : ", false_positives_GT_path)
+    print("dataset_path given : ", dataset_path )
     
     # Convert .npy list of person_ids to python list of person_ids    
     listIndsOfRowsCorrect = [int(i) for i in np.load(true_positives_path).tolist()]  # True postivies person_ids, in the form of python list
