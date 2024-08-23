@@ -202,11 +202,11 @@ class Model(LightningModule, abc.ABC):
             if metrics_key == "val/document" and k == 1:
                 bools = np.array(document_to_profile_sim.topk(k=k, dim=1).indices.eq(document_idxs[:, None]).cpu())
                 true_positives_inds = np.array(self.profile_ids)[bools.flatten()]
-                true_positives_probs = np.array(torch.nn.Softmax(dim=1)(document_to_profile_sim).topk(k=k, dim=1).values[bools.flatten()][:, 0].cpu())
+                true_positives_probs = np.array(torch.nn.Softmax(dim=0)(document_to_profile_sim.topk(k=k, dim=1).values)[bools.flatten()][:, 0].cpu())
                 true_positives_mappings = np.array(list(zip(true_positives_inds, true_positives_probs)))
                 false_positives_GT_inds = np.array(self.profile_ids)[~bools.flatten()]
                 false_positives_preds_inds = np.array(self.profile_ids)[document_to_profile_sim.topk(k=k, dim=1)[1][~bools.flatten()].cpu()].flatten()
-                false_positives_probs = np.array(torch.nn.Softmax(dim=1)(document_to_profile_sim).topk(k=k, dim=1).values[~bools.flatten()][:, 0].cpu())
+                false_positives_probs = np.array(torch.nn.Softmax(dim=0)(document_to_profile_sim.topk(k=k, dim=1).values)[~bools.flatten()][:, 0].cpu())
                 false_positives_mappings = np.array(list(zip(false_positives_GT_inds, false_positives_preds_inds, false_positives_probs)))
                 assert round(top_k_acc.item(), 3) == round(len(true_positives_mappings) / (len(true_positives_mappings) + len(false_positives_mappings)), 3)
                 if not os.path.exists(self.path_to_save_checkpoints):
@@ -431,8 +431,8 @@ class Model(LightningModule, abc.ABC):
         assert dataloader_idx in [0, 1]
         if batch['person_id'][0] not in self.profile_ids:
             self.profile_ids.extend(batch['person_id'])
-        #else:
-        #    assert self.profile_ids[self.profile_ids.index(batch['person_id'][0]) : self.profile_ids.index(batch['person_id'][-1]) + 1] == batch['person_id'], "Are person_ids shuffled at any step? They should not"
+        else:
+            assert self.profile_ids[self.profile_ids.index(batch['person_id'][0]) : self.profile_ids.index(batch['person_id'][-1]) + 1] == batch['person_id'], "Are person_ids shuffled at any step? They should not"
         with torch.no_grad():
             if dataloader_idx == 0:
                 output = self._process_validation_batch(batch=batch, batch_idx=batch_idx)
