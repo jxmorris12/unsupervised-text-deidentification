@@ -47,7 +47,7 @@ done < "$file_path"
 
 # Get the total number of non-commented lines
 total_lines=${#non_commented_lines[@]}
-echo "Total number of lines in $file_path is $total_lines"  >> "$nohup_file_path"
+echo "Total number of non-commented lines in $file_path is $total_lines"  >> "$nohup_file_path"
 
 # Echo the non-commented lines
 echo "Non-commented lines:" >> "$nohup_file_path"
@@ -71,7 +71,7 @@ for (( i=start_line-1; i<end_line; i++ )); do
   line=${non_commented_lines[$i]}
 
   # Form commands to run
-  command_to_run="CUDA_VISIBLE_DEVICES=${cuda_device_number} python main.py --epochs 55 --batch_size 43 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path /prj0124_gpu/akr4007/data/currently_relevant_data/ehr_data/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_threshold_${line}_ehr_masked.parquet --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name deid_on_weill --wandb_entity deidentification --precision 16"
+  command_to_run="CUDA_VISIBLE_DEVICES=${cuda_device_number} python main.py --epochs 55 --batch_size 35 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path /prj0124_gpu/akr4007/data/currently_relevant_data/ehr_data/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_threshold_${line}_ehr_masked.parquet --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name deid_on_weill --wandb_entity deidentification --precision 16"
   
   # Run the commands and redirect their output to nohup file
   echo "Command Running: $command_to_run" >> "$nohup_file_path"
