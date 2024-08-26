@@ -34,7 +34,7 @@ python main.py --epochs 300 --batch_size 64 --max_seq_length 128 --word_dropout_
 
 -
 ```bash
-CUDA_VISIBLE_DEVICES=1 python main.py --epochs 5000 --batch_size 30 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path /prj0124_gpu/akr4007/data/currently_relevant_data/full_csv_most_relevant_decoded_encoded_512_token_length_notes_per_person_ehr_masked.parquet --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name deid_on_weill --wandb_entity deidentification --checkpoint_path /prj0124_gpu/akr4007/unsupervised-text-deidentification/deid_on_weill/07hlg09a/checkpoints/epoch=14-step=7470.ckpt
+CUDA_VISIBLE_DEVICES=0 python main.py --epochs 5000 --batch_size 30 --max_seq_length 512 --word_dropout_ratio 0.0 --word_dropout_perc 0.0 --document_model_name roberta --profile_model_name tapas --local_data_path <INSERT VALUE>  --dataset_source parquet --dataset_train_split=train[:70%] --dataset_val_split=val[:15%] --learning_rate 1e-5 --num_validations_per_epoch 1 --loss coordinate_ascent --e 768 --label_smoothing 0.00 --wandb_project_name <INSERT VALUE> --wandb_entity <INSERT VALUE> --checkpoint_path <INSERT VALUE>
 ```
 	- 'CUDA_VISIBLE_DEVICE' determins which cuda(gpu) device to use.
 	- '--local_data_path' determines the local path of the dataset, if any.
