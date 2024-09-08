@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 # Updated data
 # EHR
 BBN_data = [
+[0.0000, 0.9028],
 [0.2065, 0.07627],
 [0.0263, 0.4598],
 [0.2092, 0.0719],
 [0.0297, 0.4245],
 [0.2036, 0.07846],
-# [0.9993, 0.02251],
 [0.0016, 0.9093],
 [0.1121, 0.2654],
 [0.1318, 0.2107],
@@ -22,6 +22,7 @@ BBN_data = [
 
 # Deidentify
 BLC_data = [
+[0.0000, 0.9028],
 [0.0168, 0.8132],
 [0.1900, 0.2551],
 [0.0183, 0.7646],
@@ -40,6 +41,7 @@ BLC_data = [
 ]
 
 PHILTER_data = [
+[0.0000, 0.9028],
 [0.1907, 0.1597],
 [0.1890, 0.1514],
 [0.1907, 0.1568],
@@ -66,6 +68,11 @@ PHILTER_data.sort()
 x1, y1 = zip(*BBN_data)
 x2, y2 = zip(*BLC_data)
 x3, y3 = zip(*PHILTER_data)
+
+# Setting plot's parameters
+font = {'size'   : 15}
+
+plt.rc('font', **font)
 
 # Plotting the data
 plt.figure(figsize=(10, 6))
