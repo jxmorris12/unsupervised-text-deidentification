@@ -11,15 +11,17 @@ import os
 def for_key_without_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path): # To get distribution of profile keys
     # Basic processing below
     correct_preds_with_found_key_value_pairs = pd.read_csv(correct_preds_with_found_key_value_pairs_path)
-    correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
+    correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["Relevance_dict(handle None values properly)"].to_list()))
     correct_preds_with_found_key_value_pairs_keys = []
     for dic in correct_preds_with_found_key_value_pairs_dicts:                                                                                                                                         
+        if len(dic) > 1: # We want to consider only those PII keys which are found in isolation, because then we can be certain of that key's significant affect in mapping
+            continue
         for key in dic.keys():                                                                                                                                
             correct_preds_with_found_key_value_pairs_keys.append(key)
     
     
     incorrect_preds_with_found_key_value_pairs = pd.read_csv(incorrect_preds_with_found_key_value_pairs_path)
-    incorrect_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, incorrect_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
+    incorrect_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, incorrect_preds_with_found_key_value_pairs["Relevance_dict(handle None values properly)"].to_list()))
     incorrect_preds_with_found_key_value_pairs_keys = [] 
     for dic in incorrect_preds_with_found_key_value_pairs_dicts:
         for key in dic.keys():                                                                                                                                
@@ -32,18 +34,18 @@ def for_key_without_value(correct_preds_with_found_key_value_pairs_path, incorre
     final_df["incorrect_count_percentage"] = final_df["incorrect_count"] / final_df["incorrect_count"].sum() * 100
     final_df["ratio_correct_count_to_incorrect_count"] = final_df["correct_count"] / final_df["incorrect_count"]
     final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False) # We want to see for which keys is the document most correctly identified
-    final_df.to_csv(os.path.join(result_analysis_folder_path, "total_without_nan_key_distribution.csv"), index=False)
+    final_df.to_csv(os.path.join(result_analysis_folder_path, "total_key_distribution.csv"), index=False)
 
 def for_key_with_value(correct_preds_with_found_key_value_pairs_path, incorrect_preds_with_found_key_value_pairs_path, result_analysis_folder_path): # To get distribution of profile (key, value) pairs
     # Basic processing below
     correct_preds_with_found_key_value_pairs = pd.read_csv(correct_preds_with_found_key_value_pairs_path)
-    correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
+    correct_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, correct_preds_with_found_key_value_pairs["Relevance_dict(handle None values properly)"].to_list()))
     correct_preds_with_found_key_value_pairs_counter = Counter()
     for dic in correct_preds_with_found_key_value_pairs_dicts:                                                                                                                                   
         correct_preds_with_found_key_value_pairs_counter.update(dic.items())
     
     incorrect_preds_with_found_key_value_pairs = pd.read_csv(incorrect_preds_with_found_key_value_pairs_path)
-    incorrect_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, incorrect_preds_with_found_key_value_pairs["without_nan_found_key_value_pairs"].to_list()))
+    incorrect_preds_with_found_key_value_pairs_dicts = list(map(ast.literal_eval, incorrect_preds_with_found_key_value_pairs["Relevance_dict(handle None values properly)"].to_list()))
     incorrect_preds_with_found_key_value_pairs_counter = Counter()
     for dic in incorrect_preds_with_found_key_value_pairs_dicts:                                                                                                                                   
         incorrect_preds_with_found_key_value_pairs_counter.update(dic.items())
@@ -61,7 +63,7 @@ def for_key_with_value(correct_preds_with_found_key_value_pairs_path, incorrect_
     final_df["incorrect_count_percentage"] = final_df["incorrect_count"] / final_df["incorrect_count"].sum() * 100
     final_df["ratio_correct_count_to_incorrect_count"] = final_df["correct_count"] / final_df["incorrect_count"]  
     final_df = final_df.sort_values('ratio_correct_count_to_incorrect_count', ascending=False) # We want to see for while profile (key, value) pairs are the documents/notes most correctly identified
-    final_df.to_csv(os.path.join(result_analysis_folder_path, "total_without_nan_key_with_value_distribution.csv"), index=False)
+    final_df.to_csv(os.path.join(result_analysis_folder_path, "total_key_with_value_distribution.csv"), index=False)
 
 
 
