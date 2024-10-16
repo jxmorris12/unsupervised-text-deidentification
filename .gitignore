@@ -33,3 +33,6 @@ result_visualization.py
 nohupOuts
 .env
 .env.swp
+!all_adv_csvs
+thresholds.txt
+shellScripts/
